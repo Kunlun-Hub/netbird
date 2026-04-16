@@ -284,10 +284,16 @@ func (h *eventHandler) runSelfCommand(ctx context.Context, command string, args 
 	cmdArgs := []string{
 		fmt.Sprintf("--%s=true", command),
 		fmt.Sprintf("--daemon-addr=%s", h.client.addr),
+		"--use-log-file",
 	}
 	cmdArgs = append(cmdArgs, args...)
 
 	cmd := exec.CommandContext(ctx, proc, cmdArgs...)
+
+	// Print command details for debugging
+	log.Printf("Running command: %s", cmd.String())
+	log.Printf("Executable path: %s", proc)
+	log.Printf("Command arguments: %v", cmdArgs)
 
 	if out := h.client.attachOutput(cmd); out != nil {
 		defer func() {
@@ -297,13 +303,13 @@ func (h *eventHandler) runSelfCommand(ctx context.Context, command string, args 
 		}()
 	}
 
-	log.Printf("running command: %s", cmd.String())
-
 	if err := cmd.Run(); err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
 			log.Printf("command '%s' failed with exit code %d", cmd.String(), exitErr.ExitCode())
+			log.Printf("Command stderr: %s", string(exitErr.Stderr))
 		}
+		log.Errorf("Command execution error: %v", err)
 		return
 	}
 

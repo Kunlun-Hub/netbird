@@ -1,12 +1,12 @@
-!define APP_NAME "Netbird"
-!define COMP_NAME "Netbird"
-!define WEB_SITE "Netbird.io"
+!define APP_NAME "Cloink"
+!define COMP_NAME "Cloink"
+!define WEB_SITE "cloink.io"
 !define VERSION $%APPVER%
-!define COPYRIGHT "Netbird Authors, 2022"
-!define DESCRIPTION "Connect your devices into a secure WireGuard-based overlay network with SSO, MFA, and granular access controls."
-!define INSTALLER_NAME "netbird-installer.exe"
-!define MAIN_APP_EXE "Netbird"
-!define ICON "ui\\assets\\netbird.ico"
+!define COPYRIGHT "Cloink Team, 2026"
+!define DESCRIPTION "Use Cloink to connect your devices to a secure overlay network based on Zero Trust technology with SSO, MFA and granular access control."
+!define INSTALLER_NAME "cloink-installer.exe"
+!define MAIN_APP_EXE "cloink"
+!define ICON "ui/assets/netbird.ico"
 !define BANNER "ui\\build\\banner.bmp"
 !define LICENSE_DATA "..\\LICENSE"
 
@@ -16,15 +16,15 @@
 !define REG_APP_PATH "Software\Microsoft\Windows\CurrentVersion\App Paths\${MAIN_APP_EXE}"
 !define UNINSTALL_PATH "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_NAME}"
 
-!define UI_APP_NAME "Netbird UI"
-!define UI_APP_EXE "Netbird-ui"
+!define UI_APP_NAME "Cloink UI"
+!define UI_APP_EXE "cloink-ui"
 
 !define UI_REG_APP_PATH "Software\Microsoft\Windows\CurrentVersion\App Paths\${UI_APP_EXE}"
 !define UI_UNINSTALL_PATH "Software\Microsoft\Windows\CurrentVersion\Uninstall\${UI_APP_NAME}"
 
 !define AUTOSTART_REG_KEY "Software\Microsoft\Windows\CurrentVersion\Run"
 
-!define NETBIRD_DATA_DIR "$COMMONPROGRAMDATA\Netbird"
+!define NETBIRD_DATA_DIR "$COMMONPROGRAMDATA\Cloink"
 
 Unicode True
 
@@ -65,7 +65,7 @@ ShowInstDetails Show
 
 !if ${ARCH} == "amd64"
     !define MUI_FINISHPAGE_RUN
-    !define MUI_FINISHPAGE_RUN_TEXT "Start ${UI_APP_NAME}"
+    !define MUI_FINISHPAGE_RUN_TEXT "启动 ${UI_APP_NAME}"
     !define MUI_FINISHPAGE_RUN_FUNCTION "LaunchLink"
 !endif
 ######################################################################
@@ -109,7 +109,7 @@ Var DeleteDataEnabled
 
 ; Function to create the autostart options page
 Function AutostartPage
-  !insertmacro MUI_HEADER_TEXT "Startup Options" "Configure how ${APP_NAME} launches with Windows."
+  !insertmacro MUI_HEADER_TEXT "启动选项" "配置 ${APP_NAME} 如何随 Windows 启动。"
 
   nsDialogs::Create 1018
   Pop $0
@@ -118,7 +118,7 @@ Function AutostartPage
     Abort
   ${EndIf}
 
-  ${NSD_CreateCheckbox} 0 20u 100% 10u "Start ${APP_NAME} UI automatically when Windows starts"
+  ${NSD_CreateCheckbox} 0 20u 100% 10u "Windows 启动时自动启动 ${APP_NAME} UI"
   Pop $AutostartCheckbox
   ${NSD_Check} $AutostartCheckbox
   StrCpy $AutostartEnabled "1"
@@ -133,7 +133,7 @@ FunctionEnd
 
 ; Function to create the uninstall data deletion page
 Function un.DeleteDataPage
-  !insertmacro MUI_HEADER_TEXT "Uninstall Options" "Choose whether to delete ${APP_NAME} data."
+  !insertmacro MUI_HEADER_TEXT "卸载选项" "选择是否删除 ${APP_NAME} 数据。"
 
   nsDialogs::Create 1018
   Pop $0
@@ -142,7 +142,7 @@ Function un.DeleteDataPage
     Abort
   ${EndIf}
 
-  ${NSD_CreateCheckbox} 0 20u 100% 10u "Delete all ${APP_NAME} configuration and state data (${NETBIRD_DATA_DIR})"
+  ${NSD_CreateCheckbox} 0 20u 100% 10u "删除所有 ${APP_NAME} 配置和状态数据 (${NETBIRD_DATA_DIR})"
   Pop $DeleteDataCheckbox
   ${NSD_Uncheck} $DeleteDataCheckbox
   StrCpy $DeleteDataEnabled "0"
@@ -206,7 +206,7 @@ ${If} $R0 != ""
     # if silent install jump to uninstall step
     IfSilent uninstall
 
-    MessageBox MB_YESNO|MB_ICONQUESTION "NetBird is already installed. We must remove it before installing upgrading NetBird. Proceed?" IDNO done IDYES uninstall
+    MessageBox MB_YESNO|MB_ICONQUESTION "云链-Cloink 已安装。我们需要在升级前先移除它。继续？" IDNO done IDYES uninstall
 
     uninstall:
       !insertmacro UninstallPreviousNSIS $R0 "/NoMsgBox"
@@ -217,27 +217,23 @@ FunctionEnd
 ######################################################################
 Section -MainProgram
     ${INSTALL_TYPE}
-    # SetOverwrite ifnewer
     SetOutPath "$INSTDIR"
-    !ifndef ARCH
-        !define ARCH "amd64"
-    !endif
 
-    !if ${ARCH} == "arm64"
-        File /r "..\\dist\\netbird_windows_arm64\\"
-    !else
-        File /r "..\\dist\\netbird_windows_amd64\\"
-    !endif
+    # 显式复制必要的文件
+    File "..\\dist\\netbird_windows_amd64\\cloink-ui.exe"
+    File "..\\dist\\netbird_windows_amd64\\cloink.exe"
+    File "..\\dist\\netbird_windows_amd64\\wintun.dll"
+    File "..\\dist\\opengl32.dll"
 SectionEnd
 ######################################################################
 
 Section -Icons_Reg
 SetOutPath "$INSTDIR"
-WriteUninstaller "$INSTDIR\netbird_uninstall.exe"
+WriteUninstaller "$INSTDIR\cloink-uninstall.exe"
 
 WriteRegStr ${REG_ROOT} "${REG_APP_PATH}" "" "$INSTDIR\${MAIN_APP_EXE}"
 WriteRegStr ${REG_ROOT} "${UNINSTALL_PATH}"  "DisplayName" "${APP_NAME}"
-WriteRegStr ${REG_ROOT} "${UNINSTALL_PATH}"  "UninstallString" "$INSTDIR\netbird_uninstall.exe"
+WriteRegStr ${REG_ROOT} "${UNINSTALL_PATH}"  "UninstallString" "$INSTDIR\cloink-uninstall.exe"
 WriteRegStr ${REG_ROOT} "${UNINSTALL_PATH}"  "DisplayIcon" "$INSTDIR\${MAIN_APP_EXE}"
 WriteRegStr ${REG_ROOT} "${UNINSTALL_PATH}"  "DisplayVersion" "${VERSION}"
 WriteRegStr ${REG_ROOT} "${UNINSTALL_PATH}"  "Publisher" "${COMP_NAME}"
@@ -245,13 +241,13 @@ WriteRegStr ${REG_ROOT} "${UNINSTALL_PATH}"  "Publisher" "${COMP_NAME}"
 WriteRegStr ${REG_ROOT} "${UI_REG_APP_PATH}" "" "$INSTDIR\${UI_APP_EXE}"
 
 ; Create autostart registry entry based on checkbox
-DetailPrint "Autostart enabled: $AutostartEnabled"
+DetailPrint "自动启动已启用: $AutostartEnabled"
 ${If} $AutostartEnabled == "1"
     WriteRegStr HKCU "${AUTOSTART_REG_KEY}" "${APP_NAME}" "$INSTDIR\${UI_APP_EXE}.exe"
-    DetailPrint "Added autostart registry entry: $INSTDIR\${UI_APP_EXE}.exe"
+    DetailPrint "已添加自动启动注册表项: $INSTDIR\${UI_APP_EXE}.exe"
 ${Else}
     DeleteRegValue HKCU "${AUTOSTART_REG_KEY}" "${APP_NAME}"
-    DetailPrint "Autostart not enabled by user"
+    DetailPrint "用户未启用自动启动"
 ${EndIf}
 
 EnVar::SetHKLM
@@ -263,70 +259,68 @@ CreateShortCut "$DESKTOP\${APP_NAME}.lnk" "$INSTDIR\${UI_APP_EXE}"
 SectionEnd
 
 Section -Post
-ExecWait '"$INSTDIR\${MAIN_APP_EXE}" service install'
-ExecWait '"$INSTDIR\${MAIN_APP_EXE}" service start'
+ExecWait '"$INSTDIR\${MAIN_APP_EXE}" service install --service cloink'
+ExecWait '"$INSTDIR\${MAIN_APP_EXE}" service start --service cloink'
 # sleep a bit for visibility
-Sleep 1000
+Sleep 2000
 SectionEnd
 ######################################################################
 
 Section Uninstall
 ${INSTALL_TYPE}
 
-DetailPrint "Stopping Netbird service..."
-ExecWait '"$INSTDIR\${MAIN_APP_EXE}" service stop'
-DetailPrint "Uninstalling Netbird service..."
-ExecWait '"$INSTDIR\${MAIN_APP_EXE}" service uninstall'
+DetailPrint "正在停止云链服务..."
+ExecWait '"$INSTDIR\${MAIN_APP_EXE}" service stop --service cloink'
+DetailPrint "正在卸载云链服务..."
+ExecWait '"$INSTDIR\${MAIN_APP_EXE}" service uninstall --service cloink'
 
-DetailPrint "Terminating Netbird UI process..."
+DetailPrint "正在终止云链 UI 进程..."
 ExecWait `taskkill /im ${UI_APP_EXE}.exe /f`
 
 ; Remove autostart registry entry
-DetailPrint "Removing autostart registry entry if exists..."
+DetailPrint "正在移除自动启动注册表项（如果存在）..."
 DeleteRegValue HKCU "${AUTOSTART_REG_KEY}" "${APP_NAME}"
 
 ; Handle data deletion based on checkbox
-DetailPrint "Checking if user requested data deletion..."
+DetailPrint "正在检查用户是否请求删除数据..."
 ${If} $DeleteDataEnabled == "1"
-    DetailPrint "User opted to delete Netbird data. Removing ${NETBIRD_DATA_DIR}..."
+    DetailPrint "用户选择删除云链数据。正在移除 ${NETBIRD_DATA_DIR}..."
     ClearErrors
     RMDir /r "${NETBIRD_DATA_DIR}"
     IfErrors 0 +2 ; If no errors, jump over the message
-    DetailPrint "Error deleting Netbird data directory. It might be in use or already removed."
-    DetailPrint "Netbird data directory removal complete."
+    DetailPrint "删除云链数据目录时出错。该目录可能正在使用中或已被移除。"
+    DetailPrint "云链数据目录已成功移除。"
 ${Else}
-    DetailPrint "User did not opt to delete Netbird data."
+    DetailPrint "用户未选择删除云链数据。"
 ${EndIf}
 
 # wait the service uninstall take unblock the executable
-DetailPrint "Waiting for service handle to be released..."
+DetailPrint "正在等待服务句柄释放..."
 Sleep 3000
 
-DetailPrint "Deleting application files..."
+DetailPrint "正在删除应用程序文件..."
 Delete "$INSTDIR\${UI_APP_EXE}"
 Delete "$INSTDIR\${MAIN_APP_EXE}"
 Delete "$INSTDIR\wintun.dll"
-!if ${ARCH} == "amd64"
 Delete "$INSTDIR\opengl32.dll"
-!endif
-DetailPrint "Removing application directory..."
+DetailPrint "正在移除应用程序目录..."
 RmDir /r "$INSTDIR"
 
-DetailPrint "Removing shortcuts..."
+DetailPrint "正在移除快捷方式..."
 SetShellVarContext all
 Delete "$DESKTOP\${APP_NAME}.lnk"
 Delete "$SMPROGRAMS\${APP_NAME}.lnk"
 
-DetailPrint "Removing registry keys..."
+DetailPrint "正在移除注册表项..."
 DeleteRegKey ${REG_ROOT} "${REG_APP_PATH}"
 DeleteRegKey ${REG_ROOT} "${UNINSTALL_PATH}"
 DeleteRegKey ${REG_ROOT} "${UI_REG_APP_PATH}"
 
-DetailPrint "Removing application directory from PATH..."
+DetailPrint "正在从 PATH 中移除应用程序目录..."
 EnVar::SetHKLM
 EnVar::DeleteValue "path" "$INSTDIR"
 
-DetailPrint "Uninstallation finished."
+DetailPrint "卸载完成。"
 SectionEnd
 
 
@@ -334,6 +328,6 @@ SectionEnd
 Function LaunchLink
 SetShellVarContext all
    SetOutPath $INSTDIR
-   ShellExecAsUser::ShellExecAsUser "" "$DESKTOP\${APP_NAME}.lnk"
+   Exec "$INSTDIR\${UI_APP_EXE}.exe"
 FunctionEnd
 !endif
