@@ -22,19 +22,19 @@ import (
 )
 
 const (
-	allNetworksText                = "All networks"
-	overlappingNetworksText        = "Overlapping networks"
-	exitNodeNetworksText           = "Exit-node networks"
+	allNetworksText                = "所有网络"
+	overlappingNetworksText        = "重叠网络"
+	exitNodeNetworksText           = "退出节点网络"
 	allNetworks             filter = "all"
 	overlappingNetworks     filter = "overlapping"
 	exitNodeNetworks        filter = "exit-node"
-	getClientFMT                   = "get client: %v"
+	getClientFMT                   = "获取客户端: %v"
 )
 
 type filter string
 
 func (s *serviceClient) showNetworksUI() {
-	s.wNetworks = s.app.NewWindow("Networks")
+	s.wNetworks = s.app.NewWindow("网络")
 	s.wNetworks.SetOnClosed(s.cancel)
 
 	allGrid := container.New(layout.NewGridLayout(3))

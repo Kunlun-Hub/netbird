@@ -242,7 +242,6 @@ type serviceClient struct {
 	mSettings          *systray.MenuItem
 	mProfile           *profileMenu
 	mAbout             *systray.MenuItem
-	mGitHub            *systray.MenuItem
 	mVersionUI         *systray.MenuItem
 	mVersionDaemon     *systray.MenuItem
 	mUpdate            *systray.MenuItem
@@ -492,14 +491,14 @@ func (s *serviceClient) getConnectionForm() *widget.Form {
 	}
 	return &widget.Form{
 		Items: []*widget.FormItem{
-			{Text: "Profile", Widget: widget.NewLabel(activeProfName)},
-			{Text: "Management URL", Widget: s.iMngURL},
-			{Text: "Pre-shared Key", Widget: s.iPreSharedKey},
-			{Text: "Quantum-Resistance", Widget: s.sRosenpassPermissive},
-			{Text: "Interface Name", Widget: s.iInterfaceName},
-			{Text: "Interface Port", Widget: s.iInterfacePort},
+			{Text: "配置", Widget: widget.NewLabel(activeProfName)},
+			{Text: "管理 URL", Widget: s.iMngURL},
+			{Text: "预共享密钥", Widget: s.iPreSharedKey},
+			{Text: "量子抗性", Widget: s.sRosenpassPermissive},
+			{Text: "接口名称", Widget: s.iInterfaceName},
+			{Text: "接口端口", Widget: s.iInterfacePort},
 			{Text: "MTU", Widget: s.iMTU},
-			{Text: "Log File", Widget: s.iLogFile},
+			{Text: "日志文件", Widget: s.iLogFile},
 		},
 	}
 }
@@ -511,8 +510,8 @@ func (s *serviceClient) saveSettings() {
 		log.Errorf("failed to get features from daemon: %v", err)
 		// Continue with default behavior if features can't be retrieved
 	} else if features != nil && features.DisableUpdateSettings {
-		log.Warn("Configuration updates are disabled by daemon")
-		dialog.ShowError(fmt.Errorf("configuration updates are disabled by daemon"), s.wSettings)
+		log.Warn("配置更新已被守护进程禁用")
+		dialog.ShowError(fmt.Errorf("配置更新已被守护进程禁用"), s.wSettings)
 		return
 	}
 
@@ -704,13 +703,13 @@ func (s *serviceClient) getSettingsForm() fyne.CanvasObject {
 	networkForm := s.getNetworkForm()
 	sshForm := s.getSSHForm()
 	tabs := container.NewAppTabs(
-		container.NewTabItem("Connection", connectionForm),
-		container.NewTabItem("Network", networkForm),
+		container.NewTabItem("连接", connectionForm),
+		container.NewTabItem("网络", networkForm),
 		container.NewTabItem("SSH", sshForm),
 	)
-	saveButton := widget.NewButtonWithIcon("Save", theme.ConfirmIcon(), s.saveSettings)
+	saveButton := widget.NewButtonWithIcon("保存", theme.ConfirmIcon(), s.saveSettings)
 	saveButton.Importance = widget.HighImportance
-	cancelButton := widget.NewButtonWithIcon("Cancel", theme.CancelIcon(), func() {
+	cancelButton := widget.NewButtonWithIcon("取消", theme.CancelIcon(), func() {
 		s.wSettings.Close()
 	})
 	buttonContainer := container.NewHBox(
@@ -724,11 +723,11 @@ func (s *serviceClient) getSettingsForm() fyne.CanvasObject {
 func (s *serviceClient) getNetworkForm() *widget.Form {
 	return &widget.Form{
 		Items: []*widget.FormItem{
-			{Text: "Network Monitor", Widget: s.sNetworkMonitor},
-			{Text: "Disable DNS", Widget: s.sDisableDNS},
-			{Text: "Disable Client Routes", Widget: s.sDisableClientRoutes},
-			{Text: "Disable Server Routes", Widget: s.sDisableServerRoutes},
-			{Text: "Disable LAN Access", Widget: s.sBlockLANAccess},
+			{Text: "网络监控", Widget: s.sNetworkMonitor},
+			{Text: "禁用 DNS", Widget: s.sDisableDNS},
+			{Text: "禁用客户端路由", Widget: s.sDisableClientRoutes},
+			{Text: "禁用服务器路由", Widget: s.sDisableServerRoutes},
+			{Text: "禁用局域网访问", Widget: s.sBlockLANAccess},
 		},
 	}
 }
@@ -736,12 +735,12 @@ func (s *serviceClient) getNetworkForm() *widget.Form {
 func (s *serviceClient) getSSHForm() *widget.Form {
 	return &widget.Form{
 		Items: []*widget.FormItem{
-			{Text: "Enable SSH Root Login", Widget: s.sEnableSSHRoot},
-			{Text: "Enable SSH SFTP", Widget: s.sEnableSSHSFTP},
-			{Text: "Enable SSH Local Port Forwarding", Widget: s.sEnableSSHLocalPortForward},
-			{Text: "Enable SSH Remote Port Forwarding", Widget: s.sEnableSSHRemotePortForward},
-			{Text: "Disable SSH Authentication", Widget: s.sDisableSSHAuth},
-			{Text: "JWT Cache TTL (seconds, 0=disabled)", Widget: s.iSSHJWTCacheTTL},
+			{Text: "启用 SSH root 登录", Widget: s.sEnableSSHRoot},
+			{Text: "启用 SSH SFTP", Widget: s.sEnableSSHSFTP},
+			{Text: "启用 SSH 本地端口转发", Widget: s.sEnableSSHLocalPortForward},
+			{Text: "启用 SSH 远程端口转发", Widget: s.sEnableSSHRemotePortForward},
+			{Text: "禁用 SSH 认证", Widget: s.sDisableSSHAuth},
+			{Text: "JWT 缓存 TTL (秒, 0=禁用)", Widget: s.iSSHJWTCacheTTL},
 		},
 	}
 }
@@ -892,7 +891,7 @@ func (s *serviceClient) updateStatus() error {
 		if err != nil {
 			log.Errorf("get service status: %v", err)
 			if s.connected {
-				s.app.SendNotification(fyne.NewNotification("Error", "Connection to service lost"))
+				s.app.SendNotification(fyne.NewNotification("错误", "连接服务丢失"))
 			}
 			s.setDisconnectedStatus()
 			return err
@@ -918,7 +917,7 @@ func (s *serviceClient) updateStatus() error {
 				systray.SetTemplateIcon(iconConnectedMacOS, s.icConnected)
 			}
 			systray.SetTooltip("NetBird (Connected)")
-			s.mStatus.SetTitle("Connected")
+			s.mStatus.SetTitle("已连接")
 			s.mStatus.SetIcon(s.icConnectedDot)
 			s.mUp.Disable()
 			s.mDown.Enable()
@@ -981,7 +980,7 @@ func (s *serviceClient) setDisconnectedStatus() {
 		systray.SetTemplateIcon(iconDisconnectedMacOS, s.icDisconnected)
 	}
 	systray.SetTooltip("NetBird (Disconnected)")
-	s.mStatus.SetTitle("Disconnected")
+	s.mStatus.SetTitle("已断开")
 	s.mStatus.SetIcon(s.icDisconnectedDot)
 	s.mDown.Disable()
 	s.mUp.Enable()
@@ -995,7 +994,7 @@ func (s *serviceClient) setConnectingStatus() {
 	s.connected = false
 	systray.SetTemplateIcon(iconConnectingMacOS, s.icConnecting)
 	systray.SetTooltip("NetBird (Connecting)")
-	s.mStatus.SetTitle("Connecting")
+	s.mStatus.SetTitle("正在连接")
 	s.mUp.Disable()
 	s.mDown.Enable()
 	s.mNetworks.Disable()
@@ -1031,21 +1030,21 @@ func (s *serviceClient) onTrayReady() {
 	s.mProfile = newProfileMenu(*newProfileMenuArgs)
 
 	systray.AddSeparator()
-	s.mUp = systray.AddMenuItem("Connect", "Connect")
-	s.mDown = systray.AddMenuItem("Disconnect", "Disconnect")
+	s.mUp = systray.AddMenuItem("连接", "连接")
+	s.mDown = systray.AddMenuItem("断开", "断开")
 	s.mDown.Disable()
 	systray.AddSeparator()
 
-	s.mSettings = systray.AddMenuItem("Settings", disabledMenuDescr)
-	s.mAllowSSH = s.mSettings.AddSubMenuItemCheckbox("Allow SSH", allowSSHMenuDescr, false)
-	s.mAutoConnect = s.mSettings.AddSubMenuItemCheckbox("Connect on Startup", autoConnectMenuDescr, false)
-	s.mEnableRosenpass = s.mSettings.AddSubMenuItemCheckbox("Enable Quantum-Resistance", quantumResistanceMenuDescr, false)
-	s.mLazyConnEnabled = s.mSettings.AddSubMenuItemCheckbox("Enable Lazy Connections", lazyConnMenuDescr, false)
-	s.mBlockInbound = s.mSettings.AddSubMenuItemCheckbox("Block Inbound Connections", blockInboundMenuDescr, false)
-	s.mNotifications = s.mSettings.AddSubMenuItemCheckbox("Notifications", notificationsMenuDescr, false)
+	s.mSettings = systray.AddMenuItem("设置", disabledMenuDescr)
+	s.mAllowSSH = s.mSettings.AddSubMenuItemCheckbox("允许 SSH", allowSSHMenuDescr, false)
+	s.mAutoConnect = s.mSettings.AddSubMenuItemCheckbox("开机自动连接", autoConnectMenuDescr, false)
+	s.mEnableRosenpass = s.mSettings.AddSubMenuItemCheckbox("启用量子抗性", quantumResistanceMenuDescr, false)
+	s.mLazyConnEnabled = s.mSettings.AddSubMenuItemCheckbox("启用懒连接", lazyConnMenuDescr, false)
+	s.mBlockInbound = s.mSettings.AddSubMenuItemCheckbox("阻止入站连接", blockInboundMenuDescr, false)
+	s.mNotifications = s.mSettings.AddSubMenuItemCheckbox("通知", notificationsMenuDescr, false)
 	s.mSettings.AddSeparator()
-	s.mAdvancedSettings = s.mSettings.AddSubMenuItem("Advanced Settings", advancedSettingsMenuDescr)
-	s.mCreateDebugBundle = s.mSettings.AddSubMenuItem("Create Debug Bundle", debugBundleMenuDescr)
+	s.mAdvancedSettings = s.mSettings.AddSubMenuItem("高级设置", advancedSettingsMenuDescr)
+	s.mCreateDebugBundle = s.mSettings.AddSubMenuItem("创建调试包", debugBundleMenuDescr)
 	s.loadSettings()
 
 	// Disable settings menu if update settings are disabled by daemon
@@ -1063,32 +1062,30 @@ func (s *serviceClient) onTrayReady() {
 	}
 
 	s.exitNodeMu.Lock()
-	s.mExitNode = systray.AddMenuItem("Exit Node", disabledMenuDescr)
+	s.mExitNode = systray.AddMenuItem("退出节点", disabledMenuDescr)
 	s.mExitNode.Disable()
 	s.exitNodeMu.Unlock()
 
-	s.mNetworks = systray.AddMenuItem("Networks", networksMenuDescr)
+	s.mNetworks = systray.AddMenuItem("网络", networksMenuDescr)
 	s.mNetworks.Disable()
 	systray.AddSeparator()
 
-	s.mAbout = systray.AddMenuItem("About", "About")
+	s.mAbout = systray.AddMenuItem("关于", "关于")
 	s.mAbout.SetIcon(s.icAbout)
 
-	s.mGitHub = s.mAbout.AddSubMenuItem("GitHub", "GitHub")
-
 	versionString := normalizedVersion(version.NetbirdVersion())
-	s.mVersionUI = s.mAbout.AddSubMenuItem(fmt.Sprintf("GUI: %s", versionString), fmt.Sprintf("GUI Version: %s", versionString))
+	s.mVersionUI = s.mAbout.AddSubMenuItem(fmt.Sprintf("界面: %s", versionString), fmt.Sprintf("界面版本: %s", versionString))
 	s.mVersionUI.Disable()
 
 	s.mVersionDaemon = s.mAbout.AddSubMenuItem("", "")
 	s.mVersionDaemon.Disable()
 	s.mVersionDaemon.Hide()
 
-	s.mUpdate = s.mAbout.AddSubMenuItem("Download latest version", latestVersionMenuDescr)
+	s.mUpdate = s.mAbout.AddSubMenuItem("下载最新版本", latestVersionMenuDescr)
 	s.mUpdate.Hide()
 
 	systray.AddSeparator()
-	s.mQuit = systray.AddMenuItem("Quit", quitMenuDescr)
+	s.mQuit = systray.AddMenuItem("退出", quitMenuDescr)
 
 	// update exit node menu in case service is already connected
 	go s.updateExitNodes()
@@ -1548,7 +1545,7 @@ func (s *serviceClient) onUpdateAvailable(newVersion string, enforced bool) {
 
 	if enforced && s.lastNotifiedVersion != newVersion {
 		s.lastNotifiedVersion = newVersion
-		s.app.SendNotification(fyne.NewNotification("Update available", "A new version "+newVersion+" is ready to install"))
+		s.app.SendNotification(fyne.NewNotification("有可用更新", "新版本 "+newVersion+" 已准备好安装"))
 	}
 }
 

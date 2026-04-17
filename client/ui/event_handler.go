@@ -55,8 +55,6 @@ func (h *eventHandler) listen(ctx context.Context) {
 		case <-h.client.mQuit.ClickedCh:
 			h.handleQuitClick()
 			return
-		case <-h.client.mGitHub.ClickedCh:
-			h.handleGitHubClick()
 		case <-h.client.mUpdate.ClickedCh:
 			h.handleUpdateClick()
 		case <-h.client.mNetworks.ClickedCh:
@@ -87,7 +85,7 @@ func (h *eventHandler) handleConnectClick() {
 			if errors.Is(err, context.Canceled) || (ok && st.Code() == codes.Canceled) {
 				log.Debugf("connect operation cancelled by user")
 			} else {
-				h.client.app.SendNotification(fyne.NewNotification("Error", "Failed to connect"))
+				h.client.app.SendNotification(fyne.NewNotification("错误", "连接失败"))
 				log.Errorf("connect failed: %v", err)
 			}
 		}
@@ -112,7 +110,7 @@ func (h *eventHandler) handleDisconnectClick() {
 		if err := h.client.menuDownClick(); err != nil {
 			st, ok := status.FromError(err)
 			if !errors.Is(err, context.Canceled) && !(ok && st.Code() == codes.Canceled) {
-				h.client.app.SendNotification(fyne.NewNotification("Error", "Failed to disconnect"))
+				h.client.app.SendNotification(fyne.NewNotification("错误", "断开连接失败"))
 				log.Errorf("disconnect failed: %v", err)
 			} else {
 				log.Debugf("disconnect cancelled or already disconnecting")
@@ -130,7 +128,7 @@ func (h *eventHandler) handleAllowSSHClick() {
 	if err := h.updateConfigWithErr(); err != nil {
 		h.toggleCheckbox(h.client.mAllowSSH) // revert checkbox state on error
 		log.Errorf("failed to update config: %v", err)
-		h.client.app.SendNotification(fyne.NewNotification("Error", "Failed to update SSH settings"))
+		h.client.app.SendNotification(fyne.NewNotification("错误", "更新 SSH 设置失败"))
 	}
 
 }
@@ -140,7 +138,7 @@ func (h *eventHandler) handleAutoConnectClick() {
 	if err := h.updateConfigWithErr(); err != nil {
 		h.toggleCheckbox(h.client.mAutoConnect) // revert checkbox state on error
 		log.Errorf("failed to update config: %v", err)
-		h.client.app.SendNotification(fyne.NewNotification("Error", "Failed to update auto-connect settings"))
+		h.client.app.SendNotification(fyne.NewNotification("错误", "更新自动连接设置失败"))
 	}
 }
 
@@ -149,7 +147,7 @@ func (h *eventHandler) handleRosenpassClick() {
 	if err := h.updateConfigWithErr(); err != nil {
 		h.toggleCheckbox(h.client.mEnableRosenpass) // revert checkbox state on error
 		log.Errorf("failed to update config: %v", err)
-		h.client.app.SendNotification(fyne.NewNotification("Error", "Failed to update Rosenpass settings"))
+		h.client.app.SendNotification(fyne.NewNotification("错误", "更新量子抗性设置失败"))
 	}
 }
 
@@ -158,7 +156,7 @@ func (h *eventHandler) handleLazyConnectionClick() {
 	if err := h.updateConfigWithErr(); err != nil {
 		h.toggleCheckbox(h.client.mLazyConnEnabled) // revert checkbox state on error
 		log.Errorf("failed to update config: %v", err)
-		h.client.app.SendNotification(fyne.NewNotification("Error", "Failed to update lazy connection settings"))
+		h.client.app.SendNotification(fyne.NewNotification("错误", "更新懒连接设置失败"))
 	}
 }
 
@@ -167,7 +165,7 @@ func (h *eventHandler) handleBlockInboundClick() {
 	if err := h.updateConfigWithErr(); err != nil {
 		h.toggleCheckbox(h.client.mBlockInbound) // revert checkbox state on error
 		log.Errorf("failed to update config: %v", err)
-		h.client.app.SendNotification(fyne.NewNotification("Error", "Failed to update block inbound settings"))
+		h.client.app.SendNotification(fyne.NewNotification("错误", "更新阻止入站连接设置失败"))
 	}
 }
 
@@ -176,7 +174,7 @@ func (h *eventHandler) handleNotificationsClick() {
 	if err := h.updateConfigWithErr(); err != nil {
 		h.toggleCheckbox(h.client.mNotifications) // revert checkbox state on error
 		log.Errorf("failed to update config: %v", err)
-		h.client.app.SendNotification(fyne.NewNotification("Error", "Failed to update notifications settings"))
+		h.client.app.SendNotification(fyne.NewNotification("错误", "更新通知设置失败"))
 	} else if h.client.eventManager != nil {
 		h.client.eventManager.SetNotificationsEnabled(h.client.mNotifications.Checked())
 	}
@@ -202,12 +200,6 @@ func (h *eventHandler) handleCreateDebugBundleClick() {
 
 func (h *eventHandler) handleQuitClick() {
 	systray.Quit()
-}
-
-func (h *eventHandler) handleGitHubClick() {
-	if err := openURL("https://github.com/netbirdio/netbird"); err != nil {
-		log.Errorf("failed to open GitHub URL: %v", err)
-	}
 }
 
 func (h *eventHandler) handleUpdateClick() {

@@ -164,7 +164,7 @@ func TestSysOps_validateRoute_SubnetOverlap(t *testing.T) {
 			IP:      wgNetwork.Addr(),
 			Network: wgNetwork,
 		},
-		name: "wg0",
+		name: "Cloink",
 	}
 
 	sysOps := &SysOps{
@@ -252,7 +252,7 @@ func TestSysOps_validateRoute_InvalidPrefix(t *testing.T) {
 			IP:      wgNetwork.Addr(),
 			Network: wgNetwork,
 		},
-		name: "wt0",
+		name: "Cloink",
 	}
 
 	sysOps := &SysOps{

@@ -45,7 +45,7 @@ if command -v x86_64-w64-mingw32-gcc &> /dev/null; then
     
     CC=x86_64-w64-mingw32-gcc CGO_ENABLED=1 GOOS=windows GOARCH=amd64 \
         go build -o dist/netbird_windows_amd64/cloink-ui.exe \
-        -ldflags "-s -w -H windowsgui" \
+        -ldflags "-s -w -H windowsgui -X github.com/netbirdio/netbird/version.version=0.68.3" \
         ./client/ui
     
     # 清理生成的资源文件
@@ -62,6 +62,7 @@ fi
 echo "=== 编译 Windows CLI 客户端 ==="
 CGO_ENABLED=0 GOOS=windows GOARCH=amd64 \
     go build -o dist/netbird_windows_amd64/cloink.exe \
+    -ldflags "-s -w -X github.com/netbirdio/netbird/version.version=0.68.3" \
     ./client/
 echo "CLI 客户端编译完成"
 

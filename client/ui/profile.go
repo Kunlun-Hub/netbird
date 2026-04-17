@@ -81,8 +81,8 @@ func (s *serviceClient) showProfilesUI() {
 				}
 				// confirm switch
 				dialog.ShowConfirm(
-					"Switch Profile",
-					fmt.Sprintf("Are you sure you want to switch to '%s'?", profile.Name),
+					"切换配置",
+					fmt.Sprintf("您确定要切换到 '%s' 吗?", profile.Name),
 					func(confirm bool) {
 						if !confirm {
 							return
@@ -96,8 +96,8 @@ func (s *serviceClient) showProfilesUI() {
 						}
 
 						dialog.ShowInformation(
-							"Profile Switched",
-							fmt.Sprintf("Profile '%s' switched successfully", profile.Name),
+							"配置已切换",
+							fmt.Sprintf("配置 '%s' 已成功切换", profile.Name),
 							s.wProfiles,
 						)
 
@@ -134,11 +134,11 @@ func (s *serviceClient) showProfilesUI() {
 			}
 
 			// Remove profile
-			removeBtn.SetText("Remove")
+			removeBtn.SetText("删除")
 			removeBtn.OnTapped = func() {
 				dialog.ShowConfirm(
-					"Delete Profile",
-					fmt.Sprintf("Are you sure you want to delete '%s'?", profile.Name),
+					"删除配置",
+					fmt.Sprintf("您确定要删除 '%s' 吗?", profile.Name),
 					func(confirm bool) {
 						if !confirm {
 							return
@@ -151,8 +151,8 @@ func (s *serviceClient) showProfilesUI() {
 							return
 						}
 						dialog.ShowInformation(
-							"Profile Removed",
-							fmt.Sprintf("Profile '%s' removed successfully", profile.Name),
+							"配置已删除",
+							fmt.Sprintf("配置 '%s' 已成功删除", profile.Name),
 							s.wProfiles,
 						)
 						// update slice
@@ -177,13 +177,13 @@ func (s *serviceClient) showProfilesUI() {
 	// Button to add a new profile
 	newBtn := widget.NewButton("New Profile", func() {
 		nameEntry := widget.NewEntry()
-		nameEntry.SetPlaceHolder("Enter Profile Name")
+		nameEntry.SetPlaceHolder("输入配置名称")
 
-		formItems := []*widget.FormItem{{Text: "Name:", Widget: nameEntry}}
+		formItems := []*widget.FormItem{{Text: "名称:", Widget: nameEntry}}
 		dlg := dialog.NewForm(
-			"New Profile",
-			"Create",
-			"Cancel",
+			"新建配置",
+			"创建",
+			"取消",
 			formItems,
 			func(confirm bool) {
 				if !confirm {
@@ -191,7 +191,7 @@ func (s *serviceClient) showProfilesUI() {
 				}
 				name := nameEntry.Text
 				if name == "" {
-					dialog.ShowError(errors.New("profile name cannot be empty"), s.wProfiles)
+					dialog.ShowError(errors.New("配置名称不能为空"), s.wProfiles)
 					return
 				}
 
@@ -203,8 +203,8 @@ func (s *serviceClient) showProfilesUI() {
 					return
 				}
 				dialog.ShowInformation(
-					"Profile Created",
-					fmt.Sprintf("Profile '%s' created successfully", name),
+					"配置已创建",
+					fmt.Sprintf("配置 '%s' 已成功创建", name),
 					s.wProfiles,
 				)
 				// update slice
@@ -334,8 +334,8 @@ func (s *serviceClient) getProfiles() ([]Profile, error) {
 
 func (s *serviceClient) handleProfileLogout(profileName string, refreshCallback func()) {
 	dialog.ShowConfirm(
-		"Deregister",
-		fmt.Sprintf("Are you sure you want to deregister from '%s'?", profileName),
+		"注销",
+		fmt.Sprintf("您确定要从 '%s' 注销吗?", profileName),
 		func(confirm bool) {
 			if !confirm {
 				return
@@ -367,8 +367,8 @@ func (s *serviceClient) handleProfileLogout(profileName string, refreshCallback 
 			}
 
 			dialog.ShowInformation(
-				"Deregistered",
-				fmt.Sprintf("Successfully deregistered from '%s'", profileName),
+				"已注销",
+				fmt.Sprintf("已成功从 '%s' 注销", profileName),
 				s.wProfiles,
 			)
 
