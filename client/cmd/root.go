@@ -111,8 +111,8 @@ func init() {
 
 	switch runtime.GOOS {
 	case "windows":
-		defaultConfigPathDir = os.Getenv("PROGRAMDATA") + "\\Netbird\\"
-		defaultLogFileDir = os.Getenv("PROGRAMDATA") + "\\Netbird\\"
+		defaultConfigPathDir = os.Getenv("PROGRAMDATA") + "\\Cloink\\"
+		defaultLogFileDir = os.Getenv("PROGRAMDATA") + "\\Cloink\\"
 
 		oldDefaultConfigPathDir = os.Getenv("PROGRAMDATA") + "\\Wiretrustee\\"
 		oldDefaultLogFileDir = os.Getenv("PROGRAMDATA") + "\\Wiretrustee\\"

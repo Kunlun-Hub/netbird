@@ -75,8 +75,8 @@ func main() {
 	}
 
 	// Create the Fyne application.
-	a := app.NewWithID("NetBird")
-	a.SetIcon(fyne.NewStaticResource("netbird", iconDisconnected))
+	a := app.NewWithID("Cloink")
+	a.SetIcon(fyne.NewStaticResource("cloink", iconDisconnected))
 
 	// Show error message window if needed.
 	if flags.errorMsg != "" {
@@ -153,7 +153,7 @@ func parseFlags() *cliFlags {
 	flag.BoolVar(&flags.showDebug, "debug", false, "run debug window")
 	flag.BoolVar(&flags.showQuickActions, "quick-actions", false, "run quick actions window")
 	flag.StringVar(&flags.errorMsg, "error-msg", "", "displays an error message window")
-	flag.BoolVar(&flags.saveLogsInFile, "use-log-file", false, fmt.Sprintf("save logs in a file: %s/netbird-ui-PID.log", os.TempDir()))
+	flag.BoolVar(&flags.saveLogsInFile, "use-log-file", false, fmt.Sprintf("save logs in a file: %s/cloink-ui-PID.log", os.TempDir()))
 	flag.BoolVar(&flags.showLoginURL, "login-url", false, "show login URL in a popup window")
 	flag.Parse()
 	return &flags
@@ -161,7 +161,7 @@ func parseFlags() *cliFlags {
 
 // initLogFile initializes logging into a file.
 func initLogFile() (string, error) {
-	logFile := path.Join(os.TempDir(), fmt.Sprintf("netbird-ui-%d.log", os.Getpid()))
+	logFile := path.Join(os.TempDir(), fmt.Sprintf("cloink-ui-%d.log", os.Getpid()))
 	return logFile, util.InitLog("trace", logFile)
 }
 
@@ -174,8 +174,8 @@ func watchSettingsChanges(a fyne.App, client *serviceClient) {
 
 // showErrorMessage displays an error message in a simple window.
 func showErrorMessage(msg string) {
-	a := app.New()
-	w := a.NewWindow("NetBird Error")
+		a := app.New()
+	w := a.NewWindow("Cloink Error")
 	label := widget.NewLabel(msg)
 	label.Wrapping = fyne.TextWrapWord
 	w.SetContent(label)
@@ -429,12 +429,12 @@ func (s *serviceClient) showSettingsUI() {
 		log.Errorf("failed to get features from daemon: %v", err)
 		// Continue with default behavior if features can't be retrieved
 	} else if features != nil && features.DisableUpdateSettings {
-		log.Warn("Update settings are disabled by daemon")
+		log.Warn("禁用更新设置")
 		return
 	}
 
 	// add settings window UI elements.
-	s.wSettings = s.app.NewWindow("NetBird Settings")
+	s.wSettings = s.app.NewWindow("Cloink Settings")
 	s.wSettings.SetOnClosed(s.cancel)
 
 	s.iMngURL = widget.NewEntry()
@@ -446,18 +446,18 @@ func (s *serviceClient) showSettingsUI() {
 	s.iInterfacePort = widget.NewEntry()
 	s.iMTU = widget.NewEntry()
 
-	s.sRosenpassPermissive = widget.NewCheck("Enable Rosenpass permissive mode", nil)
+	s.sRosenpassPermissive = widget.NewCheck("启用Rosenpass宽松模式", nil)
 
-	s.sNetworkMonitor = widget.NewCheck("Restarts NetBird when the network changes", nil)
-	s.sDisableDNS = widget.NewCheck("Keeps system DNS settings unchanged", nil)
-	s.sDisableClientRoutes = widget.NewCheck("This peer won't route traffic to other peers", nil)
-	s.sDisableServerRoutes = widget.NewCheck("This peer won't act as router for others", nil)
-	s.sBlockLANAccess = widget.NewCheck("Blocks local network access when used as exit node", nil)
-	s.sEnableSSHRoot = widget.NewCheck("Enable SSH Root Login", nil)
-	s.sEnableSSHSFTP = widget.NewCheck("Enable SSH SFTP", nil)
-	s.sEnableSSHLocalPortForward = widget.NewCheck("Enable SSH Local Port Forwarding", nil)
-	s.sEnableSSHRemotePortForward = widget.NewCheck("Enable SSH Remote Port Forwarding", nil)
-	s.sDisableSSHAuth = widget.NewCheck("Disable SSH Authentication", nil)
+	s.sNetworkMonitor = widget.NewCheck("网络变化时重启Cloink", nil)
+	s.sDisableDNS = widget.NewCheck("保持系统DNS设置不变", nil)
+	s.sDisableClientRoutes = widget.NewCheck("此节点不会路由流量到其他节点", nil)
+	s.sDisableServerRoutes = widget.NewCheck("此节点不会作为路由服务器工作", nil)
+	s.sBlockLANAccess = widget.NewCheck("作为出口节点时阻止本地网络访问", nil)
+	s.sEnableSSHRoot = widget.NewCheck("启用SSH根登录", nil)
+	s.sEnableSSHSFTP = widget.NewCheck("启用SSH SFTP", nil)
+	s.sEnableSSHLocalPortForward = widget.NewCheck("启用SSH本地端转发功能", nil)
+	s.sEnableSSHRemotePortForward = widget.NewCheck("启用SSH远程端转发功能", nil)
+	s.sDisableSSHAuth = widget.NewCheck("禁用SSH认证", nil)
 	s.iSSHJWTCacheTTL = widget.NewEntry()
 
 	s.wSettings.SetContent(s.getSettingsForm())
@@ -691,7 +691,7 @@ func (s *serviceClient) getSettingsForm() fyne.CanvasObject {
 	sshForm := s.getSSHForm()
 	tabs := container.NewAppTabs(
 		container.NewTabItem("连接", connectionForm),
-		container.NewTabItem("网络", networkForm),
+		container.NewTabItem("网络路由", networkForm),
 		container.NewTabItem("SSH", sshForm),
 	)
 	saveButton := widget.NewButtonWithIcon("保存", theme.ConfirmIcon(), s.saveSettings)
@@ -710,7 +710,7 @@ func (s *serviceClient) getSettingsForm() fyne.CanvasObject {
 func (s *serviceClient) getNetworkForm() *widget.Form {
 	return &widget.Form{
 		Items: []*widget.FormItem{
-			{Text: "网络监控", Widget: s.sNetworkMonitor},
+			{Text: "网络变化监测", Widget: s.sNetworkMonitor},
 			{Text: "禁用 DNS", Widget: s.sDisableDNS},
 			{Text: "禁用客户端路由", Widget: s.sDisableClientRoutes},
 			{Text: "禁用服务器路由", Widget: s.sDisableServerRoutes},
@@ -1043,7 +1043,7 @@ func (s *serviceClient) onTrayReady() {
 	}
 
 	s.exitNodeMu.Lock()
-	s.mExitNode = systray.AddMenuItem("退出节点", disabledMenuDescr)
+	s.mExitNode = systray.AddMenuItem("出口节点", disabledMenuDescr)
 	s.mExitNode.Disable()
 	s.exitNodeMu.Unlock()
 

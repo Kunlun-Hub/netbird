@@ -10,7 +10,7 @@ const (
 	urlWinExeArm = "https://pkgs.netbird.io/windows/arm64"
 )
 
-var regKeyAppPath = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\Netbird"
+var regKeyAppPath = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\Cloink"
 
 // DownloadUrl return with the proper download link
 func DownloadUrl() string {

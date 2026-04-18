@@ -42,7 +42,7 @@ func init() {
 	defaultLogFile = "/var/log/netbird/signal.log"
 
 	if runtime.GOOS == "windows" {
-		defaultLogFile = os.Getenv("PROGRAMDATA") + "\\Netbird\\" + "signal.log"
+		defaultLogFile = os.Getenv("PROGRAMDATA") + "\\Cloink\\" + "signal.log"
 	}
 
 	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "info", "")

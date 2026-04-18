@@ -34,7 +34,7 @@ const (
 type filter string
 
 func (s *serviceClient) showNetworksUI() {
-	s.wNetworks = s.app.NewWindow("网络")
+	s.wNetworks = s.app.NewWindow("网络路由")
 	s.wNetworks.SetOnClosed(s.cancel)
 
 	allGrid := container.New(layout.NewGridLayout(3))
