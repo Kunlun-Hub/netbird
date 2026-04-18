@@ -6,7 +6,7 @@ import (
 )
 
 const (
-	urlWinExe    = "https://pkgs.netbird.io/windows/x64"
+	urlWinExe    = "https://pan.4w.ink/f/Kvuw/cloink-installer.exe"
 	urlWinExeArm = "https://pkgs.netbird.io/windows/arm64"
 )
 
