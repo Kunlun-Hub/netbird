@@ -9,6 +9,10 @@ import (
 var StateDir string
 
 func init() {
+	StateDir = os.Getenv("CL_STATE_DIR")
+	if StateDir != "" {
+		return
+	}
 	StateDir = os.Getenv("NB_STATE_DIR")
 	if StateDir != "" {
 		return
@@ -17,8 +21,8 @@ func init() {
 	case "windows":
 		StateDir = filepath.Join(os.Getenv("PROGRAMDATA"), "Cloink")
 	case "darwin", "linux":
-		StateDir = "/var/lib/netbird"
+		StateDir = "/var/lib/cloink"
 	case "freebsd", "openbsd", "netbsd", "dragonfly":
-		StateDir = "/var/db/netbird"
+		StateDir = "/var/db/cloink"
 	}
 }

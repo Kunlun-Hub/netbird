@@ -78,7 +78,7 @@ var (
 	networksDisabled        bool
 
 	rootCmd = &cobra.Command{
-		Use:          "netbird",
+		Use:          "cloink",
 		Short:        "",
 		Long:         "",
 		SilenceUsage: true,
@@ -103,8 +103,8 @@ func Execute() error {
 }
 
 func init() {
-	defaultConfigPathDir = "/etc/netbird/"
-	defaultLogFileDir = "/var/log/netbird/"
+	defaultConfigPathDir = "/etc/cloink/"
+	defaultLogFileDir = "/var/log/cloink/"
 
 	oldDefaultConfigPathDir = "/etc/wiretrustee/"
 	oldDefaultLogFileDir = "/var/log/wiretrustee/"
@@ -117,7 +117,7 @@ func init() {
 		oldDefaultConfigPathDir = os.Getenv("PROGRAMDATA") + "\\Wiretrustee\\"
 		oldDefaultLogFileDir = os.Getenv("PROGRAMDATA") + "\\Wiretrustee\\"
 	case "freebsd":
-		defaultConfigPathDir = "/var/db/netbird/"
+		defaultConfigPathDir = "/var/db/cloink/"
 	}
 
 	defaultConfigPath = defaultConfigPathDir + "config.json"
@@ -126,7 +126,7 @@ func init() {
 	oldDefaultConfigPath = oldDefaultConfigPathDir + "config.json"
 	oldDefaultLogFile = oldDefaultLogFileDir + "client.log"
 
-	defaultDaemonAddr := "unix:///var/run/netbird.sock"
+	defaultDaemonAddr := "unix:///var/run/cloink.sock"
 	if runtime.GOOS == "windows" {
 		defaultDaemonAddr = "tcp://127.0.0.1:41731"
 	}
@@ -209,7 +209,7 @@ func SetupCloseHandler(ctx context.Context, cancel context.CancelFunc) {
 	}()
 }
 
-// SetFlagsFromEnvVars reads and updates flag values from environment variables with prefix WT_
+// SetFlagsFromEnvVars reads and updates flag values from environment variables with prefix WT_, NB_, or CL_
 func SetFlagsFromEnvVars(cmd *cobra.Command) {
 	flags := cmd.PersistentFlags()
 	flags.VisitAll(func(f *pflag.Flag) {
@@ -222,12 +222,21 @@ func SetFlagsFromEnvVars(cmd *cobra.Command) {
 			}
 		}
 
-		newEnvVar := FlagNameToEnvVar(f.Name, "NB_")
+		nbEnvVar := FlagNameToEnvVar(f.Name, "NB_")
 
-		if value, present := os.LookupEnv(newEnvVar); present {
+		if value, present := os.LookupEnv(nbEnvVar); present {
 			err := flags.Set(f.Name, value)
 			if err != nil {
-				log.Infof("unable to configure flag %s using variable %s, err: %v", f.Name, newEnvVar, err)
+				log.Infof("unable to configure flag %s using variable %s, err: %v", f.Name, nbEnvVar, err)
+			}
+		}
+		
+		clEnvVar := FlagNameToEnvVar(f.Name, "CL_")
+
+		if value, present := os.LookupEnv(clEnvVar); present {
+			err := flags.Set(f.Name, value)
+			if err != nil {
+				log.Infof("unable to configure flag %s using variable %s, err: %v", f.Name, clEnvVar, err)
 			}
 		}
 	})
