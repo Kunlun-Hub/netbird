@@ -95,15 +95,13 @@ func main() {
 		showDebug:         flags.showDebug,
 		showProfiles:      flags.showProfiles,
 		showQuickActions:  flags.showQuickActions,
-		showUpdate:        flags.showUpdate,
-		showUpdateVersion: flags.showUpdateVersion,
 	})
 
 	// Watch for theme/settings changes to update the icon.
 	go watchSettingsChanges(a, client)
 
 	// Run in window mode if any UI flag was set.
-	if flags.showSettings || flags.showNetworks || flags.showDebug || flags.showLoginURL || flags.showProfiles || flags.showQuickActions || flags.showUpdate {
+	if flags.showSettings || flags.showNetworks || flags.showDebug || flags.showLoginURL || flags.showProfiles || flags.showQuickActions {
 		a.Run()
 		return
 	}
@@ -129,17 +127,15 @@ func main() {
 }
 
 type cliFlags struct {
-	daemonAddr        string
-	showSettings      bool
-	showNetworks      bool
-	showProfiles      bool
-	showDebug         bool
-	showLoginURL      bool
-	showQuickActions  bool
-	errorMsg          string
-	saveLogsInFile    bool
-	showUpdate        bool
-	showUpdateVersion string
+	daemonAddr       string
+	showSettings     bool
+	showNetworks     bool
+	showProfiles     bool
+	showDebug        bool
+	showLoginURL     bool
+	showQuickActions bool
+	errorMsg         string
+	saveLogsInFile   bool
 }
 
 // parseFlags reads and returns all needed command-line flags.
@@ -159,8 +155,6 @@ func parseFlags() *cliFlags {
 	flag.StringVar(&flags.errorMsg, "error-msg", "", "displays an error message window")
 	flag.BoolVar(&flags.saveLogsInFile, "use-log-file", false, fmt.Sprintf("save logs in a file: %s/netbird-ui-PID.log", os.TempDir()))
 	flag.BoolVar(&flags.showLoginURL, "login-url", false, "show login URL in a popup window")
-	flag.BoolVar(&flags.showUpdate, "update", false, "show update progress window")
-	flag.StringVar(&flags.showUpdateVersion, "update-version", "", "version to update to")
 	flag.Parse()
 	return &flags
 }
@@ -244,7 +238,6 @@ type serviceClient struct {
 	mAbout             *systray.MenuItem
 	mVersionUI         *systray.MenuItem
 	mVersionDaemon     *systray.MenuItem
-	mUpdate            *systray.MenuItem
 	mQuit              *systray.MenuItem
 	mNetworks          *systray.MenuItem
 	mAllowSSH          *systray.MenuItem
@@ -328,8 +321,6 @@ type serviceClient struct {
 	mExitNodeDeselectAll *systray.MenuItem
 	logFile              string
 	wLoginURL            fyne.Window
-	wUpdateProgress      fyne.Window
-	updateContextCancel  context.CancelFunc
 
 	connectCancel context.CancelFunc
 }
@@ -349,8 +340,6 @@ type newServiceClientArgs struct {
 	showLoginURL      bool
 	showProfiles      bool
 	showQuickActions  bool
-	showUpdate        bool
-	showUpdateVersion string
 }
 
 // newServiceClient instance constructor
@@ -388,8 +377,6 @@ func newServiceClient(args *newServiceClientArgs) *serviceClient {
 		s.showProfilesUI()
 	case args.showQuickActions:
 		s.showQuickActionsUI()
-	case args.showUpdate:
-		s.showUpdateProgress(ctx, args.showUpdateVersion)
 	}
 
 	return s
@@ -936,17 +923,11 @@ func (s *serviceClient) updateStatus() error {
 
 		// if the daemon version changed (e.g. after a successful update), reset the update indication
 		if s.daemonVersion != status.DaemonVersion {
-			if s.daemonVersion != "" {
-				s.mUpdate.Hide()
-				s.isUpdateIconActive = false
-			}
 			s.daemonVersion = status.DaemonVersion
-			if !s.isUpdateIconActive {
-				if systrayIconState {
-					systray.SetTemplateIcon(iconConnectedMacOS, s.icConnected)
-				} else {
-					systray.SetTemplateIcon(iconDisconnectedMacOS, s.icDisconnected)
-				}
+			if systrayIconState {
+				systray.SetTemplateIcon(iconConnectedMacOS, s.icConnected)
+			} else {
+				systray.SetTemplateIcon(iconDisconnectedMacOS, s.icDisconnected)
 			}
 
 			daemonVersionTitle := normalizedVersion(s.daemonVersion)
@@ -1081,9 +1062,6 @@ func (s *serviceClient) onTrayReady() {
 	s.mVersionDaemon.Disable()
 	s.mVersionDaemon.Hide()
 
-	s.mUpdate = s.mAbout.AddSubMenuItem("下载最新版本", latestVersionMenuDescr)
-	s.mUpdate.Hide()
-
 	systray.AddSeparator()
 	s.mQuit = systray.AddMenuItem("退出", quitMenuDescr)
 
@@ -1111,33 +1089,6 @@ func (s *serviceClient) onTrayReady() {
 	s.eventManager.AddHandler(func(event *proto.SystemEvent) {
 		if event.Category == proto.SystemEvent_SYSTEM {
 			s.updateExitNodes()
-		}
-	})
-	s.eventManager.AddHandler(func(event *proto.SystemEvent) {
-		// todo use new Category
-		if windowAction, ok := event.Metadata["progress_window"]; ok {
-			targetVersion, ok := event.Metadata["version"]
-			if !ok {
-				targetVersion = "unknown"
-			}
-			log.Debugf("window action: %v", windowAction)
-			if windowAction == "show" {
-				if s.updateContextCancel != nil {
-					s.updateContextCancel()
-					s.updateContextCancel = nil
-				}
-
-				subCtx, cancel := context.WithCancel(s.ctx)
-				go s.eventHandler.runSelfCommand(subCtx, "update", "--update-version", targetVersion)
-				s.updateContextCancel = cancel
-			}
-		}
-	})
-	s.eventManager.AddHandler(func(event *proto.SystemEvent) {
-		if newVersion, ok := event.Metadata["new_version_available"]; ok {
-			_, enforced := event.Metadata["enforced"]
-			log.Infof("received new_version_available event: version=%s enforced=%v", newVersion, enforced)
-			s.onUpdateAvailable(newVersion, enforced)
 		}
 	})
 
@@ -1520,33 +1471,6 @@ func protoConfigToConfig(cfg *proto.GetConfigResponse) *profilemanager.Config {
 	config.SSHJWTCacheTTL = &ttl
 
 	return &config
-}
-
-func (s *serviceClient) onUpdateAvailable(newVersion string, enforced bool) {
-	s.updateIndicationLock.Lock()
-	defer s.updateIndicationLock.Unlock()
-
-	s.isEnforcedUpdate = enforced
-	if enforced {
-		s.mUpdate.SetTitle("Install version " + newVersion)
-	} else {
-		s.lastNotifiedVersion = ""
-		s.mUpdate.SetTitle("Download latest version")
-	}
-
-	s.mUpdate.Show()
-	s.isUpdateIconActive = true
-
-	if s.connected {
-		systray.SetTemplateIcon(iconUpdateConnectedMacOS, s.icUpdateConnected)
-	} else {
-		systray.SetTemplateIcon(iconUpdateDisconnectedMacOS, s.icUpdateDisconnected)
-	}
-
-	if enforced && s.lastNotifiedVersion != newVersion {
-		s.lastNotifiedVersion = newVersion
-		s.app.SendNotification(fyne.NewNotification("有可用更新", "新版本 "+newVersion+" 已准备好安装"))
-	}
 }
 
 // onSessionExpire sends a notification to the user when the session expires.

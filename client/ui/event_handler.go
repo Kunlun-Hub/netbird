@@ -16,7 +16,6 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/client/proto"
-	"github.com/netbirdio/netbird/version"
 )
 
 type eventHandler struct {
@@ -55,8 +54,6 @@ func (h *eventHandler) listen(ctx context.Context) {
 		case <-h.client.mQuit.ClickedCh:
 			h.handleQuitClick()
 			return
-		case <-h.client.mUpdate.ClickedCh:
-			h.handleUpdateClick()
 		case <-h.client.mNetworks.ClickedCh:
 			h.handleNetworksClick()
 		case <-h.client.mNotifications.ClickedCh:
@@ -200,45 +197,6 @@ func (h *eventHandler) handleCreateDebugBundleClick() {
 
 func (h *eventHandler) handleQuitClick() {
 	systray.Quit()
-}
-
-func (h *eventHandler) handleUpdateClick() {
-	h.client.updateIndicationLock.Lock()
-	enforced := h.client.isEnforcedUpdate
-	h.client.updateIndicationLock.Unlock()
-
-	if !enforced {
-		if err := openURL(version.DownloadUrl()); err != nil {
-			log.Errorf("failed to open download URL: %v", err)
-		}
-		return
-	}
-
-	// prevent blocking against a busy server
-	h.client.mUpdate.Disable()
-	go func() {
-		defer h.client.mUpdate.Enable()
-		conn, err := h.client.getSrvClient(defaultFailTimeout)
-		if err != nil {
-			log.Errorf("failed to get service client for update: %v", err)
-			_ = openURL(version.DownloadUrl())
-			return
-		}
-
-		resp, err := conn.TriggerUpdate(h.client.ctx, &proto.TriggerUpdateRequest{})
-		if err != nil {
-			log.Errorf("TriggerUpdate failed: %v", err)
-			_ = openURL(version.DownloadUrl())
-			return
-		}
-		if !resp.Success {
-			log.Errorf("TriggerUpdate failed: %s", resp.ErrorMsg)
-			_ = openURL(version.DownloadUrl())
-			return
-		}
-
-		log.Infof("update triggered via daemon")
-	}()
 }
 
 func (h *eventHandler) handleNetworksClick() {

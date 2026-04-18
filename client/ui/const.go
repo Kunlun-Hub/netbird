@@ -11,6 +11,5 @@ const (
 	debugBundleMenuDescr       = "Create and open debug information bundle"
 	disabledMenuDescr          = ""
 	networksMenuDescr          = "Open the networks management window"
-	latestVersionMenuDescr     = "Download latest version"
 	quitMenuDescr              = "Quit the client app"
 )

@@ -39,7 +39,7 @@ func init() {
 	} else {
 		switch runtime.GOOS {
 		case "windows":
-			oldDefaultConfigPathDir = filepath.Join(os.Getenv("PROGRAMDATA"), "Netbird")
+			oldDefaultConfigPathDir = filepath.Join(os.Getenv("PROGRAMDATA"), "Cloink")
 			DefaultConfigPathDir = oldDefaultConfigPathDir
 
 		case "freebsd":

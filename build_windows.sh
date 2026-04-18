@@ -33,6 +33,10 @@ fi
 # 编译 UI 客户端
 echo "=== 编译 Windows UI 客户端 ==="
 if command -v x86_64-w64-mingw32-gcc &> /dev/null; then
+    # 删除旧的exe文件
+    rm -f dist/netbird_windows_amd64/cloink-ui.exe
+    echo "已删除旧的 cloink-ui.exe"
+    
     # 生成 Windows 资源文件（包含图标）
     export PATH=$PATH:$(go env GOPATH)/bin
     if command -v rsrc &> /dev/null; then
@@ -60,6 +64,10 @@ fi
 
 # 编译 CLI 客户端
 echo "=== 编译 Windows CLI 客户端 ==="
+# 删除旧的exe文件
+rm -f dist/netbird_windows_amd64/cloink.exe
+echo "已删除旧的 cloink.exe"
+
 CGO_ENABLED=0 GOOS=windows GOARCH=amd64 \
     go build -o dist/netbird_windows_amd64/cloink.exe \
     -ldflags "-s -w -X github.com/netbirdio/netbird/version.version=0.68.3" \

@@ -61,15 +61,15 @@ func (s *serviceClient) showNetworksUI() {
 
 	buttonBox := container.NewHBox(
 		layout.NewSpacer(),
-		widget.NewButton("Refresh", func() {
+		widget.NewButton("刷新", func() {
 			s.updateNetworksBasedOnDisplayTab(tabs, allGrid, overlappingGrid, exitNodeGrid)
 		}),
-		widget.NewButton("Select all", func() {
+		widget.NewButton("全选", func() {
 			_, f := getGridAndFilterFromTab(tabs, allGrid, overlappingGrid, exitNodeGrid)
 			s.selectAllFilteredNetworks(f)
 			s.updateNetworksBasedOnDisplayTab(tabs, allGrid, overlappingGrid, exitNodeGrid)
 		}),
-		widget.NewButton("Deselect All", func() {
+		widget.NewButton("取消全选", func() {
 			_, f := getGridAndFilterFromTab(tabs, allGrid, overlappingGrid, exitNodeGrid)
 			s.deselectAllFilteredNetworks(f)
 			s.updateNetworksBasedOnDisplayTab(tabs, allGrid, overlappingGrid, exitNodeGrid)
@@ -89,8 +89,8 @@ func (s *serviceClient) updateNetworks(grid *fyne.Container, f filter) {
 	grid.Objects = nil
 	grid.Refresh()
 	idHeader := widget.NewLabelWithStyle("      ID", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
-	networkHeader := widget.NewLabelWithStyle("Range/Domains", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
-	resolvedIPsHeader := widget.NewLabelWithStyle("Resolved IPs", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
+	networkHeader := widget.NewLabelWithStyle("范围/域名", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
+	resolvedIPsHeader := widget.NewLabelWithStyle("解析IP", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 
 	grid.Add(idHeader)
 	grid.Add(networkHeader)

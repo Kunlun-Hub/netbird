@@ -1,18 +1,18 @@
 {{ template "header.html" . }}
 
 <div class="nb-card">
-    <h1 class="nb-heading">Device Login</h1>
-    <p class="nb-subheading">Enter the code shown on your device</p>
+    <h1 class="nb-heading">设备登录</h1>
+    <p class="nb-subheading">请输入您的设备显示的代码</p>
 
     <form method="post" action="{{ .PostURL }}">
         {{ if .Invalid }}
         <div class="nb-error">
-            Invalid user code.
+            无效的用户代码。
         </div>
         {{ end }}
 
         <div class="nb-form-group">
-            <label class="nb-label" for="user_code">Device Code</label>
+            <label class="nb-label" for="user_code">设备代码</label>
             <input
                 type="text"
                 id="user_code"
@@ -26,7 +26,7 @@
         </div>
 
         <button type="submit" class="nb-btn">
-            Continue
+            继续
         </button>
     </form>
 </div>

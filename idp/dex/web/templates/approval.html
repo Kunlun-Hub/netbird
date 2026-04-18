@@ -1,14 +1,14 @@
 {{ template "header.html" . }}
 
 <div class="nb-card">
-    <h1 class="nb-heading">Grant Access</h1>
-    <p class="nb-subheading">{{ .Client }} wants to access your account</p>
+    <h1 class="nb-heading">授予访问权限</h1>
+    <p class="nb-subheading">{{ .Client }} 请求访问您的账户</p>
 
     <form method="post">
         <input type="hidden" name="req" value="{{ .ReqID }}"/>
         <input type="hidden" name="approval" value="approve"/>
         <button type="submit" class="nb-btn">
-            Allow Access
+            允许访问
         </button>
     </form>
 
@@ -18,7 +18,7 @@
         <input type="hidden" name="req" value="{{ .ReqID }}"/>
         <input type="hidden" name="approval" value="rejected"/>
         <button type="submit" class="nb-btn-connector" style="margin-bottom:0">
-            Deny Access
+            拒绝访问
         </button>
     </form>
 </div>
