@@ -177,6 +177,7 @@ func toAPIResponse(idp *types.IdentityProvider) api.IdentityProvider {
 		Name:     idp.Name,
 		Issuer:   idp.Issuer,
 		ClientId: idp.ClientID,
+		AgentId:  idp.AgentID,
 	}
 	if idp.ID != "" {
 		resp.Id = &idp.ID
@@ -192,6 +193,6 @@ func fromAPIRequest(req *api.IdentityProviderRequest) *types.IdentityProvider {
 		Issuer:       req.Issuer,
 		ClientID:     req.ClientId,
 		ClientSecret: req.ClientSecret,
-		SuiteTicket:  req.SuiteTicket,
+		AgentID:      req.AgentId,
 	}
 }

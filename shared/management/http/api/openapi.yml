@@ -2942,6 +2942,10 @@ components:
           description: OAuth2 client ID
           type: string
           example: 123456789.apps.googleusercontent.com
+        agent_id:
+          description: WeChat Work application agent ID used by the official login widget
+          type: string
+          example: "1000002"
       required:
         - type
         - name
@@ -2963,14 +2967,14 @@ components:
           description: OAuth2 client ID
           type: string
           example: 123456789.apps.googleusercontent.com
+        agent_id:
+          description: WeChat Work application agent ID used by the official login widget
+          type: string
+          example: "1000002"
         client_secret:
           description: OAuth2 client secret
           type: string
           example: secret123
-        suite_ticket:
-          description: WeChat Work suite ticket for third-party app login
-          type: string
-          example: suite-ticket
       required:
         - type
         - name

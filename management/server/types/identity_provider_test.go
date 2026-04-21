@@ -127,23 +127,23 @@ func TestIdentityProvider_Validate(t *testing.T) {
 			expectedErr: nil,
 		},
 		{
-			name: "WeChat Work provider with suite ticket is valid",
+			name: "WeChat Work provider with agent id is valid",
 			idp: &IdentityProvider{
-				Name:        "WeChat Work SSO",
-				Type:        IdentityProviderTypeWeChatWork,
-				ClientID:    "ww1234567890",
-				SuiteTicket: "suite-ticket",
+				Name:     "WeChat Work SSO",
+				Type:     IdentityProviderTypeWeChatWork,
+				ClientID: "ww1234567890",
+				AgentID:  "1000002",
 			},
 			expectedErr: nil,
 		},
 		{
-			name: "WeChat Work provider without suite ticket is invalid",
+			name: "WeChat Work provider without agent id is invalid",
 			idp: &IdentityProvider{
 				Name:     "WeChat Work SSO",
 				Type:     IdentityProviderTypeWeChatWork,
 				ClientID: "ww1234567890",
 			},
-			expectedErr: ErrIdentityProviderSuiteTicketRequired,
+			expectedErr: ErrIdentityProviderAgentIDRequired,
 		},
 	}
 

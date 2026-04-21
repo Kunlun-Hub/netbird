@@ -25,8 +25,8 @@ type ConnectorConfig struct {
 	ClientID string
 	// ClientSecret is the OAuth2 client secret
 	ClientSecret string
-	// SuiteTicket is used by the WeChat Work third-party login flow
-	SuiteTicket string
+	// AgentID is the WeChat Work application agent id
+	AgentID string
 	// RedirectURI is the OAuth2 redirect URI
 	RedirectURI string
 }
@@ -128,8 +128,8 @@ func mergeConnectorConfig(cfg, oldCfg *ConnectorConfig) {
 	if cfg.ClientID == "" {
 		cfg.ClientID = oldCfg.ClientID
 	}
-	if cfg.SuiteTicket == "" {
-		cfg.SuiteTicket = oldCfg.SuiteTicket
+	if cfg.AgentID == "" {
+		cfg.AgentID = oldCfg.AgentID
 	}
 	if cfg.Name == "" {
 		cfg.Name = oldCfg.Name
@@ -240,7 +240,7 @@ func buildWeChatWorkConnectorConfig(cfg *ConnectorConfig) ([]byte, error) {
 		"emailHeader":    "X-NetBird-WeChatWork-User-Email",
 		"clientID":       cfg.ClientID,
 		"clientSecret":   cfg.ClientSecret,
-		"suiteTicket":    cfg.SuiteTicket,
+		"agentID":        cfg.AgentID,
 	})
 }
 
@@ -278,16 +278,15 @@ func (p *Provider) parseStorageConnector(conn storage.Connector) (*ConnectorConf
 	if v, ok := configMap["clientSecret"].(string); ok {
 		cfg.ClientSecret = v
 	}
+	if v, ok := configMap["agentID"].(string); ok {
+		cfg.AgentID = v
+	}
 	if v, ok := configMap["redirectURI"].(string); ok {
 		cfg.RedirectURI = v
 	}
 	if v, ok := configMap["issuer"].(string); ok {
 		cfg.Issuer = v
 	}
-	if v, ok := configMap["suiteTicket"].(string); ok {
-		cfg.SuiteTicket = v
-	}
-
 	// Infer the original identity provider type from Dex connector type and ID
 	cfg.Type = inferIdentityProviderType(conn.Type, conn.ID, configMap)
 

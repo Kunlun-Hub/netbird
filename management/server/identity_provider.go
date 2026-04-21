@@ -189,22 +189,6 @@ func (am *DefaultAccountManager) UpdateIdentityProvider(ctx context.Context, acc
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	if idpConfig.Type == types.IdentityProviderTypeWeChatWork && idpConfig.SuiteTicket == "" {
-		embeddedManager, ok := am.idpManager.(*idp.EmbeddedIdPManager)
-		if !ok {
-			return nil, status.Errorf(status.Internal, "identity provider management requires embedded IdP")
-		}
-
-		existingConn, err := embeddedManager.GetConnector(ctx, idpID)
-		if err != nil {
-			if errors.Is(err, storage.ErrNotFound) {
-				return nil, status.Errorf(status.NotFound, "identity provider not found")
-			}
-			return nil, status.Errorf(status.Internal, "failed to get identity provider: %v", err)
-		}
-		idpConfig.SuiteTicket = existingConn.SuiteTicket
-	}
-
 	if err := validateIdentityProviderConfig(ctx, idpConfig); err != nil {
 		return nil, err
 	}
@@ -275,7 +259,7 @@ func connectorConfigToIdentityProvider(conn *dex.ConnectorConfig, accountID stri
 		Issuer:       conn.Issuer,
 		ClientID:     conn.ClientID,
 		ClientSecret: conn.ClientSecret,
-		SuiteTicket:  conn.SuiteTicket,
+		AgentID:      conn.AgentID,
 	}
 }
 
@@ -288,7 +272,7 @@ func identityProviderToConnectorConfig(idpConfig *types.IdentityProvider) *dex.C
 		Issuer:       idpConfig.Issuer,
 		ClientID:     idpConfig.ClientID,
 		ClientSecret: idpConfig.ClientSecret,
-		SuiteTicket:  idpConfig.SuiteTicket,
+		AgentID:      idpConfig.AgentID,
 	}
 }
 

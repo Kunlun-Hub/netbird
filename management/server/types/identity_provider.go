@@ -15,7 +15,7 @@ var (
 	ErrIdentityProviderIssuerUnreachable = errors.New("identity provider issuer is unreachable")
 	ErrIdentityProviderIssuerMismatch    = errors.New("identity provider issuer does not match the issuer returned by the provider")
 	ErrIdentityProviderClientIDRequired  = errors.New("identity provider client ID is required")
-	ErrIdentityProviderSuiteTicketRequired = errors.New("identity provider suite ticket is required")
+	ErrIdentityProviderAgentIDRequired   = errors.New("identity provider agent ID is required")
 )
 
 // IdentityProviderType is the type of identity provider
@@ -60,8 +60,8 @@ type IdentityProvider struct {
 	ClientID string
 	// ClientSecret is the OAuth2 client secret
 	ClientSecret string
-	// SuiteTicket is the WeChat Work suite ticket for third-party app login
-	SuiteTicket string
+	// AgentID is the WeChat Work application agent id used by the official login widget
+	AgentID string
 }
 
 // Copy returns a copy of the IdentityProvider
@@ -74,7 +74,7 @@ func (idp *IdentityProvider) Copy() *IdentityProvider {
 		Issuer:       idp.Issuer,
 		ClientID:     idp.ClientID,
 		ClientSecret: idp.ClientSecret,
-		SuiteTicket:  idp.SuiteTicket,
+		AgentID:      idp.AgentID,
 	}
 }
 
@@ -110,8 +110,10 @@ func (idp *IdentityProvider) Validate() error {
 	if idp.ClientID == "" {
 		return ErrIdentityProviderClientIDRequired
 	}
-	if idp.Type == IdentityProviderTypeWeChatWork && idp.SuiteTicket == "" {
-		return ErrIdentityProviderSuiteTicketRequired
+	if idp.Type == IdentityProviderTypeWeChatWork {
+		if idp.AgentID == "" {
+			return ErrIdentityProviderAgentIDRequired
+		}
 	}
 	return nil
 }

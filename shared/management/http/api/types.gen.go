@@ -2315,6 +2315,9 @@ type HuntressMatchAttributes struct {
 
 // IdentityProvider defines model for IdentityProvider.
 type IdentityProvider struct {
+	// AgentId WeChat Work application agent ID used by the official login widget
+	AgentId string `json:"agent_id"`
+
 	// ClientId OAuth2 client ID
 	ClientId string `json:"client_id"`
 
@@ -2333,6 +2336,9 @@ type IdentityProvider struct {
 
 // IdentityProviderRequest defines model for IdentityProviderRequest.
 type IdentityProviderRequest struct {
+	// AgentId WeChat Work application agent ID used by the official login widget
+	AgentId string `json:"agent_id"`
+
 	// ClientId OAuth2 client ID
 	ClientId string `json:"client_id"`
 
@@ -2344,9 +2350,6 @@ type IdentityProviderRequest struct {
 
 	// Name Human-readable name for the identity provider
 	Name string `json:"name"`
-
-	// SuiteTicket WeChat Work suite ticket for third-party app login
-	SuiteTicket string `json:"suite_ticket"`
 
 	// Type Type of identity provider
 	Type IdentityProviderType `json:"type"`
