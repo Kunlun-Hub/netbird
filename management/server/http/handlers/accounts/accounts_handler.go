@@ -228,6 +228,9 @@ func (h *handler) updateAccountRequestSettings(req api.PutApiAccountsAccountIdJS
 	if req.Settings.AutoUpdateAlways != nil {
 		returnSettings.AutoUpdateAlways = *req.Settings.AutoUpdateAlways
 	}
+	if req.Settings.LoginMethod != nil {
+		returnSettings.LoginMethod = types.LoginMethod(*req.Settings.LoginMethod)
+	}
 
 	return returnSettings, nil
 }
@@ -334,6 +337,10 @@ func toAccountResponse(accountID string, settings *types.Settings, meta *types.A
 	if jwtAllowGroups == nil {
 		jwtAllowGroups = []string{}
 	}
+	loginMethod := api.AccountSettingsLoginMethod(settings.LoginMethod)
+	if loginMethod == "" {
+		loginMethod = api.AccountSettingsLoginMethodAll
+	}
 
 	apiSettings := api.AccountSettings{
 		PeerLoginExpiration:             int(settings.PeerLoginExpiration.Seconds()),
@@ -354,6 +361,7 @@ func toAccountResponse(accountID string, settings *types.Settings, meta *types.A
 		AutoUpdateAlways:                &settings.AutoUpdateAlways,
 		EmbeddedIdpEnabled:              &settings.EmbeddedIdpEnabled,
 		LocalAuthDisabled:               &settings.LocalAuthDisabled,
+		LoginMethod:                     &loginMethod,
 	}
 
 	if settings.NetworkRange.IsValid() {

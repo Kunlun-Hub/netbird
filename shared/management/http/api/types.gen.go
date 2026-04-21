@@ -1453,6 +1453,16 @@ type AccountRequest struct {
 	Settings   AccountSettings    `json:"settings"`
 }
 
+// AccountSettingsLoginMethod defines model for AccountSettingsLoginMethod.
+type AccountSettingsLoginMethod string
+
+// Defines values for AccountSettingsLoginMethod.
+const (
+	AccountSettingsLoginMethodAll        AccountSettingsLoginMethod = "all"
+	AccountSettingsLoginMethodEmail      AccountSettingsLoginMethod = "email"
+	AccountSettingsLoginMethodWechatwork AccountSettingsLoginMethod = "wechatwork"
+)
+
 // AccountSettings defines model for AccountSettings.
 type AccountSettings struct {
 	// AutoUpdateAlways When true, updates are installed automatically in the background. When false, updates require user interaction from the UI.
@@ -1485,6 +1495,9 @@ type AccountSettings struct {
 
 	// LocalAuthDisabled Indicates whether local (email/password) authentication is disabled. When true, users can only authenticate via external identity providers. This is a read-only field.
 	LocalAuthDisabled *bool `json:"local_auth_disabled,omitempty"`
+
+	// LoginMethod Controls which login method is presented on the embedded identity provider login screen.
+	LoginMethod *AccountSettingsLoginMethod `json:"login_method,omitempty"`
 
 	// NetworkRange Allows to define a custom network range for the account in CIDR format
 	NetworkRange *string `json:"network_range,omitempty"`
