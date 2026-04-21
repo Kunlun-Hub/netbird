@@ -195,6 +195,8 @@ func mapConnectorToDex(connType string, config map[string]interface{}) (string, 
 	switch connType {
 	case "oidc", "zitadel", "entra", "okta", "pocketid", "authentik", "keycloak":
 		return "oidc", applyOIDCDefaults(connType, config)
+	case "wechatwork":
+		return "authproxy", applyWeChatWorkDefaults(config)
 	default:
 		return connType, config
 	}
@@ -219,6 +221,20 @@ func applyOIDCDefaults(connType string, config map[string]interface{}) map[strin
 	case "okta", "pocketid":
 		augmented["scopes"] = []string{"openid", "profile", "email", "groups"}
 	}
+
+	return augmented
+}
+
+func applyWeChatWorkDefaults(config map[string]interface{}) map[string]interface{} {
+	augmented := make(map[string]interface{}, len(config)+4)
+	for k, v := range config {
+		augmented[k] = v
+	}
+
+	setDefault(augmented, "userIDHeader", "X-NetBird-WeChatWork-User-Id")
+	setDefault(augmented, "userHeader", "X-NetBird-WeChatWork-User")
+	setDefault(augmented, "userNameHeader", "X-NetBird-WeChatWork-User-Name")
+	setDefault(augmented, "emailHeader", "X-NetBird-WeChatWork-User-Email")
 
 	return augmented
 }

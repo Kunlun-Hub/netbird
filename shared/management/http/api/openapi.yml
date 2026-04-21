@@ -2917,6 +2917,9 @@ components:
         - okta
         - pocketid
         - microsoft
+        - authentik
+        - keycloak
+        - wechatwork
       example: oidc
     IdentityProvider:
       type: object
@@ -2942,7 +2945,6 @@ components:
       required:
         - type
         - name
-        - issuer
         - client_id
     IdentityProviderRequest:
       type: object
@@ -2965,10 +2967,13 @@ components:
           description: OAuth2 client secret
           type: string
           example: secret123
+        suite_ticket:
+          description: WeChat Work suite ticket for third-party app login
+          type: string
+          example: suite-ticket
       required:
         - type
         - name
-        - issuer
         - client_id
         - client_secret
     Service:

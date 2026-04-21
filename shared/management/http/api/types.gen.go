@@ -511,21 +511,28 @@ func (e GroupMinimumIssued) Valid() bool {
 
 // Defines values for IdentityProviderType.
 const (
-	IdentityProviderTypeEntra     IdentityProviderType = "entra"
-	IdentityProviderTypeGoogle    IdentityProviderType = "google"
-	IdentityProviderTypeMicrosoft IdentityProviderType = "microsoft"
-	IdentityProviderTypeOidc      IdentityProviderType = "oidc"
-	IdentityProviderTypeOkta      IdentityProviderType = "okta"
-	IdentityProviderTypePocketid  IdentityProviderType = "pocketid"
-	IdentityProviderTypeZitadel   IdentityProviderType = "zitadel"
+	IdentityProviderTypeAuthentik  IdentityProviderType = "authentik"
+	IdentityProviderTypeEntra      IdentityProviderType = "entra"
+	IdentityProviderTypeGoogle     IdentityProviderType = "google"
+	IdentityProviderTypeKeycloak   IdentityProviderType = "keycloak"
+	IdentityProviderTypeMicrosoft  IdentityProviderType = "microsoft"
+	IdentityProviderTypeOidc       IdentityProviderType = "oidc"
+	IdentityProviderTypeOkta       IdentityProviderType = "okta"
+	IdentityProviderTypePocketid   IdentityProviderType = "pocketid"
+	IdentityProviderTypeWechatwork IdentityProviderType = "wechatwork"
+	IdentityProviderTypeZitadel    IdentityProviderType = "zitadel"
 )
 
 // Valid indicates whether the value is a known member of the IdentityProviderType enum.
 func (e IdentityProviderType) Valid() bool {
 	switch e {
+	case IdentityProviderTypeAuthentik:
+		return true
 	case IdentityProviderTypeEntra:
 		return true
 	case IdentityProviderTypeGoogle:
+		return true
+	case IdentityProviderTypeKeycloak:
 		return true
 	case IdentityProviderTypeMicrosoft:
 		return true
@@ -534,6 +541,8 @@ func (e IdentityProviderType) Valid() bool {
 	case IdentityProviderTypeOkta:
 		return true
 	case IdentityProviderTypePocketid:
+		return true
+	case IdentityProviderTypeWechatwork:
 		return true
 	case IdentityProviderTypeZitadel:
 		return true
@@ -2335,6 +2344,9 @@ type IdentityProviderRequest struct {
 
 	// Name Human-readable name for the identity provider
 	Name string `json:"name"`
+
+	// SuiteTicket WeChat Work suite ticket for third-party app login
+	SuiteTicket string `json:"suite_ticket"`
 
 	// Type Type of identity provider
 	Type IdentityProviderType `json:"type"`

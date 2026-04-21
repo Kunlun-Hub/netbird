@@ -192,5 +192,6 @@ func fromAPIRequest(req *api.IdentityProviderRequest) *types.IdentityProvider {
 		Issuer:       req.Issuer,
 		ClientID:     req.ClientId,
 		ClientSecret: req.ClientSecret,
+		SuiteTicket:  req.SuiteTicket,
 	}
 }

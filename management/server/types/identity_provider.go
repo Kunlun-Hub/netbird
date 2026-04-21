@@ -15,6 +15,7 @@ var (
 	ErrIdentityProviderIssuerUnreachable = errors.New("identity provider issuer is unreachable")
 	ErrIdentityProviderIssuerMismatch    = errors.New("identity provider issuer does not match the issuer returned by the provider")
 	ErrIdentityProviderClientIDRequired  = errors.New("identity provider client ID is required")
+	ErrIdentityProviderSuiteTicketRequired = errors.New("identity provider suite ticket is required")
 )
 
 // IdentityProviderType is the type of identity provider
@@ -39,6 +40,8 @@ const (
 	IdentityProviderTypeAuthentik IdentityProviderType = "authentik"
 	// IdentityProviderTypeKeycloak is the Keycloak identity provider
 	IdentityProviderTypeKeycloak IdentityProviderType = "keycloak"
+	// IdentityProviderTypeWeChatWork is the WeChat Work / WeCom identity provider
+	IdentityProviderTypeWeChatWork IdentityProviderType = "wechatwork"
 )
 
 // IdentityProvider represents an identity provider configuration
@@ -57,6 +60,8 @@ type IdentityProvider struct {
 	ClientID string
 	// ClientSecret is the OAuth2 client secret
 	ClientSecret string
+	// SuiteTicket is the WeChat Work suite ticket for third-party app login
+	SuiteTicket string
 }
 
 // Copy returns a copy of the IdentityProvider
@@ -69,6 +74,7 @@ func (idp *IdentityProvider) Copy() *IdentityProvider {
 		Issuer:       idp.Issuer,
 		ClientID:     idp.ClientID,
 		ClientSecret: idp.ClientSecret,
+		SuiteTicket:  idp.SuiteTicket,
 	}
 }
 
@@ -104,6 +110,9 @@ func (idp *IdentityProvider) Validate() error {
 	if idp.ClientID == "" {
 		return ErrIdentityProviderClientIDRequired
 	}
+	if idp.Type == IdentityProviderTypeWeChatWork && idp.SuiteTicket == "" {
+		return ErrIdentityProviderSuiteTicketRequired
+	}
 	return nil
 }
 
@@ -112,7 +121,8 @@ func (t IdentityProviderType) IsValid() bool {
 	switch t {
 	case IdentityProviderTypeOIDC, IdentityProviderTypeZitadel, IdentityProviderTypeEntra,
 		IdentityProviderTypeGoogle, IdentityProviderTypeOkta, IdentityProviderTypePocketID,
-		IdentityProviderTypeMicrosoft, IdentityProviderTypeAuthentik, IdentityProviderTypeKeycloak:
+		IdentityProviderTypeMicrosoft, IdentityProviderTypeAuthentik, IdentityProviderTypeKeycloak,
+		IdentityProviderTypeWeChatWork:
 		return true
 	}
 	return false
@@ -120,5 +130,5 @@ func (t IdentityProviderType) IsValid() bool {
 
 // HasBuiltInIssuer returns true for types that don't require an issuer URL
 func (t IdentityProviderType) HasBuiltInIssuer() bool {
-	return t == IdentityProviderTypeGoogle || t == IdentityProviderTypeMicrosoft
+	return t == IdentityProviderTypeGoogle || t == IdentityProviderTypeMicrosoft || t == IdentityProviderTypeWeChatWork
 }
