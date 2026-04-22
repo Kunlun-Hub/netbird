@@ -24,13 +24,13 @@ import (
 func init() {
 	loginCmd.PersistentFlags().BoolVar(&noBrowser, noBrowserFlag, false, noBrowserDesc)
 	loginCmd.PersistentFlags().StringVar(&profileName, profileNameFlag, "", profileNameDesc)
-	loginCmd.PersistentFlags().StringVarP(&configPath, "config", "c", "", "(DEPRECATED) Netbird config file location")
+	loginCmd.PersistentFlags().StringVarP(&configPath, "config", "c", "", "(DEPRECATED) Cloink config file location")
 }
 
 var loginCmd = &cobra.Command{
 	Use:   "login",
-	Short: "Log in to the NetBird network",
-	Long:  "Log in to the NetBird network using a setup key or SSO",
+	Short: "Log in to the Cloink network",
+	Long:  "Log in to the Cloink network using a setup key or SSO",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if err := setEnvAndFlags(cmd); err != nil {
 			return fmt.Errorf("set env and flags: %v", err)
@@ -83,7 +83,7 @@ func doDaemonLogin(ctx context.Context, cmd *cobra.Command, providedSetupKey str
 		//nolint
 		return fmt.Errorf("failed to connect to daemon error: %v\n"+
 			"If the daemon is not running please run: "+
-			"\nnetbird service install \nnetbird service start\n", err)
+			"\ncloink service install \ncloink service start\n", err)
 	}
 	defer conn.Close()
 
@@ -163,7 +163,7 @@ func getActiveProfile(ctx context.Context, pm *profilemanager.ProfileManager, pr
 	}
 
 	if activeProf == nil {
-		return nil, fmt.Errorf("active profile not found, please run 'netbird profile create' first")
+		return nil, fmt.Errorf("active profile not found, please run 'cloink profile create' first")
 	}
 	return activeProf, nil
 }
@@ -209,7 +209,7 @@ func switchProfile(ctx context.Context, profileName string, username string) err
 		//nolint
 		return fmt.Errorf("failed to connect to daemon error: %v\n"+
 			"If the daemon is not running please run: "+
-			"\nnetbird service install \nnetbird service start\n", err)
+			"\ncloink service install \ncloink service start\n", err)
 	}
 	defer conn.Close()
 

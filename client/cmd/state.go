@@ -17,7 +17,7 @@ var (
 var stateCmd = &cobra.Command{
 	Use:   "state",
 	Short: "Manage daemon state",
-	Long:  "Provides commands for managing and inspecting the NetBird daemon state.",
+	Long:  "Provides commands for managing and inspecting the Cloink daemon state.",
 }
 
 var stateListCmd = &cobra.Command{
@@ -25,7 +25,7 @@ var stateListCmd = &cobra.Command{
 	Aliases: []string{"ls"},
 	Short:   "List all stored states",
 	Long:    "Lists all registered states with their status and basic information.",
-	Example: "  netbird state list",
+	Example: "  cloink state list",
 	RunE:    stateList,
 }
 
