@@ -903,16 +903,11 @@ func (s *serviceClient) updateStatus() error {
 			} else {
 				systray.SetTemplateIcon(iconConnectedMacOS, s.icConnected)
 			}
-			systray.SetTooltip("NetBird (Connected)")
+			systray.SetTooltip("Cloink (Connected)")
 			s.mStatus.SetTitle("已连接")
 			s.mStatus.SetIcon(s.icConnectedDot)
 			s.mUp.Disable()
 			s.mDown.Enable()
-			if s.networksEnabled {
-				s.mNetworks.Enable()
-				s.mExitNode.Enable()
-			}
-			s.startExitNodeRefresh()
 			systrayIconState = true
 		case status.Status == string(internal.StatusConnecting):
 			s.setConnectingStatus()
@@ -960,31 +955,25 @@ func (s *serviceClient) setDisconnectedStatus() {
 	} else {
 		systray.SetTemplateIcon(iconDisconnectedMacOS, s.icDisconnected)
 	}
-	systray.SetTooltip("NetBird (Disconnected)")
+	systray.SetTooltip("Cloink (Disconnected)")
 	s.mStatus.SetTitle("已断开")
 	s.mStatus.SetIcon(s.icDisconnectedDot)
 	s.mDown.Disable()
 	s.mUp.Enable()
-	s.mNetworks.Disable()
-	s.mExitNode.Disable()
-	s.cancelExitNodeRetry()
-	go s.updateExitNodes()
 }
 
 func (s *serviceClient) setConnectingStatus() {
 	s.connected = false
 	systray.SetTemplateIcon(iconConnectingMacOS, s.icConnecting)
-	systray.SetTooltip("NetBird (Connecting)")
+	systray.SetTooltip("Cloink (Connecting)")
 	s.mStatus.SetTitle("正在连接")
 	s.mUp.Disable()
 	s.mDown.Enable()
-	s.mNetworks.Disable()
-	s.mExitNode.Disable()
 }
 
 func (s *serviceClient) onTrayReady() {
 	systray.SetTemplateIcon(iconDisconnectedMacOS, s.icDisconnected)
-	systray.SetTooltip("NetBird")
+	systray.SetTooltip("Cloink")
 
 	// setup systray menu items
 	s.mStatus = systray.AddMenuItem("Disconnected", "Disconnected")
@@ -996,16 +985,10 @@ func (s *serviceClient) onTrayReady() {
 
 	newProfileMenuArgs := &newProfileMenuArgs{
 		ctx:                  s.ctx,
-		serviceClient:        s,
 		profileManager:       s.profileManager,
-		eventHandler:         s.eventHandler,
 		profileMenuItem:      profileMenuItem,
 		emailMenuItem:        emailMenuItem,
-		downClickCallback:    s.menuDownClick,
-		upClickCallback:      s.menuUpClick,
 		getSrvClientCallback: s.getSrvClient,
-		loadSettingsCallback: s.loadSettings,
-		app:                  s.app,
 	}
 
 	s.mProfile = newProfileMenu(*newProfileMenuArgs)
@@ -1016,6 +999,7 @@ func (s *serviceClient) onTrayReady() {
 	s.mDown.Disable()
 	systray.AddSeparator()
 
+	s.mNetworks = systray.AddMenuItem("网络路由", "网络路由")
 	s.mSettings = systray.AddMenuItem("设置", disabledMenuDescr)
 	s.mAllowSSH = s.mSettings.AddSubMenuItemCheckbox("允许 SSH", allowSSHMenuDescr, false)
 	s.mAutoConnect = s.mSettings.AddSubMenuItemCheckbox("开机自动连接", autoConnectMenuDescr, false)
@@ -1027,28 +1011,6 @@ func (s *serviceClient) onTrayReady() {
 	s.mAdvancedSettings = s.mSettings.AddSubMenuItem("高级设置", advancedSettingsMenuDescr)
 	s.mCreateDebugBundle = s.mSettings.AddSubMenuItem("创建调试包", debugBundleMenuDescr)
 	s.loadSettings()
-
-	// Disable settings menu if update settings are disabled by daemon
-	features, err := s.getFeatures()
-	if err != nil {
-		log.Errorf("failed to get features from daemon: %v", err)
-		// Continue with default behavior if features can't be retrieved
-	} else {
-		if features != nil && features.DisableUpdateSettings {
-			s.setSettingsEnabled(false)
-		}
-		if features != nil && features.DisableProfiles {
-			s.mProfile.setEnabled(false)
-		}
-	}
-
-	s.exitNodeMu.Lock()
-	s.mExitNode = systray.AddMenuItem("出口节点", disabledMenuDescr)
-	s.mExitNode.Disable()
-	s.exitNodeMu.Unlock()
-
-	s.mNetworks = systray.AddMenuItem("网络", networksMenuDescr)
-	s.mNetworks.Disable()
 	systray.AddSeparator()
 
 	s.mAbout = systray.AddMenuItem("关于", "关于")
@@ -1065,16 +1027,10 @@ func (s *serviceClient) onTrayReady() {
 	systray.AddSeparator()
 	s.mQuit = systray.AddMenuItem("退出", quitMenuDescr)
 
-	// update exit node menu in case service is already connected
-	go s.updateExitNodes()
-
 	go func() {
 		s.getSrvConfig()
 		time.Sleep(100 * time.Millisecond) // To prevent race condition caused by systray not being fully initialized and ignoring setIcon
 		for {
-			// Check features before status so menus respect disable flags before being enabled
-			s.checkAndUpdateFeatures()
-
 			err := s.updateStatus()
 			if err != nil {
 				log.Errorf("error while updating status: %v", err)
@@ -1086,11 +1042,6 @@ func (s *serviceClient) onTrayReady() {
 
 	s.eventManager = event.NewManager(s.app, s.addr)
 	s.eventManager.SetNotificationsEnabled(s.mNotifications.Checked())
-	s.eventManager.AddHandler(func(event *proto.SystemEvent) {
-		if event.Category == proto.SystemEvent_SYSTEM {
-			s.updateExitNodes()
-		}
-	})
 
 	go s.eventManager.Start(s.ctx)
 	go s.eventHandler.listen(s.ctx)
@@ -1213,18 +1164,6 @@ func (s *serviceClient) handleSleepEvents(event sleep.EventType) {
 	log.Info("successfully notified daemon about os lifecycle")
 }
 
-// setSettingsEnabled enables or disables the settings menu based on the provided state
-func (s *serviceClient) setSettingsEnabled(enabled bool) {
-	if s.mSettings != nil {
-		if enabled {
-			s.mSettings.Enable()
-		} else {
-			s.mSettings.Hide()
-			s.mSettings.SetTooltip("Settings are disabled by daemon")
-		}
-	}
-}
-
 // checkAndUpdateFeatures checks the current features and updates the UI accordingly
 func (s *serviceClient) checkAndUpdateFeatures() {
 	features, err := s.getFeatures()
@@ -1236,13 +1175,6 @@ func (s *serviceClient) checkAndUpdateFeatures() {
 	s.updateIndicationLock.Lock()
 	defer s.updateIndicationLock.Unlock()
 
-	// Update settings menu based on current features
-	settingsEnabled := features == nil || !features.DisableUpdateSettings
-	if s.settingsEnabled != settingsEnabled {
-		s.settingsEnabled = settingsEnabled
-		s.setSettingsEnabled(settingsEnabled)
-	}
-
 	// Update profile menu based on current features
 	if s.mProfile != nil {
 		profilesEnabled := features == nil || !features.DisableProfiles
@@ -1252,15 +1184,6 @@ func (s *serviceClient) checkAndUpdateFeatures() {
 		}
 	}
 
-	// Update networks and exit node menus based on current features
-	s.networksEnabled = features == nil || !features.DisableNetworks
-	if s.networksEnabled && s.connected {
-		s.mNetworks.Enable()
-		s.mExitNode.Enable()
-	} else {
-		s.mNetworks.Disable()
-		s.mExitNode.Disable()
-	}
 }
 
 // getFeatures from the daemon to determine which features are enabled/disabled.
@@ -1484,6 +1407,14 @@ func (s *serviceClient) onSessionExpire() {
 
 // loadSettings loads the settings from the config file and updates the UI elements accordingly.
 func (s *serviceClient) loadSettings() {
+	if s.eventManager != nil {
+		s.eventManager.SetNotificationsEnabled(true)
+	}
+
+	if s.wSettings == nil {
+		return
+	}
+
 	conn, err := s.getSrvClient(failFastTimeout)
 	if err != nil {
 		log.Errorf("get client: %v", err)
@@ -1511,49 +1442,18 @@ func (s *serviceClient) loadSettings() {
 		return
 	}
 
-	if cfg.ServerSSHAllowed {
-		s.mAllowSSH.Check()
-	} else {
-		s.mAllowSSH.Uncheck()
-	}
-
-	if cfg.DisableAutoConnect {
-		s.mAutoConnect.Uncheck()
-	} else {
-		s.mAutoConnect.Check()
-	}
-
-	if cfg.RosenpassEnabled {
-		s.mEnableRosenpass.Check()
-	} else {
-		s.mEnableRosenpass.Uncheck()
-	}
-
-	if cfg.LazyConnectionEnabled {
-		s.mLazyConnEnabled.Check()
-	} else {
-		s.mLazyConnEnabled.Uncheck()
-	}
-
-	if cfg.BlockInbound {
-		s.mBlockInbound.Check()
-	} else {
-		s.mBlockInbound.Uncheck()
-	}
-
-	if cfg.DisableNotifications {
-		s.mNotifications.Uncheck()
-	} else {
-		s.mNotifications.Check()
-	}
 	if s.eventManager != nil {
-		s.eventManager.SetNotificationsEnabled(s.mNotifications.Checked())
+		s.eventManager.SetNotificationsEnabled(!cfg.DisableNotifications)
 	}
 }
 
 // updateConfig updates the configuration parameters
 // based on the values selected in the settings window.
 func (s *serviceClient) updateConfig() error {
+	if s.wSettings == nil {
+		return nil
+	}
+
 	disableAutoStart := !s.mAutoConnect.Checked()
 	sshAllowed := s.mAllowSSH.Checked()
 	rosenpassEnabled := s.mEnableRosenpass.Checked()

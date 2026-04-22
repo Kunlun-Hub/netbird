@@ -439,5 +439,5 @@ func sanitizeWeChatWorkEmail(id string) string {
 	if sanitized == "" {
 		sanitized = "user"
 	}
-	return sanitized + "@wechatwork.local"
+	return sanitized + "@wecom.local"
 }

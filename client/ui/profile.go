@@ -7,8 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"os/user"
-	"slices"
-	"sort"
 	"sync"
 	"time"
 
@@ -387,51 +385,30 @@ type subItem struct {
 type profileMenu struct {
 	mu                    sync.Mutex
 	ctx                   context.Context
-	serviceClient         *serviceClient
 	profileManager        *profilemanager.ProfileManager
-	eventHandler          *eventHandler
 	profileMenuItem       *systray.MenuItem
 	emailMenuItem         *systray.MenuItem
-	profileSubItems       []*subItem
-	manageProfilesSubItem *subItem
-	logoutSubItem         *subItem
-	profilesState         []Profile
-	downClickCallback     func() error
-	upClickCallback       func(context.Context) error
 	getSrvClientCallback  func(timeout time.Duration) (proto.DaemonServiceClient, error)
-	loadSettingsCallback  func()
-	app                   fyne.App
 }
 
 type newProfileMenuArgs struct {
 	ctx                  context.Context
-	serviceClient        *serviceClient
 	profileManager       *profilemanager.ProfileManager
-	eventHandler         *eventHandler
 	profileMenuItem      *systray.MenuItem
 	emailMenuItem        *systray.MenuItem
-	downClickCallback    func() error
-	upClickCallback      func(context.Context) error
 	getSrvClientCallback func(timeout time.Duration) (proto.DaemonServiceClient, error)
-	loadSettingsCallback func()
-	app                  fyne.App
 }
 
 func newProfileMenu(args newProfileMenuArgs) *profileMenu {
 	p := profileMenu{
 		ctx:                  args.ctx,
-		serviceClient:        args.serviceClient,
 		profileManager:       args.profileManager,
-		eventHandler:         args.eventHandler,
 		profileMenuItem:      args.profileMenuItem,
 		emailMenuItem:        args.emailMenuItem,
-		downClickCallback:    args.downClickCallback,
-		upClickCallback:      args.upClickCallback,
 		getSrvClientCallback: args.getSrvClientCallback,
-		loadSettingsCallback: args.loadSettingsCallback,
-		app:                  args.app,
 	}
 
+	p.profileMenuItem.Disable()
 	p.emailMenuItem.Disable()
 	p.emailMenuItem.Hide()
 	p.refresh()
@@ -473,15 +450,6 @@ func (p *profileMenu) refresh() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	profiles, err := p.getProfiles()
-	if err != nil {
-		log.Errorf("failed to list profiles: %v", err)
-		return
-	}
-
-	// Clear existing profile items
-	p.clear(profiles)
-
 	currUser, err := user.Current()
 	if err != nil {
 		log.Errorf("failed to get current user: %v", err)
@@ -509,132 +477,9 @@ func (p *profileMenu) refresh() {
 			p.emailMenuItem.SetTitle(fmt.Sprintf("(%s)", activeProfState.Email))
 			p.emailMenuItem.Show()
 		}
+	} else {
+		p.emailMenuItem.Hide()
 	}
-
-	for _, profile := range profiles {
-		item := p.profileMenuItem.AddSubMenuItem(profile.Name, "")
-		if profile.IsActive {
-			item.Check()
-		}
-
-		ctx, cancel := context.WithCancel(context.Background())
-		p.profileSubItems = append(p.profileSubItems, &subItem{item, ctx, cancel})
-
-		go func() {
-			for {
-				select {
-				case <-ctx.Done():
-					return // context cancelled
-				case _, ok := <-item.ClickedCh:
-					if !ok {
-						return // channel closed
-					}
-
-					// Handle profile selection
-					if profile.IsActive {
-						log.Infof("Profile '%s' is already active", profile.Name)
-						return
-					}
-					conn, err := p.getSrvClientCallback(defaultFailTimeout)
-					if err != nil {
-						log.Errorf("failed to get daemon client: %v", err)
-						return
-					}
-
-					_, err = conn.SwitchProfile(ctx, &proto.SwitchProfileRequest{
-						ProfileName: &profile.Name,
-						Username:    &currUser.Username,
-					})
-					if err != nil {
-						log.Errorf("failed to switch profile: %v", err)
-						// show  notification dialog
-						p.app.SendNotification(fyne.NewNotification("Error", "Failed to switch profile"))
-						return
-					}
-
-					err = p.profileManager.SwitchProfile(profile.Name)
-					if err != nil {
-						log.Errorf("failed to switch profile '%s': %v", profile.Name, err)
-						return
-					}
-
-					log.Infof("Switched to profile '%s'", profile.Name)
-
-					status, err := conn.Status(ctx, &proto.StatusRequest{})
-					if err != nil {
-						log.Errorf("failed to get status after switching profile: %v", err)
-						return
-					}
-
-					if status.Status == string(internal.StatusConnected) {
-						if err := p.downClickCallback(); err != nil {
-							log.Errorf("failed to handle down click after switching profile: %v", err)
-						}
-					}
-
-					if p.serviceClient.connectCancel != nil {
-						p.serviceClient.connectCancel()
-					}
-
-					connectCtx, connectCancel := context.WithCancel(p.ctx)
-					p.serviceClient.connectCancel = connectCancel
-
-					if err := p.upClickCallback(connectCtx); err != nil {
-						log.Errorf("failed to handle up click after switching profile: %v", err)
-					}
-
-					connectCancel()
-
-					p.refresh()
-					p.loadSettingsCallback()
-				}
-			}
-		}()
-
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	manageItem := p.profileMenuItem.AddSubMenuItem("Manage Profiles", "")
-	p.manageProfilesSubItem = &subItem{manageItem, ctx, cancel}
-
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case _, ok := <-manageItem.ClickedCh:
-				if !ok {
-					return
-				}
-				p.eventHandler.runSelfCommand(p.ctx, "profiles", "true")
-				p.refresh()
-				p.loadSettingsCallback()
-			}
-		}
-	}()
-
-	// Add Logout menu item
-	ctx2, cancel2 := context.WithCancel(context.Background())
-	logoutItem := p.profileMenuItem.AddSubMenuItem("Deregister", "")
-	p.logoutSubItem = &subItem{logoutItem, ctx2, cancel2}
-
-	go func() {
-		for {
-			select {
-			case <-ctx2.Done():
-				return
-			case _, ok := <-logoutItem.ClickedCh:
-				if !ok {
-					return
-				}
-				if err := p.eventHandler.logout(p.ctx); err != nil {
-					log.Errorf("logout failed: %v", err)
-					p.app.SendNotification(fyne.NewNotification("Error", "Failed to deregister"))
-				} else {
-					p.app.SendNotification(fyne.NewNotification("Success", "Deregistered successfully"))
-				}
-			}
-		}
-	}()
 
 	if activeProf.ProfileName == "default" || activeProf.Username == currUser.Username {
 		p.profileMenuItem.SetTitle(activeProf.ProfileName)
@@ -642,41 +487,20 @@ func (p *profileMenu) refresh() {
 		p.profileMenuItem.SetTitle(fmt.Sprintf("Profile: %s (User: %s)", activeProf.ProfileName, activeProf.Username))
 		p.emailMenuItem.Hide()
 	}
-
-}
-
-func (p *profileMenu) clear(profiles []Profile) {
-	for _, item := range p.profileSubItems {
-		item.Remove()
-		item.cancel()
-	}
-	p.profileSubItems = make([]*subItem, 0, len(profiles))
-	p.profilesState = profiles
-
-	if p.manageProfilesSubItem != nil {
-		p.manageProfilesSubItem.Remove()
-		p.manageProfilesSubItem.cancel()
-		p.manageProfilesSubItem = nil
-	}
-
-	if p.logoutSubItem != nil {
-		p.logoutSubItem.Remove()
-		p.logoutSubItem.cancel()
-		p.logoutSubItem = nil
-	}
 }
 
 // setEnabled enables or disables the profile menu based on the provided state
 func (p *profileMenu) setEnabled(enabled bool) {
-	if p.profileMenuItem != nil {
-		if enabled {
-			p.profileMenuItem.Enable()
-			p.profileMenuItem.SetTooltip("")
-		} else {
-			p.profileMenuItem.Hide()
-			p.profileMenuItem.SetTooltip("Profiles are disabled by daemon")
-		}
+	if p.profileMenuItem == nil || p.emailMenuItem == nil {
+		return
 	}
+	if enabled {
+		p.profileMenuItem.Show()
+		p.refresh()
+		return
+	}
+	p.profileMenuItem.Hide()
+	p.emailMenuItem.Hide()
 }
 
 func (p *profileMenu) updateMenu() {
@@ -687,29 +511,6 @@ func (p *profileMenu) updateMenu() {
 	for {
 		select {
 		case <-ticker.C:
-			// get profilesList
-			profiles, err := p.getProfiles()
-			if err != nil {
-				log.Errorf("failed to list profiles: %v", err)
-				continue
-			}
-
-			sort.Slice(profiles, func(i, j int) bool {
-				return profiles[i].Name < profiles[j].Name
-			})
-
-			p.mu.Lock()
-			state := p.profilesState
-			p.mu.Unlock()
-
-			sort.Slice(state, func(i, j int) bool {
-				return state[i].Name < state[j].Name
-			})
-
-			if slices.Equal(profiles, state) {
-				continue
-			}
-
 			p.refresh()
 		case <-p.ctx.Done():
 			return // context cancelled

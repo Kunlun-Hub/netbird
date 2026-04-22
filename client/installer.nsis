@@ -1,7 +1,7 @@
 !define APP_NAME "Cloink"
 !define COMP_NAME "Cloink"
 !define WEB_SITE "cloink.io"
-!define VERSION $%APPVER%
+!define VERSION $%APPVER_NSI%
 !define COPYRIGHT "Cloink Team, 2026"
 !define DESCRIPTION "Use Cloink to connect your devices to a secure overlay network based on Zero Trust technology with SSO, MFA and granular access control."
 !define INSTALLER_NAME "cloink-installer.exe"

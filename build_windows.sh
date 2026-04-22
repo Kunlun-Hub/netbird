@@ -6,6 +6,44 @@ set -e
 
 echo "=== NetBird Windows AMD64 GUI 构建脚本 ==="
 
+normalize_windows_version() {
+    local raw="$1"
+    local cleaned core
+    local -a parts numeric_parts
+
+    cleaned="${raw#v}"
+    core="${cleaned%%[-+]*}"
+
+    IFS='.' read -r -a parts <<< "$core"
+    for part in "${parts[@]}"; do
+        if [[ "$part" =~ ^[0-9]+$ ]]; then
+            numeric_parts+=("$part")
+        else
+            break
+        fi
+    done
+
+    while [[ ${#numeric_parts[@]} -lt 4 ]]; do
+        numeric_parts+=("0")
+    done
+
+    printf "%s.%s.%s.%s" \
+        "${numeric_parts[0]:-0}" \
+        "${numeric_parts[1]:-0}" \
+        "${numeric_parts[2]:-0}" \
+        "${numeric_parts[3]:-0}"
+}
+
+normalize_msi_version() {
+    local normalized="$1"
+    local -a parts
+    IFS='.' read -r -a parts <<< "$normalized"
+    printf "%s.%s.%s" \
+        "${parts[0]:-0}" \
+        "${parts[1]:-0}" \
+        "${parts[2]:-0}"
+}
+
 # 显示帮助信息
 show_help() {
     echo "用法: $0 [OPTIONS] [VERSION]"
@@ -67,7 +105,11 @@ if [[ -z "$VERSION" ]]; then
 else
     export APPVER="$VERSION"
 fi
+export APPVER_NSI="$(normalize_windows_version "$APPVER")"
+export APPVER_MSI="$(normalize_msi_version "$APPVER_NSI")"
 echo "版本号: $APPVER"
+echo "NSIS 版本号: $APPVER_NSI"
+echo "MSI 版本号: $APPVER_MSI"
 
 # 创建输出目录
 rm -rf dist/netbird_windows_amd64
@@ -147,8 +189,9 @@ if [ "$BUILD_NSIS" = true ]; then
         # 检查 NSIS 插件
         if [ -f "/usr/share/nsis/Plugins/amd64-unicode/ShellExecAsUser.dll" ] && [ -f "/usr/share/nsis/Plugins/amd64-unicode/EnVar.dll" ]; then
             echo "NSIS 插件已就绪"
+            rm -f cloink-installer.exe dist/cloink-installer.exe
             # 编译安装程序
-            echo "使用版本号: $APPVER"
+            echo "使用版本号: $APPVER (NSIS: $APPVER_NSI)"
             (cd client && makensis -V4 installer.nsis)
             
             if [ -f "cloink-installer.exe" ]; then
@@ -178,6 +221,7 @@ fi
 if [ "$BUILD_MSI" = true ]; then
     echo "正在构建 MSI 安装包..."
     if command -v wix &> /dev/null || command -v candle &> /dev/null || command -v light &> /dev/null; then
+        rm -f dist/cloink-installer.msi dist/cloink-installer.wixobj
         # 检查 WiX 是否可用
         if command -v wix &> /dev/null; then
             echo "使用 WiX v4 构建..."
