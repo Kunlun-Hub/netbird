@@ -957,6 +957,10 @@ func (e *Engine) handleFlowUpdate(config *mgmProto.FlowConfig) error {
 		return nil
 	}
 
+	if e.statusRecorder != nil {
+		e.statusRecorder.UpdateFlow(config.GetEnabled(), config.GetUrl())
+	}
+
 	flowConfig, err := toFlowLoggerConfig(config)
 	if err != nil {
 		return err

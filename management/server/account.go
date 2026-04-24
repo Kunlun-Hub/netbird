@@ -337,6 +337,10 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 			updateAccountPeers = true
 		}
 
+		if flowSettingsChanged(oldSettings.Extra, newSettings.Extra) {
+			updateAccountPeers = true
+		}
+
 		if oldSettings.GroupsPropagationEnabled != newSettings.GroupsPropagationEnabled && newSettings.GroupsPropagationEnabled {
 			groupsUpdated, groupChangesAffectPeers, err = propagateUserGroupMemberships(ctx, transaction, accountID)
 			if err != nil {
@@ -410,6 +414,41 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 	}
 
 	return newSettings, nil
+}
+
+func flowSettingsChanged(oldExtra, newExtra *types.ExtraSettings) bool {
+	if oldExtra == nil && newExtra == nil {
+		return false
+	}
+	if oldExtra == nil {
+		oldExtra = &types.ExtraSettings{}
+	}
+	if newExtra == nil {
+		newExtra = &types.ExtraSettings{}
+	}
+
+	if oldExtra.FlowEnabled != newExtra.FlowEnabled {
+		return true
+	}
+	if oldExtra.FlowPacketCounterEnabled != newExtra.FlowPacketCounterEnabled {
+		return true
+	}
+	if oldExtra.FlowENCollectionEnabled != newExtra.FlowENCollectionEnabled {
+		return true
+	}
+	if oldExtra.FlowDnsCollectionEnabled != newExtra.FlowDnsCollectionEnabled {
+		return true
+	}
+	if len(oldExtra.FlowGroups) != len(newExtra.FlowGroups) {
+		return true
+	}
+	for i := range oldExtra.FlowGroups {
+		if oldExtra.FlowGroups[i] != newExtra.FlowGroups[i] {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (am *DefaultAccountManager) validateSettingsUpdate(ctx context.Context, transaction store.Store, newSettings, oldSettings *types.Settings, userID, accountID string) error {

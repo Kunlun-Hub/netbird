@@ -20,6 +20,7 @@ import (
 
 	cachestore "github.com/eko/gocache/lib/v4/store"
 	"github.com/netbirdio/management-integrations/integrations"
+	flowproto "github.com/netbirdio/netbird/flow/proto"
 
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/formatter/hook"
@@ -173,6 +174,7 @@ func (s *BaseServer) GRPCServer() *grpc.Server {
 			serviceMgr.StartExposeReaper(context.Background())
 		}
 		mgmtProto.RegisterManagementServiceServer(gRPCAPIHandler, srv)
+		flowproto.RegisterFlowServiceServer(gRPCAPIHandler, nbgrpc.NewFlowServer(s.AccountManager()))
 
 		mgmtProto.RegisterProxyServiceServer(gRPCAPIHandler, s.ReverseProxyGRPCServer())
 		log.Info("ProxyService registered on gRPC server")

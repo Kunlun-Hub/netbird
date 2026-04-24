@@ -1422,6 +1422,42 @@ type Account struct {
 
 // AccountExtraSettings defines model for AccountExtraSettings.
 type AccountExtraSettings struct {
+	// Counters Alias for packet counter flow setting.
+	Counters bool `json:"counters"`
+
+	// DnsCollection Alias for DNS collection flow setting.
+	DnsCollection bool `json:"dns_collection"`
+
+	// ExitNodeCollection Alias for exit node collection flow setting.
+	ExitNodeCollection bool `json:"exit_node_collection"`
+
+	// FlowEnabled Alias for network traffic logging enabled.
+	FlowEnabled bool `json:"flow_enabled"`
+
+	// FlowGroups Alias for network traffic logging groups.
+	FlowGroups []string `json:"flow_groups"`
+
+	// FlowLogsEnabled Alias for network traffic logging enabled.
+	FlowLogsEnabled bool `json:"flow_logs_enabled"`
+
+	// FlowLogsGroups Alias for network traffic logging groups.
+	FlowLogsGroups []string `json:"flow_logs_groups"`
+
+	// FlowDnsCollectionEnabled Alias for DNS collection flow setting.
+	FlowDnsCollectionEnabled bool `json:"flow_dns_collection_enabled"`
+
+	// FlowExitNodeCollectionEnabled Alias for exit node collection flow setting.
+	FlowExitNodeCollectionEnabled bool `json:"flow_exit_node_collection_enabled"`
+
+	// FlowPacketCounterEnabled Alias for packet counter flow setting.
+	FlowPacketCounterEnabled bool `json:"flow_packet_counter_enabled"`
+
+	// NetworkTrafficDnsCollectionEnabled Enables or disables DNS collection in network traffic logs.
+	NetworkTrafficDnsCollectionEnabled bool `json:"network_traffic_dns_collection_enabled"`
+
+	// NetworkTrafficExitNodeCollectionEnabled Enables or disables exit node collection in network traffic logs.
+	NetworkTrafficExitNodeCollectionEnabled bool `json:"network_traffic_exit_node_collection_enabled"`
+
 	// NetworkTrafficLogsEnabled Enables or disables network traffic logging. If enabled, all network traffic events from peers will be stored.
 	NetworkTrafficLogsEnabled bool `json:"network_traffic_logs_enabled"`
 

@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"os"
 	"strings"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 
@@ -20,6 +22,7 @@ import (
 	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/shared/sshauth"
+	"google.golang.org/protobuf/types/known/durationpb"
 )
 
 func toNetbirdConfig(config *nbconfig.Config, turnCredentials *Token, relayToken *Token, extraSettings *types.ExtraSettings) *proto.NetbirdConfig {
@@ -84,8 +87,52 @@ func toNetbirdConfig(config *nbconfig.Config, turnCredentials *Token, relayToken
 		Signal: signalCfg,
 		Relay:  relayCfg,
 	}
+	nbConfig.Flow = buildFlowConfig(config, relayToken, extraSettings)
 
 	return nbConfig
+}
+
+func buildFlowConfig(config *nbconfig.Config, relayToken *Token, extraSettings *types.ExtraSettings) *proto.FlowConfig {
+	flowCfg := &proto.FlowConfig{
+		Enabled:  false,
+		Interval: durationpb.New(30 * time.Second),
+	}
+
+	if extraSettings == nil {
+		return flowCfg
+	}
+
+	flowCfg.Enabled = extraSettings.FlowEnabled
+	flowCfg.Counters = extraSettings.FlowPacketCounterEnabled
+	flowCfg.ExitNodeCollection = extraSettings.FlowENCollectionEnabled
+	flowCfg.DnsCollection = extraSettings.FlowDnsCollectionEnabled
+	flowCfg.Url = deriveFlowURL(config)
+
+	if relayToken != nil {
+		flowCfg.TokenPayload = relayToken.Payload
+		flowCfg.TokenSignature = relayToken.Signature
+	}
+
+	return flowCfg
+}
+
+func deriveFlowURL(config *nbconfig.Config) string {
+	if explicit := os.Getenv("NB_FLOW_URL"); explicit != "" {
+		return explicit
+	}
+	if config == nil || config.HttpConfig == nil {
+		return ""
+	}
+	for _, raw := range []string{config.HttpConfig.AuthIssuer, config.HttpConfig.AuthKeysLocation, config.HttpConfig.AuthCallbackURL} {
+		if raw == "" {
+			continue
+		}
+		parsed, err := url.Parse(raw)
+		if err == nil && parsed.Scheme != "" && parsed.Host != "" {
+			return parsed.Scheme + "://" + parsed.Host
+		}
+	}
+	return ""
 }
 
 func toPeerConfig(peer *nbpeer.Peer, network *types.Network, dnsName string, settings *types.Settings, httpConfig *nbconfig.HttpServerConfig, deviceFlowConfig *nbconfig.DeviceAuthorizationFlow, enableSSH bool) *proto.PeerConfig {

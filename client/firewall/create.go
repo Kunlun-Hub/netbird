@@ -3,7 +3,6 @@
 package firewall
 
 import (
-	"fmt"
 	"runtime"
 
 	log "github.com/sirupsen/logrus"
@@ -16,8 +15,8 @@ import (
 
 // NewFirewall creates a firewall manager instance
 func NewFirewall(iface IFaceMapper, _ *statemanager.Manager, flowLogger nftypes.FlowLogger, disableServerRoutes bool, mtu uint16) (firewall.Manager, error) {
-	if !iface.IsUserspaceBind() {
-		return nil, fmt.Errorf("not implemented for this OS: %s", runtime.GOOS)
+	if err := validateNonLinuxUserspaceSupport(runtime.GOOS, iface.IsUserspaceBind()); err != nil {
+		return nil, err
 	}
 
 	// use userspace packet filtering firewall

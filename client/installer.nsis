@@ -223,7 +223,7 @@ Section -MainProgram
     File "..\\dist\\netbird_windows_amd64\\cloink-ui.exe"
     File "..\\dist\\netbird_windows_amd64\\cloink.exe"
     File "..\\dist\\netbird_windows_amd64\\wintun.dll"
-    File "..\\dist\\opengl32.dll"
+    File "..\\dist\\netbird_windows_amd64\\opengl32.dll"
 SectionEnd
 ######################################################################
 

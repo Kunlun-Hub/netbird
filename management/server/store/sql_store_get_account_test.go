@@ -94,6 +94,11 @@ func TestGetAccount_ComprehensiveFieldValidation(t *testing.T) {
 			Extra: &types.ExtraSettings{
 				PeerApprovalEnabled:       true,
 				IntegratedValidatorGroups: []string{"validator-1"},
+				FlowEnabled:               true,
+				FlowGroups:                []string{"flow-group-1", "flow-group-2"},
+				FlowPacketCounterEnabled:  true,
+				FlowENCollectionEnabled:   true,
+				FlowDnsCollectionEnabled:  true,
 			},
 		},
 	}
@@ -670,6 +675,13 @@ func TestGetAccount_ComprehensiveFieldValidation(t *testing.T) {
 		assert.True(t, retrievedAccount.Settings.Extra.PeerApprovalEnabled, "PeerApprovalEnabled mismatch")
 		assert.Len(t, retrievedAccount.Settings.Extra.IntegratedValidatorGroups, 1, "IntegratedValidatorGroups length mismatch")
 		assert.Equal(t, "validator-1", retrievedAccount.Settings.Extra.IntegratedValidatorGroups[0])
+		assert.True(t, retrievedAccount.Settings.Extra.FlowEnabled, "FlowEnabled mismatch")
+		assert.Len(t, retrievedAccount.Settings.Extra.FlowGroups, 2, "FlowGroups length mismatch")
+		assert.Contains(t, retrievedAccount.Settings.Extra.FlowGroups, "flow-group-1")
+		assert.Contains(t, retrievedAccount.Settings.Extra.FlowGroups, "flow-group-2")
+		assert.True(t, retrievedAccount.Settings.Extra.FlowPacketCounterEnabled, "FlowPacketCounterEnabled mismatch")
+		assert.True(t, retrievedAccount.Settings.Extra.FlowENCollectionEnabled, "FlowENCollectionEnabled mismatch")
+		assert.True(t, retrievedAccount.Settings.Extra.FlowDnsCollectionEnabled, "FlowDnsCollectionEnabled mismatch")
 	})
 
 	// ========== VALIDATE SETUP KEYS ==========

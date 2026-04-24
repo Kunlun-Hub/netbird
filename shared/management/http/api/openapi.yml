@@ -418,12 +418,22 @@ components:
           description: Enables or disables network traffic packet counter. If enabled, network packets and their size will be counted and reported. (This can have an slight impact on performance)
           type: boolean
           example: true
+        network_traffic_exit_node_collection_enabled:
+          description: Enables or disables exit node collection in network traffic logs.
+          type: boolean
+          example: false
+        network_traffic_dns_collection_enabled:
+          description: Enables or disables DNS collection in network traffic logs.
+          type: boolean
+          example: false
       required:
         - peer_approval_enabled
         - user_approval_required
         - network_traffic_logs_enabled
         - network_traffic_logs_groups
         - network_traffic_packet_counter_enabled
+        - network_traffic_exit_node_collection_enabled
+        - network_traffic_dns_collection_enabled
     AccountRequest:
       type: object
       properties:

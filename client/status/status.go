@@ -130,6 +130,11 @@ type SSHServerStateOutput struct {
 	Sessions []SSHSessionOutput `json:"sessions" yaml:"sessions"`
 }
 
+type FlowStateOutput struct {
+	Enabled bool   `json:"enabled" yaml:"enabled"`
+	URL     string `json:"url" yaml:"url"`
+}
+
 type OutputOverview struct {
 	Peers                   PeersStateOutput           `json:"peers" yaml:"peers"`
 	CliVersion              string                     `json:"cliVersion" yaml:"cliVersion"`
@@ -151,6 +156,7 @@ type OutputOverview struct {
 	LazyConnectionEnabled   bool                       `json:"lazyConnectionEnabled" yaml:"lazyConnectionEnabled"`
 	ProfileName             string                     `json:"profileName" yaml:"profileName"`
 	SSHServerState          SSHServerStateOutput       `json:"sshServer" yaml:"sshServer"`
+	FlowState               FlowStateOutput            `json:"flow" yaml:"flow"`
 }
 
 // ConvertToStatusOutputOverview converts protobuf status to the output overview.
@@ -194,6 +200,10 @@ func ConvertToStatusOutputOverview(pbFullStatus *proto.FullStatus, opts ConvertO
 		LazyConnectionEnabled:   pbFullStatus.GetLazyConnectionEnabled(),
 		ProfileName:             opts.ProfileName,
 		SSHServerState:          sshServerOverview,
+		FlowState: FlowStateOutput{
+			Enabled: pbFullStatus.GetFlowState().GetEnabled(),
+			URL:     pbFullStatus.GetFlowState().GetUrl(),
+		},
 	}
 
 	if opts.Anonymize {
@@ -486,6 +496,16 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 		lazyConnectionEnabledStatus = "true"
 	}
 
+	flowEnabledStatus := "false"
+	if o.FlowState.Enabled {
+		flowEnabledStatus = "true"
+	}
+
+	flowTarget := "-"
+	if o.FlowState.URL != "" {
+		flowTarget = o.FlowState.URL
+	}
+
 	sshServerStatus := "Disabled"
 	if o.SSHServerState.Enabled {
 		sessionCount := len(o.SSHServerState.Sessions)
@@ -552,6 +572,8 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 			"Interface type: %s\n"+
 			"Quantum resistance: %s\n"+
 			"Lazy connection: %s\n"+
+			"Flow logging: %s\n"+
+			"Flow target: %s\n"+
 			"SSH Server: %s\n"+
 			"Networks: %s\n"+
 			"%s"+
@@ -569,6 +591,8 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 		interfaceTypeString,
 		rosenpassEnabledStatus,
 		lazyConnectionEnabledStatus,
+		flowEnabledStatus,
+		flowTarget,
 		sshServerStatus,
 		networks,
 		forwardingRulesString,
@@ -624,6 +648,10 @@ func ToProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 	pbFullStatus.LocalPeerState.Networks = maps.Keys(fullStatus.LocalPeerState.Routes)
 	pbFullStatus.NumberOfForwardingRules = int32(fullStatus.NumOfForwardingRules)
 	pbFullStatus.LazyConnectionEnabled = fullStatus.LazyConnectionEnabled
+	pbFullStatus.FlowState = &proto.FlowState{
+		Enabled: fullStatus.FlowState.Enabled,
+		Url:     fullStatus.FlowState.URL,
+	}
 
 	for _, peerState := range fullStatus.Peers {
 		pbPeerState := &proto.PeerState{

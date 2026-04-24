@@ -236,6 +236,10 @@ var overview = OutputOverview{
 		Enabled:  false,
 		Sessions: []SSHSessionOutput{},
 	},
+	FlowState: FlowStateOutput{
+		Enabled: false,
+		URL:     "",
+	},
 }
 
 func TestConversionFromFullStatusToOutputOverview(t *testing.T) {
@@ -398,6 +402,10 @@ func TestParsingToJSON(t *testing.T) {
 		  "sshServer":{
 		    "enabled":false,
 			"sessions":[]
+		  },
+          "flow": {
+            "enabled": false,
+            "url": ""
 		  }
         }`
 	// @formatter:on
@@ -505,6 +513,9 @@ profileName: ""
 sshServer:
     enabled: false
     sessions: []
+flow:
+    enabled: false
+    url: ""
 `
 
 	assert.Equal(t, expectedYAML, yaml)
@@ -571,6 +582,8 @@ NetBird IP: 192.168.178.100/16
 Interface type: Kernel
 Quantum resistance: false
 Lazy connection: false
+Flow logging: false
+Flow target: -
 SSH Server: Disabled
 Networks: 10.10.0.0/24
 Peers count: 2/2 Connected
@@ -595,6 +608,8 @@ NetBird IP: 192.168.178.100/16
 Interface type: Kernel
 Quantum resistance: false
 Lazy connection: false
+Flow logging: false
+Flow target: -
 SSH Server: Disabled
 Networks: 10.10.0.0/24
 Peers count: 2/2 Connected

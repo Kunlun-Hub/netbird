@@ -138,6 +138,11 @@ type RosenpassState struct {
 	Permissive bool
 }
 
+type FlowState struct {
+	Enabled bool
+	URL     string
+}
+
 // NSGroupState represents the status of a DNS server group, including associated domains,
 // whether it's enabled, and the last error message encountered during probing.
 type NSGroupState struct {
@@ -159,6 +164,7 @@ type FullStatus struct {
 	NSGroupStates         []NSGroupState
 	NumOfForwardingRules  int
 	LazyConnectionEnabled bool
+	FlowState             FlowState
 	Events                []*proto.SystemEvent
 }
 
@@ -203,6 +209,8 @@ type Status struct {
 	nsGroupStates         []NSGroupState
 	resolvedDomainsStates map[domain.Domain]ResolvedDomainInfo
 	lazyConnectionEnabled bool
+	flowEnabled           bool
+	flowURL               string
 
 	// To reduce the number of notification invocation this bool will be true when need to call the notification
 	// Some Peer actions mostly used by in a batch when the network map has been synchronized. In these type of events
@@ -775,6 +783,13 @@ func (d *Status) UpdateLazyConnection(enabled bool) {
 	d.lazyConnectionEnabled = enabled
 }
 
+func (d *Status) UpdateFlow(enabled bool, url string) {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+	d.flowEnabled = enabled
+	d.flowURL = url
+}
+
 // MarkSignalDisconnected sets SignalState to disconnected
 func (d *Status) MarkSignalDisconnected(err error) {
 	d.mux.Lock()
@@ -851,6 +866,15 @@ func (d *Status) GetLazyConnection() bool {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 	return d.lazyConnectionEnabled
+}
+
+func (d *Status) GetFlowState() FlowState {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+	return FlowState{
+		Enabled: d.flowEnabled,
+		URL:     d.flowURL,
+	}
 }
 
 func (d *Status) GetManagementState() ManagementState {
@@ -971,6 +995,7 @@ func (d *Status) GetFullStatus() FullStatus {
 		NSGroupStates:         d.GetDNSStates(),
 		NumOfForwardingRules:  len(d.ForwardingRules()),
 		LazyConnectionEnabled: d.GetLazyConnection(),
+		FlowState:             d.GetFlowState(),
 	}
 
 	d.mux.Lock()
@@ -1246,6 +1271,10 @@ func (fs FullStatus) ToProto() *proto.FullStatus {
 	pbFullStatus.LocalPeerState.RosenpassEnabled = fs.RosenpassState.Enabled
 	pbFullStatus.NumberOfForwardingRules = int32(fs.NumOfForwardingRules)
 	pbFullStatus.LazyConnectionEnabled = fs.LazyConnectionEnabled
+	pbFullStatus.FlowState = &proto.FlowState{
+		Enabled: fs.FlowState.Enabled,
+		Url:     fs.FlowState.URL,
+	}
 
 	pbFullStatus.LocalPeerState.Networks = maps.Keys(fs.LocalPeerState.Routes)
 

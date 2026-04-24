@@ -1,9 +1,11 @@
 package accounts
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/netip"
 	"time"
@@ -38,6 +40,102 @@ const (
 type handler struct {
 	accountManager  account.Manager
 	settingsManager settings.Manager
+}
+
+type accountFlowSettingsCompat struct {
+	Enabled                                 *bool    `json:"enabled"`
+	FlowEnabled                             *bool    `json:"flow_enabled"`
+	FlowLogsEnabled                         *bool    `json:"flow_logs_enabled"`
+	NetworkTrafficLogsEnabled               *bool    `json:"network_traffic_logs_enabled"`
+	Groups                                  []string `json:"groups"`
+	FlowGroups                              []string `json:"flow_groups"`
+	FlowLogsGroups                          []string `json:"flow_logs_groups"`
+	NetworkTrafficLogsGroups                []string `json:"network_traffic_logs_groups"`
+	Counters                                *bool    `json:"counters"`
+	FlowPacketCounterEnabled                *bool    `json:"flow_packet_counter_enabled"`
+	NetworkTrafficPacketCounterEnabled      *bool    `json:"network_traffic_packet_counter_enabled"`
+	ExitNodeCollection                      *bool    `json:"exit_node_collection"`
+	FlowExitNodeCollectionEnabled           *bool    `json:"flow_exit_node_collection_enabled"`
+	NetworkTrafficExitNodeCollectionEnabled *bool    `json:"network_traffic_exit_node_collection_enabled"`
+	DnsCollection                           *bool    `json:"dns_collection"`
+	FlowDnsCollectionEnabled                *bool    `json:"flow_dns_collection_enabled"`
+	NetworkTrafficDnsCollectionEnabled      *bool    `json:"network_traffic_dns_collection_enabled"`
+}
+
+type accountSettingsCompatRequest struct {
+	Settings struct {
+		Extra    *accountFlowSettingsCompat `json:"extra"`
+		Flow     *accountFlowSettingsCompat `json:"flow"`
+		FlowLogs *accountFlowSettingsCompat `json:"flow_logs"`
+	} `json:"settings"`
+}
+
+type accountResponseCompat struct {
+	*api.Account
+}
+
+func (a accountResponseCompat) MarshalJSON() ([]byte, error) {
+	if a.Account == nil {
+		return json.Marshal(nil)
+	}
+
+	type alias api.Account
+	payload := map[string]any{}
+	raw, err := json.Marshal((*alias)(a.Account))
+	if err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return nil, err
+	}
+
+	settingsMap, _ := payload["settings"].(map[string]any)
+	if settingsMap == nil {
+		settingsMap = map[string]any{}
+		payload["settings"] = settingsMap
+	}
+
+	flowMap := buildFlowCompatMap(a.Account.Settings.Extra)
+	settingsMap["flow"] = flowMap
+	settingsMap["flow_logs"] = flowMap
+
+	return json.Marshal(payload)
+}
+
+func buildFlowCompatMap(extra *api.AccountExtraSettings) map[string]any {
+	if extra == nil {
+		return map[string]any{
+			"enabled":              false,
+			"flow_enabled":         false,
+			"flow_logs_enabled":    false,
+			"counters":             false,
+			"dns_collection":       false,
+			"exit_node_collection": false,
+			"groups":               []string{},
+			"flow_groups":          []string{},
+			"flow_logs_groups":     []string{},
+		}
+	}
+
+	return map[string]any{
+		"enabled":                                      extra.NetworkTrafficLogsEnabled,
+		"flow_enabled":                                 extra.FlowEnabled,
+		"flow_logs_enabled":                            extra.FlowLogsEnabled,
+		"network_traffic_logs_enabled":                 extra.NetworkTrafficLogsEnabled,
+		"counters":                                     extra.Counters,
+		"flow_packet_counter_enabled":                  extra.FlowPacketCounterEnabled,
+		"network_traffic_packet_counter_enabled":       extra.NetworkTrafficPacketCounterEnabled,
+		"dns_collection":                               extra.DnsCollection,
+		"flow_dns_collection_enabled":                  extra.FlowDnsCollectionEnabled,
+		"network_traffic_dns_collection_enabled":       extra.NetworkTrafficDnsCollectionEnabled,
+		"exit_node_collection":                         extra.ExitNodeCollection,
+		"flow_exit_node_collection_enabled":            extra.FlowExitNodeCollectionEnabled,
+		"network_traffic_exit_node_collection_enabled": extra.NetworkTrafficExitNodeCollectionEnabled,
+		"groups":                      extra.FlowGroups,
+		"flow_groups":                 extra.FlowGroups,
+		"flow_logs_groups":            extra.FlowLogsGroups,
+		"network_traffic_logs_groups": extra.NetworkTrafficLogsGroups,
+	}
 }
 
 func AddEndpoints(accountManager account.Manager, settingsManager settings.Manager, router *mux.Router) {
@@ -164,7 +262,7 @@ func (h *handler) getAllAccounts(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := toAccountResponse(accountID, settings, meta, onboarding)
-	util.WriteJSONObject(r.Context(), w, []*api.Account{resp})
+	util.WriteJSONObject(r.Context(), w, []accountResponseCompat{{Account: resp}})
 }
 
 func (h *handler) updateAccountRequestSettings(req api.PutApiAccountsAccountIdJSONRequestBody) (*types.Settings, error) {
@@ -191,6 +289,8 @@ func (h *handler) updateAccountRequestSettings(req api.PutApiAccountsAccountIdJS
 			FlowEnabled:              req.Settings.Extra.NetworkTrafficLogsEnabled,
 			FlowGroups:               req.Settings.Extra.NetworkTrafficLogsGroups,
 			FlowPacketCounterEnabled: req.Settings.Extra.NetworkTrafficPacketCounterEnabled,
+			FlowENCollectionEnabled:  req.Settings.Extra.NetworkTrafficExitNodeCollectionEnabled,
+			FlowDnsCollectionEnabled: req.Settings.Extra.NetworkTrafficDnsCollectionEnabled,
 		}
 	}
 
@@ -235,6 +335,73 @@ func (h *handler) updateAccountRequestSettings(req api.PutApiAccountsAccountIdJS
 	return returnSettings, nil
 }
 
+func applyFlowCompatSettings(settings *types.Settings, compat *accountSettingsCompatRequest) {
+	if settings == nil || compat == nil {
+		return
+	}
+
+	sources := []*accountFlowSettingsCompat{
+		compat.Settings.Extra,
+		compat.Settings.Flow,
+		compat.Settings.FlowLogs,
+	}
+
+	var hasFlowSettings bool
+	for _, source := range sources {
+		if source != nil {
+			hasFlowSettings = true
+			break
+		}
+	}
+	if !hasFlowSettings {
+		return
+	}
+
+	if settings.Extra == nil {
+		settings.Extra = &types.ExtraSettings{}
+	}
+
+	for _, source := range sources {
+		if source == nil {
+			continue
+		}
+
+		if v := firstBool(source.Enabled, source.FlowEnabled, source.FlowLogsEnabled, source.NetworkTrafficLogsEnabled); v != nil {
+			settings.Extra.FlowEnabled = *v
+		}
+		if v := firstBool(source.Counters, source.FlowPacketCounterEnabled, source.NetworkTrafficPacketCounterEnabled); v != nil {
+			settings.Extra.FlowPacketCounterEnabled = *v
+		}
+		if v := firstBool(source.ExitNodeCollection, source.FlowExitNodeCollectionEnabled, source.NetworkTrafficExitNodeCollectionEnabled); v != nil {
+			settings.Extra.FlowENCollectionEnabled = *v
+		}
+		if v := firstBool(source.DnsCollection, source.FlowDnsCollectionEnabled, source.NetworkTrafficDnsCollectionEnabled); v != nil {
+			settings.Extra.FlowDnsCollectionEnabled = *v
+		}
+		if groups := firstStrings(source.Groups, source.FlowGroups, source.FlowLogsGroups, source.NetworkTrafficLogsGroups); groups != nil {
+			settings.Extra.FlowGroups = groups
+		}
+	}
+}
+
+func firstBool(values ...*bool) *bool {
+	for _, value := range values {
+		if value != nil {
+			return value
+		}
+	}
+	return nil
+}
+
+func firstStrings(values ...[]string) []string {
+	for _, value := range values {
+		if value != nil {
+			return value
+		}
+	}
+	return nil
+}
+
 // updateAccount is HTTP PUT handler that updates the provided account. Updates only account settings (server.Settings)
 func (h *handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
@@ -252,9 +419,21 @@ func (h *handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req api.PutApiAccountsAccountIdJSONRequestBody
-	err = json.NewDecoder(r.Body).Decode(&req)
+	body, err := io.ReadAll(r.Body)
 	if err != nil {
+		util.WriteErrorResponse("couldn't read JSON request", http.StatusBadRequest, w)
+		return
+	}
+
+	var req api.PutApiAccountsAccountIdJSONRequestBody
+	err = json.NewDecoder(bytes.NewReader(body)).Decode(&req)
+	if err != nil {
+		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
+		return
+	}
+
+	var compat accountSettingsCompatRequest
+	if err := json.Unmarshal(body, &compat); err != nil {
 		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
 		return
 	}
@@ -264,6 +443,7 @@ func (h *handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
+	applyFlowCompatSettings(settings, &compat)
 	if req.Settings.NetworkRange != nil && *req.Settings.NetworkRange != "" {
 		prefix, err := netip.ParsePrefix(*req.Settings.NetworkRange)
 		if err != nil {
@@ -304,8 +484,7 @@ func (h *handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := toAccountResponse(accountID, updatedSettings, meta, updatedOnboarding)
-
-	util.WriteJSONObject(r.Context(), w, &resp)
+	util.WriteJSONObject(r.Context(), w, accountResponseCompat{Account: resp})
 }
 
 // deleteAccount is a HTTP DELETE handler to delete an account
@@ -376,11 +555,23 @@ func toAccountResponse(accountID string, settings *types.Settings, meta *types.A
 
 	if settings.Extra != nil {
 		apiSettings.Extra = &api.AccountExtraSettings{
-			PeerApprovalEnabled:                settings.Extra.PeerApprovalEnabled,
-			UserApprovalRequired:               settings.Extra.UserApprovalRequired,
-			NetworkTrafficLogsEnabled:          settings.Extra.FlowEnabled,
-			NetworkTrafficLogsGroups:           settings.Extra.FlowGroups,
-			NetworkTrafficPacketCounterEnabled: settings.Extra.FlowPacketCounterEnabled,
+			Counters:                                settings.Extra.FlowPacketCounterEnabled,
+			DnsCollection:                           settings.Extra.FlowDnsCollectionEnabled,
+			ExitNodeCollection:                      settings.Extra.FlowENCollectionEnabled,
+			FlowEnabled:                             settings.Extra.FlowEnabled,
+			FlowGroups:                              settings.Extra.FlowGroups,
+			FlowLogsEnabled:                         settings.Extra.FlowEnabled,
+			FlowLogsGroups:                          settings.Extra.FlowGroups,
+			FlowDnsCollectionEnabled:                settings.Extra.FlowDnsCollectionEnabled,
+			FlowExitNodeCollectionEnabled:           settings.Extra.FlowENCollectionEnabled,
+			FlowPacketCounterEnabled:                settings.Extra.FlowPacketCounterEnabled,
+			PeerApprovalEnabled:                     settings.Extra.PeerApprovalEnabled,
+			UserApprovalRequired:                    settings.Extra.UserApprovalRequired,
+			NetworkTrafficLogsEnabled:               settings.Extra.FlowEnabled,
+			NetworkTrafficLogsGroups:                settings.Extra.FlowGroups,
+			NetworkTrafficPacketCounterEnabled:      settings.Extra.FlowPacketCounterEnabled,
+			NetworkTrafficExitNodeCollectionEnabled: settings.Extra.FlowENCollectionEnabled,
+			NetworkTrafficDnsCollectionEnabled:      settings.Extra.FlowDnsCollectionEnabled,
 		}
 	}
 

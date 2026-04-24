@@ -25,6 +25,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/internals/modules/networktraffic"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
@@ -278,6 +279,9 @@ type Store interface {
 	CreateAccessLog(ctx context.Context, log *accesslogs.AccessLogEntry) error
 	GetAccountAccessLogs(ctx context.Context, lockStrength LockingStrength, accountID string, filter accesslogs.AccessLogFilter) ([]*accesslogs.AccessLogEntry, int64, error)
 	DeleteOldAccessLogs(ctx context.Context, olderThan time.Time) (int64, error)
+	CreateNetworkTrafficEvent(ctx context.Context, event *networktraffic.Event) error
+	GetAccountNetworkTrafficEvents(ctx context.Context, lockStrength LockingStrength, accountID string, filter networktraffic.Filter) ([]*networktraffic.Event, int64, error)
+	DeleteOldNetworkTrafficEvents(ctx context.Context, olderThan time.Time) (int64, error)
 	GetServiceTargetByTargetID(ctx context.Context, lockStrength LockingStrength, accountID string, targetID string) (*rpservice.Target, error)
 	GetTargetsByServiceID(ctx context.Context, lockStrength LockingStrength, accountID string, serviceID string) ([]*rpservice.Target, error)
 	DeleteTarget(ctx context.Context, accountID string, serviceID string, targetID uint) error
@@ -493,6 +497,18 @@ func getMigrationsPostAuto(ctx context.Context) []migrationFunc {
 		},
 		func(db *gorm.DB) error {
 			return migration.CreateIndexIfNotExists[nbpeer.Peer](ctx, db, "idx_peers_key_unique", "key")
+		},
+		func(db *gorm.DB) error {
+			return migration.MigrateNewField[types.Account](ctx, db, "settings_extra_flow_enabled", false)
+		},
+		func(db *gorm.DB) error {
+			return migration.MigrateNewField[types.Account](ctx, db, "settings_extra_flow_packet_counter_enabled", false)
+		},
+		func(db *gorm.DB) error {
+			return migration.MigrateNewField[types.Account](ctx, db, "settings_extra_flow_en_collection_enabled", false)
+		},
+		func(db *gorm.DB) error {
+			return migration.MigrateNewField[types.Account](ctx, db, "settings_extra_flow_dns_collection_enabled", false)
 		},
 	}
 }

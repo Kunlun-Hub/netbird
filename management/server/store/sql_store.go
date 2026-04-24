@@ -28,6 +28,7 @@ import (
 	"gorm.io/gorm/logger"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/internals/modules/networktraffic"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
 
@@ -134,16 +135,47 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 		&installation{}, &types.ExtraSettings{}, &posture.Checks{}, &nbpeer.NetworkAddress{},
 		&networkTypes.Network{}, &routerTypes.NetworkRouter{}, &resourceTypes.NetworkResource{}, &types.AccountOnboarding{},
 		&types.Job{}, &zones.Zone{}, &records.Record{}, &types.UserInviteRecord{}, &rpservice.Service{}, &rpservice.Target{}, &domain.Domain{},
-		&accesslogs.AccessLogEntry{}, &proxy.Proxy{},
+		&accesslogs.AccessLogEntry{}, &networktraffic.Event{}, &proxy.Proxy{},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("auto migratePreAuto: %w", err)
+	}
+	if err := ensureFlowLogStorage(ctx, db); err != nil {
+		return nil, fmt.Errorf("ensure flow log storage: %w", err)
 	}
 	if err := migratePostAuto(ctx, db); err != nil {
 		return nil, fmt.Errorf("migratePostAuto: %w", err)
 	}
 
 	return &SqlStore{db: db, storeEngine: storeEngine, metrics: metrics, installationPK: 1, transactionTimeout: transactionTimeout}, nil
+}
+
+func ensureFlowLogStorage(ctx context.Context, db *gorm.DB) error {
+	if !db.Migrator().HasTable(&networktraffic.Event{}) {
+		log.WithContext(ctx).Info("network flow log table is missing; initializing flow log storage")
+		if err := db.AutoMigrate(&networktraffic.Event{}); err != nil {
+			return err
+		}
+	}
+
+	accountModel := &types.Account{}
+	flowColumns := []string{
+		"settings_extra_flow_enabled",
+		"settings_extra_flow_packet_counter_enabled",
+		"settings_extra_flow_en_collection_enabled",
+		"settings_extra_flow_dns_collection_enabled",
+	}
+	for _, column := range flowColumns {
+		if !db.Migrator().HasColumn(accountModel, column) {
+			log.WithContext(ctx).Infof("account flow settings column %s is missing; initializing flow log schema", column)
+			if err := db.AutoMigrate(accountModel); err != nil {
+				return err
+			}
+			break
+		}
+	}
+
+	return nil
 }
 
 func GetKeyQueryCondition(s *SqlStore) string {
@@ -1516,7 +1548,10 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 			settings_lazy_connection_enabled,
 			-- Embedded ExtraSettings
 			settings_extra_peer_approval_enabled, settings_extra_user_approval_required,
-			settings_extra_integrated_validator, settings_extra_integrated_validator_groups
+			settings_extra_integrated_validator, settings_extra_integrated_validator_groups,
+			settings_extra_flow_enabled, settings_extra_flow_groups,
+			settings_extra_flow_packet_counter_enabled, settings_extra_flow_en_collection_enabled,
+			settings_extra_flow_dns_collection_enabled
 		FROM accounts WHERE id = $1`
 
 	var (
@@ -1537,6 +1572,11 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 		sExtraUserApprovalRequired       sql.NullBool
 		sExtraIntegratedValidator        sql.NullString
 		sExtraIntegratedValidatorGroups  sql.NullString
+		sExtraFlowEnabled                sql.NullBool
+		sExtraFlowGroups                 sql.NullString
+		sExtraFlowPacketCounterEnabled   sql.NullBool
+		sExtraFlowENCollectionEnabled    sql.NullBool
+		sExtraFlowDNSCollectionEnabled   sql.NullBool
 		networkNet                       sql.NullString
 		dnsSettingsDisabledGroups        sql.NullString
 		networkIdentifier                sql.NullString
@@ -1556,6 +1596,9 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 		&sLazyConnectionEnabled,
 		&sExtraPeerApprovalEnabled, &sExtraUserApprovalRequired,
 		&sExtraIntegratedValidator, &sExtraIntegratedValidatorGroups,
+		&sExtraFlowEnabled, &sExtraFlowGroups,
+		&sExtraFlowPacketCounterEnabled, &sExtraFlowENCollectionEnabled,
+		&sExtraFlowDNSCollectionEnabled,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -1634,6 +1677,21 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 	}
 	if sExtraIntegratedValidatorGroups.Valid {
 		_ = json.Unmarshal([]byte(sExtraIntegratedValidatorGroups.String), &account.Settings.Extra.IntegratedValidatorGroups)
+	}
+	if sExtraFlowEnabled.Valid {
+		account.Settings.Extra.FlowEnabled = sExtraFlowEnabled.Bool
+	}
+	if sExtraFlowGroups.Valid {
+		_ = json.Unmarshal([]byte(sExtraFlowGroups.String), &account.Settings.Extra.FlowGroups)
+	}
+	if sExtraFlowPacketCounterEnabled.Valid {
+		account.Settings.Extra.FlowPacketCounterEnabled = sExtraFlowPacketCounterEnabled.Bool
+	}
+	if sExtraFlowENCollectionEnabled.Valid {
+		account.Settings.Extra.FlowENCollectionEnabled = sExtraFlowENCollectionEnabled.Bool
+	}
+	if sExtraFlowDNSCollectionEnabled.Valid {
+		account.Settings.Extra.FlowDnsCollectionEnabled = sExtraFlowDNSCollectionEnabled.Bool
 	}
 	account.InitOnce()
 	return &account, nil
@@ -5289,6 +5347,15 @@ func (s *SqlStore) CreateAccessLog(ctx context.Context, logEntry *accesslogs.Acc
 	return nil
 }
 
+func (s *SqlStore) CreateNetworkTrafficEvent(ctx context.Context, event *networktraffic.Event) error {
+	result := s.db.Create(event)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to create network traffic event in store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to create network traffic event in store")
+	}
+	return nil
+}
+
 // GetAccountAccessLogs retrieves access logs for a given account with pagination and filtering
 func (s *SqlStore) GetAccountAccessLogs(ctx context.Context, lockStrength LockingStrength, accountID string, filter accesslogs.AccessLogFilter) ([]*accesslogs.AccessLogEntry, int64, error) {
 	var logs []*accesslogs.AccessLogEntry
@@ -5340,6 +5407,36 @@ func (s *SqlStore) GetAccountAccessLogs(ctx context.Context, lockStrength Lockin
 	return logs, totalCount, nil
 }
 
+func (s *SqlStore) GetAccountNetworkTrafficEvents(ctx context.Context, lockStrength LockingStrength, accountID string, filter networktraffic.Filter) ([]*networktraffic.Event, int64, error) {
+	var events []*networktraffic.Event
+	var totalCount int64
+
+	baseQuery := s.db.Model(&networktraffic.Event{}).Where(accountIDCondition, accountID)
+	baseQuery = s.applyNetworkTrafficFilters(baseQuery, filter)
+
+	if err := baseQuery.Count(&totalCount).Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to count network traffic events: %v", err)
+		return nil, 0, status.Errorf(status.Internal, "failed to count network traffic events")
+	}
+
+	query := s.db.Where(accountIDCondition, accountID)
+	query = s.applyNetworkTrafficFilters(query, filter).
+		Order(filter.GetSortColumn() + " " + strings.ToUpper(filter.GetSortOrder())).
+		Limit(filter.GetLimit()).
+		Offset(filter.GetOffset())
+
+	if lockStrength != LockingStrengthNone {
+		query = query.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	if err := query.Find(&events).Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to get network traffic events from store: %v", err)
+		return nil, 0, status.Errorf(status.Internal, "failed to get network traffic events from store")
+	}
+
+	return events, totalCount, nil
+}
+
 // DeleteOldAccessLogs deletes all access logs older than the specified time
 func (s *SqlStore) DeleteOldAccessLogs(ctx context.Context, olderThan time.Time) (int64, error) {
 	result := s.db.
@@ -5349,6 +5446,17 @@ func (s *SqlStore) DeleteOldAccessLogs(ctx context.Context, olderThan time.Time)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to delete old access logs: %v", result.Error)
 		return 0, status.Errorf(status.Internal, "failed to delete old access logs")
+	}
+
+	return result.RowsAffected, nil
+}
+
+func (s *SqlStore) DeleteOldNetworkTrafficEvents(ctx context.Context, olderThan time.Time) (int64, error) {
+	result := s.db.Where("timestamp < ?", olderThan).Delete(&networktraffic.Event{})
+
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to delete old network traffic events: %v", result.Error)
+		return 0, status.Errorf(status.Internal, "failed to delete old network traffic events")
 	}
 
 	return result.RowsAffected, nil
@@ -5396,6 +5504,50 @@ func (s *SqlStore) applyAccessLogFilters(query *gorm.DB, filter accesslogs.Acces
 
 	if filter.StatusCode != nil {
 		query = query.Where("status_code = ?", *filter.StatusCode)
+	}
+
+	if filter.StartDate != nil {
+		query = query.Where("timestamp >= ?", *filter.StartDate)
+	}
+
+	if filter.EndDate != nil {
+		query = query.Where("timestamp <= ?", *filter.EndDate)
+	}
+
+	return query
+}
+
+func (s *SqlStore) applyNetworkTrafficFilters(query *gorm.DB, filter networktraffic.Filter) *gorm.DB {
+	if filter.Search != nil {
+		searchPattern := "%" + *filter.Search + "%"
+		query = query.Where(
+			"user_name LIKE ? OR user_email LIKE ? OR source_name LIKE ? OR destination_name LIKE ? OR source_address LIKE ? OR destination_address LIKE ?",
+			searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern,
+		)
+	}
+
+	if filter.UserID != nil {
+		query = query.Where("user_id = ?", *filter.UserID)
+	}
+
+	if filter.ReporterID != nil {
+		query = query.Where("reporter_id = ?", *filter.ReporterID)
+	}
+
+	if filter.Protocol != nil {
+		query = query.Where("protocol = ?", *filter.Protocol)
+	}
+
+	if filter.EventType != nil {
+		query = query.Where("event_type = ?", *filter.EventType)
+	}
+
+	if filter.ConnectionType != nil {
+		query = query.Where("connection_type = ?", *filter.ConnectionType)
+	}
+
+	if filter.Direction != nil {
+		query = query.Where("direction = ?", *filter.Direction)
 	}
 
 	if filter.StartDate != nil {

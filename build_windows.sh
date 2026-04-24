@@ -1,6 +1,5 @@
 #!/bin/bash
 # NetBird Windows AMD64 GUI 构建脚本
-# 包含 opengl32.dll 和 wintun.dll
 
 set -e
 
@@ -116,6 +115,16 @@ rm -rf dist/netbird_windows_amd64
 mkdir -p dist/netbird_windows_amd64
 echo "清理并创建输出目录: dist/netbird_windows_amd64"
 
+# 复制指定版本的 opengl32.dll
+echo "=== 准备 opengl32.dll ==="
+if [ -f "/home/apps/opengl32.dll" ]; then
+    cp /home/apps/opengl32.dll dist/netbird_windows_amd64/opengl32.dll
+    echo "opengl32.dll 已复制到输出目录"
+else
+    echo "错误: 未找到 /home/apps/opengl32.dll"
+    exit 1
+fi
+
 # 下载 wintun.dll
 echo "=== 下载 wintun.dll ==="
 if [ ! -f "dist/netbird_windows_amd64/wintun.dll" ]; then
@@ -128,9 +137,6 @@ else
     echo "wintun.dll 已存在，跳过下载"
 fi
 
-# 注意：不再包含 Mesa3D OpenGL DLL，避免冲突
-# Windows 系统自带 OpenGL 支持
-
 # 编译 UI 客户端
 echo "=== 编译 Windows UI 客户端 ==="
 if command -v x86_64-w64-mingw32-gcc &> /dev/null; then
@@ -138,14 +144,14 @@ if command -v x86_64-w64-mingw32-gcc &> /dev/null; then
     rm -f dist/netbird_windows_amd64/cloink-ui.exe
     echo "已删除旧的 cloink-ui.exe"
     
-    # 生成 Windows 资源文件（包含图标）
-    export PATH=$PATH:$(go env GOPATH)/bin
-    if command -v rsrc &> /dev/null; then
-        echo "生成 Windows 资源文件..."
-        rsrc -arch amd64 -ico client/ui/assets/netbird.ico -o client/ui/rsrc_windows_amd64.syso
-        echo "Windows 资源文件生成完成"
+    # 生成 Windows 资源文件（包含图标和提权 manifest）
+    if command -v x86_64-w64-mingw32-windres &> /dev/null; then
+        echo "生成 UI Windows 资源文件..."
+        x86_64-w64-mingw32-windres client/ui/resources.rc -O coff -o client/ui/rsrc_windows_amd64.syso
+        echo "UI Windows 资源文件生成完成"
     else
-        echo "警告: rsrc 工具未找到，图标可能不会显示"
+        echo "错误: x86_64-w64-mingw32-windres 未安装"
+        exit 1
     fi
     
     CC=x86_64-w64-mingw32-gcc CGO_ENABLED=1 GOOS=windows GOARCH=amd64 \
@@ -169,11 +175,22 @@ echo "=== 编译 Windows CLI 客户端 ==="
 rm -f dist/netbird_windows_amd64/cloink.exe
 echo "已删除旧的 cloink.exe"
 
+if command -v x86_64-w64-mingw32-windres &> /dev/null; then
+    echo "生成 CLI Windows 资源文件..."
+    x86_64-w64-mingw32-windres client/resources_cli.rc -O coff -o client/rsrc_windows_amd64.syso
+    echo "CLI Windows 资源文件生成完成"
+else
+    echo "错误: x86_64-w64-mingw32-windres 未安装"
+    exit 1
+fi
+
 CGO_ENABLED=0 GOOS=windows GOARCH=amd64 \
     go build -o dist/netbird_windows_amd64/cloink.exe \
     -ldflags "-s -w -X github.com/netbirdio/netbird/version.version=$APPVER" \
     ./client/
 echo "CLI 客户端编译完成"
+
+rm -f client/rsrc_windows_amd64.syso
 
 # 检查文件
 echo "=== 检查输出文件 ==="
