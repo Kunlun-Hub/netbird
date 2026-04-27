@@ -11,6 +11,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/internal/netflow/store"
+	"github.com/netbirdio/netbird/client/internal/netflow/syslog"
 	"github.com/netbirdio/netbird/client/internal/netflow/types"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/dns"
@@ -27,6 +28,19 @@ type Logger struct {
 	dnsCollection      atomic.Bool
 	exitNodeCollection atomic.Bool
 	Store              types.Store
+	fileStore          types.Store
+	syslogSender       *syslog.Sender
+
+	localStorageEnabled atomic.Bool
+	localStoragePath    string
+	localStorageMaxSizeMB int
+	localStorageMaxFiles  int
+
+	syslogEnabled atomic.Bool
+	syslogServer  string
+	syslogProtocol string
+	syslogFacility string
+	syslogTag      string
 }
 
 func New(statusRecorder *peer.Status, wgIfaceIPNet netip.Prefix) *Logger {
@@ -34,6 +48,61 @@ func New(statusRecorder *peer.Status, wgIfaceIPNet netip.Prefix) *Logger {
 		statusRecorder: statusRecorder,
 		wgIfaceNet:     wgIfaceIPNet,
 		Store:          store.NewMemoryStore(),
+	}
+}
+
+func (l *Logger) UpdateFlowStorageConfig(
+	localStorageEnabled bool,
+	localStoragePath string,
+	localStorageMaxSizeMB int,
+	localStorageMaxFiles int,
+	syslogEnabled bool,
+	syslogServer string,
+	syslogProtocol string,
+	syslogFacility string,
+	syslogTag string,
+) {
+	l.mux.Lock()
+	defer l.mux.Unlock()
+
+	l.localStorageEnabled.Store(localStorageEnabled)
+	l.localStoragePath = localStoragePath
+	l.localStorageMaxSizeMB = localStorageMaxSizeMB
+	l.localStorageMaxFiles = localStorageMaxFiles
+
+	l.syslogEnabled.Store(syslogEnabled)
+	l.syslogServer = syslogServer
+	l.syslogProtocol = syslogProtocol
+	l.syslogFacility = syslogFacility
+	l.syslogTag = syslogTag
+
+	l.refreshStorage()
+}
+
+func (l *Logger) refreshStorage() {
+	if l.localStorageEnabled.Load() {
+		maxSize := l.localStorageMaxSizeMB
+		if maxSize <= 0 {
+			maxSize = 100
+		}
+		maxFiles := l.localStorageMaxFiles
+		if maxFiles <= 0 {
+			maxFiles = 10
+		}
+		l.fileStore = store.NewFileStore(l.localStoragePath, maxSize, maxFiles)
+	} else if l.fileStore != nil {
+		l.fileStore.Close()
+		l.fileStore = nil
+	}
+
+	if l.syslogEnabled.Load() && l.syslogServer != "" {
+		l.syslogSender = syslog.NewSender(l.syslogProtocol, l.syslogServer, l.syslogTag, l.syslogFacility)
+		if err := l.syslogSender.Enable(); err != nil {
+			log.Errorf("failed to enable syslog sender: %v", err)
+		}
+	} else if l.syslogSender != nil {
+		l.syslogSender.Close()
+		l.syslogSender = nil
 	}
 }
 
@@ -98,6 +167,16 @@ func (l *Logger) startReceiver() {
 
 			if l.shouldStore(eventFields, isSrcExitNode || isDestExitNode) {
 				l.Store.StoreEvent(&event)
+
+				if l.localStorageEnabled.Load() && l.fileStore != nil {
+					l.fileStore.StoreEvent(&event)
+				}
+
+				if l.syslogEnabled.Load() && l.syslogSender != nil {
+					if err := l.syslogSender.Send(&event); err != nil {
+						log.Debugf("failed to send event to syslog: %v", err)
+					}
+				}
 			}
 		}
 	}
@@ -106,6 +185,12 @@ func (l *Logger) startReceiver() {
 func (l *Logger) Close() {
 	l.stop()
 	l.Store.Close()
+	if l.fileStore != nil {
+		l.fileStore.Close()
+	}
+	if l.syslogSender != nil {
+		l.syslogSender.Close()
+	}
 }
 
 func (l *Logger) stop() {

@@ -1905,6 +1905,19 @@ type FlowConfig struct {
 	ExitNodeCollection bool `protobuf:"varint,7,opt,name=exitNodeCollection,proto3" json:"exitNodeCollection,omitempty"`
 	// dnsCollection determines if DNS event collection should be enabled
 	DnsCollection bool `protobuf:"varint,8,opt,name=dnsCollection,proto3" json:"dnsCollection,omitempty"`
+
+	// Local storage configuration
+	FlowLocalStorageEnabled   bool   `protobuf:"varint,9,opt,name=flowLocalStorageEnabled,proto3" json:"flowLocalStorageEnabled,omitempty"`
+	FlowLocalStoragePath      string `protobuf:"bytes,10,opt,name=flowLocalStoragePath,proto3" json:"flowLocalStoragePath,omitempty"`
+	FlowLocalStorageMaxSizeMb int32  `protobuf:"varint,11,opt,name=flowLocalStorageMaxSizeMb,proto3" json:"flowLocalStorageMaxSizeMb,omitempty"`
+	FlowLocalStorageMaxFiles   int32  `protobuf:"varint,12,opt,name=flowLocalStorageMaxFiles,proto3" json:"flowLocalStorageMaxFiles,omitempty"`
+
+	// Syslog configuration
+	FlowSyslogEnabled  bool   `protobuf:"varint,13,opt,name=flowSyslogEnabled,proto3" json:"flowSyslogEnabled,omitempty"`
+	FlowSyslogServer string `protobuf:"bytes,14,opt,name=flowSyslogServer,proto3" json:"flowSyslogServer,omitempty"`
+	FlowSyslogProtocol string `protobuf:"bytes,15,opt,name=flowSyslogProtocol,proto3" json:"flowSyslogProtocol,omitempty"`
+	FlowSyslogFacility string `protobuf:"bytes,16,opt,name=flowSyslogFacility,proto3" json:"flowSyslogFacility,omitempty"`
+	FlowSyslogTag string `protobuf:"bytes,17,opt,name=flowSyslogTag,proto3" json:"flowSyslogTag,omitempty"`
 }
 
 func (x *FlowConfig) Reset() {
@@ -1993,6 +2006,69 @@ func (x *FlowConfig) GetDnsCollection() bool {
 		return x.DnsCollection
 	}
 	return false
+}
+
+func (x *FlowConfig) GetFlowLocalStorageEnabled() bool {
+	if x != nil {
+		return x.FlowLocalStorageEnabled
+	}
+	return false
+}
+
+func (x *FlowConfig) GetFlowLocalStoragePath() string {
+	if x != nil {
+		return x.FlowLocalStoragePath
+	}
+	return ""
+}
+
+func (x *FlowConfig) GetFlowLocalStorageMaxSizeMb() int32 {
+	if x != nil {
+		return x.FlowLocalStorageMaxSizeMb
+	}
+	return 0
+}
+
+func (x *FlowConfig) GetFlowLocalStorageMaxFiles() int32 {
+	if x != nil {
+		return x.FlowLocalStorageMaxFiles
+	}
+	return 0
+}
+
+func (x *FlowConfig) GetFlowSyslogEnabled() bool {
+	if x != nil {
+		return x.FlowSyslogEnabled
+	}
+	return false
+}
+
+func (x *FlowConfig) GetFlowSyslogServer() string {
+	if x != nil {
+		return x.FlowSyslogServer
+	}
+	return ""
+}
+
+func (x *FlowConfig) GetFlowSyslogProtocol() string {
+	if x != nil {
+		return x.FlowSyslogProtocol
+	}
+	return ""
+}
+
+func (x *FlowConfig) GetFlowSyslogFacility() string {
+	if x != nil {
+		return x.FlowSyslogFacility
+	}
+	return ""
+}
+
+func (x *FlowConfig) GetFlowSyslogTag() string {
+	if x != nil {
+		return x.FlowSyslogTag
+	}
+	return ""
 }
 
 // JWTConfig represents JWT authentication configuration for validating tokens.

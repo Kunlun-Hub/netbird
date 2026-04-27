@@ -167,6 +167,32 @@ func (m *Manager) Update(update *nftypes.FlowConfig) error {
 
 	m.logger.UpdateConfig(update.DNSCollection, update.ExitNodeCollection)
 
+	if fl, ok := m.logger.(interface {
+		UpdateFlowStorageConfig(
+			localStorageEnabled bool,
+			localStoragePath string,
+			localStorageMaxSizeMB int,
+			localStorageMaxFiles int,
+			syslogEnabled bool,
+			syslogServer string,
+			syslogProtocol string,
+			syslogFacility string,
+			syslogTag string,
+		)
+	}); ok {
+		fl.UpdateFlowStorageConfig(
+			update.LocalStorageEnabled,
+			update.LocalStoragePath,
+			update.LocalStorageMaxSizeMB,
+			update.LocalStorageMaxFiles,
+			update.SyslogEnabled,
+			update.SyslogServer,
+			update.SyslogProtocol,
+			update.SyslogFacility,
+			update.SyslogTag,
+		)
+	}
+
 	changed := previous != nil && update.Enabled != previous.Enabled
 	if update.Enabled {
 		if changed {

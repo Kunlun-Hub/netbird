@@ -140,6 +140,26 @@ type ExtraSettings struct {
 	FlowPacketCounterEnabled bool
 	FlowENCollectionEnabled  bool
 	FlowDnsCollectionEnabled bool
+
+	// FlowLocalStorageEnabled enables or disables local storage of flow logs
+	FlowLocalStorageEnabled bool
+	// FlowLocalStoragePath sets the path where flow logs are stored locally
+	FlowLocalStoragePath string
+	// FlowLocalStorageMaxSizeMB sets the max size of local log files in MB
+	FlowLocalStorageMaxSizeMB int
+	// FlowLocalStorageMaxFiles sets the max number of local log files to keep
+	FlowLocalStorageMaxFiles int
+
+	// FlowSyslogEnabled enables or disables sending flow logs to a syslog server
+	FlowSyslogEnabled bool
+	// FlowSyslogServer sets the syslog server address (host:port)
+	FlowSyslogServer string
+	// FlowSyslogProtocol sets the syslog protocol (udp/tcp)
+	FlowSyslogProtocol string
+	// FlowSyslogFacility sets the syslog facility
+	FlowSyslogFacility string
+	// FlowSyslogTag sets the syslog tag
+	FlowSyslogTag string
 }
 
 // Copy copies the ExtraSettings struct
@@ -154,5 +174,14 @@ func (e *ExtraSettings) Copy() *ExtraSettings {
 		FlowPacketCounterEnabled:  e.FlowPacketCounterEnabled,
 		FlowENCollectionEnabled:   e.FlowENCollectionEnabled,
 		FlowDnsCollectionEnabled:  e.FlowDnsCollectionEnabled,
+		FlowLocalStorageEnabled:   e.FlowLocalStorageEnabled,
+		FlowLocalStoragePath:      e.FlowLocalStoragePath,
+		FlowLocalStorageMaxSizeMB: e.FlowLocalStorageMaxSizeMB,
+		FlowLocalStorageMaxFiles:  e.FlowLocalStorageMaxFiles,
+		FlowSyslogEnabled:         e.FlowSyslogEnabled,
+		FlowSyslogServer:          e.FlowSyslogServer,
+		FlowSyslogProtocol:        e.FlowSyslogProtocol,
+		FlowSyslogFacility:        e.FlowSyslogFacility,
+		FlowSyslogTag:             e.FlowSyslogTag,
 	}
 }

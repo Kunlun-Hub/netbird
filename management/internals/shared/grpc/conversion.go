@@ -113,6 +113,16 @@ func buildFlowConfig(config *nbconfig.Config, relayToken *Token, extraSettings *
 		flowCfg.TokenSignature = relayToken.Signature
 	}
 
+	flowCfg.FlowLocalStorageEnabled = extraSettings.FlowLocalStorageEnabled
+	flowCfg.FlowLocalStoragePath = extraSettings.FlowLocalStoragePath
+	flowCfg.FlowLocalStorageMaxSizeMb = int32(extraSettings.FlowLocalStorageMaxSizeMB)
+	flowCfg.FlowLocalStorageMaxFiles = int32(extraSettings.FlowLocalStorageMaxFiles)
+	flowCfg.FlowSyslogEnabled = extraSettings.FlowSyslogEnabled
+	flowCfg.FlowSyslogServer = extraSettings.FlowSyslogServer
+	flowCfg.FlowSyslogProtocol = extraSettings.FlowSyslogProtocol
+	flowCfg.FlowSyslogFacility = extraSettings.FlowSyslogFacility
+	flowCfg.FlowSyslogTag = extraSettings.FlowSyslogTag
+
 	return flowCfg
 }
 

@@ -981,6 +981,15 @@ func toFlowLoggerConfig(config *mgmProto.FlowConfig) (*nftypes.FlowConfig, error
 		Interval:           config.GetInterval().AsDuration(),
 		DNSCollection:      config.GetDnsCollection(),
 		ExitNodeCollection: config.GetExitNodeCollection(),
+		LocalStorageEnabled: config.GetFlowLocalStorageEnabled(),
+		LocalStoragePath:    config.GetFlowLocalStoragePath(),
+		LocalStorageMaxSizeMB: int(config.GetFlowLocalStorageMaxSizeMb()),
+		LocalStorageMaxFiles: int(config.GetFlowLocalStorageMaxFiles()),
+		SyslogEnabled:    config.GetFlowSyslogEnabled(),
+		SyslogServer:     config.GetFlowSyslogServer(),
+		SyslogProtocol:   config.GetFlowSyslogProtocol(),
+		SyslogFacility:   config.GetFlowSyslogFacility(),
+		SyslogTag:        config.GetFlowSyslogTag(),
 	}, nil
 }
 

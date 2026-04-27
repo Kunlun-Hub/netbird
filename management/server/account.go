@@ -448,6 +448,34 @@ func flowSettingsChanged(oldExtra, newExtra *types.ExtraSettings) bool {
 		}
 	}
 
+	if oldExtra.FlowLocalStorageEnabled != newExtra.FlowLocalStorageEnabled {
+		return true
+	}
+	if oldExtra.FlowLocalStoragePath != newExtra.FlowLocalStoragePath {
+		return true
+	}
+	if oldExtra.FlowLocalStorageMaxSizeMB != newExtra.FlowLocalStorageMaxSizeMB {
+		return true
+	}
+	if oldExtra.FlowLocalStorageMaxFiles != newExtra.FlowLocalStorageMaxFiles {
+		return true
+	}
+	if oldExtra.FlowSyslogEnabled != newExtra.FlowSyslogEnabled {
+		return true
+	}
+	if oldExtra.FlowSyslogServer != newExtra.FlowSyslogServer {
+		return true
+	}
+	if oldExtra.FlowSyslogProtocol != newExtra.FlowSyslogProtocol {
+		return true
+	}
+	if oldExtra.FlowSyslogFacility != newExtra.FlowSyslogFacility {
+		return true
+	}
+	if oldExtra.FlowSyslogTag != newExtra.FlowSyslogTag {
+		return true
+	}
+
 	return false
 }
 
