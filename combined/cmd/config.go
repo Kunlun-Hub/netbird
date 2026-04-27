@@ -345,9 +345,16 @@ func (c *CombinedConfig) applyManagementDefaults(exposedHost string) {
 	c.Management.DnsDomain = exposedHost
 	c.Management.DisableAnonymousMetrics = c.Server.DisableAnonymousMetrics
 	c.Management.DisableGeoliteUpdate = c.Server.DisableGeoliteUpdate
+
 	// Copy auth config from server if management auth issuer is not set
 	if c.Management.Auth.Issuer == "" && c.Server.Auth.Issuer != "" {
 		c.Management.Auth = c.Server.Auth
+	}
+
+	// Auto-generate auth issuer from exposed address if not set
+	if c.Management.Auth.Issuer == "" && c.Server.ExposedAddress != "" {
+		exposedProto, _, exposedHostPort := parseExposedAddress(c.Server.ExposedAddress)
+		c.Management.Auth.Issuer = fmt.Sprintf("%s://%s/oauth2", exposedProto, exposedHostPort)
 	}
 
 	// Copy store config from server if not set
