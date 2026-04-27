@@ -1,9 +1,9 @@
 #!/bin/bash
-# NetBird Linux AMD64 GUI 构建脚本
+# Cloink Linux AMD64 GUI 构建脚本
 
 set -e
 
-echo "=== NetBird Linux AMD64 GUI 构建脚本 ==="
+echo "=== Cloink Linux AMD64 GUI 构建脚本 ==="
 
 # 显示帮助信息
 show_help() {
@@ -48,18 +48,18 @@ fi
 echo "版本号: $APPVER"
 
 # 创建输出目录
-rm -rf dist/netbird_linux_amd64
-mkdir -p dist/netbird_linux_amd64
-echo "清理并创建输出目录: dist/netbird_linux_amd64"
+rm -rf dist/cloink_linux_amd64
+mkdir -p dist/cloink_linux_amd64
+echo "清理并创建输出目录: dist/cloink_linux_amd64"
 
 # 编译 UI 客户端
 echo "=== 编译 Linux UI 客户端 ==="
 # 删除旧的可执行文件
-rm -f dist/netbird_linux_amd64/cloink-ui
+rm -f dist/cloink_linux_amd64/cloink-ui
 echo "已删除旧的 cloink-ui"
 
 CGO_ENABLED=1 GOOS=linux GOARCH=amd64 \
-    go build -o dist/netbird_linux_amd64/cloink-ui \
+    go build -o dist/cloink_linux_amd64/cloink-ui \
     -ldflags "-s -w -X github.com/netbirdio/netbird/version.version=$APPVER" \
     ./client/ui
 
@@ -68,29 +68,30 @@ echo "UI 客户端编译完成"
 # 编译 CLI 客户端
 echo "=== 编译 Linux CLI 客户端 ==="
 # 删除旧的可执行文件
-rm -f dist/netbird_linux_amd64/cloink
+rm -f dist/cloink_linux_amd64/cloink
 echo "已删除旧的 cloink"
 
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-    go build -o dist/netbird_linux_amd64/cloink \
+    go build -o dist/cloink_linux_amd64/cloink \
     -ldflags "-s -w -X github.com/netbirdio/netbird/version.version=$APPVER" \
     ./client/
 echo "CLI 客户端编译完成"
 
 # 创建 systemd 服务文件
 echo "=== 创建 systemd 服务文件 ==="
-mkdir -p dist/netbird_linux_amd64/systemd
-cat > dist/netbird_linux_amd64/systemd/cloink.service << EOF
+mkdir -p dist/cloink_linux_amd64/systemd
+cat > dist/cloink_linux_amd64/systemd/cloink.service << EOF
 [Unit]
 Description=Cloink VPN Client
 After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/cloink up
+ExecStart=/usr/bin/cloink service run --daemon-addr unix:///var/run/cloink.sock --log-file /var/log/cloink/client.log
 Restart=always
 RestartSec=5
-User=%i
+User=root
+Environment=SYSTEMD_UNIT=cloink
 
 [Install]
 WantedBy=multi-user.target
@@ -99,25 +100,25 @@ EOF
 echo "systemd 服务文件创建完成"
 
 # 设置可执行权限
-chmod +x dist/netbird_linux_amd64/cloink-ui
-chmod +x dist/netbird_linux_amd64/cloink
+chmod +x dist/cloink_linux_amd64/cloink-ui
+chmod +x dist/cloink_linux_amd64/cloink
 
 echo "设置可执行权限完成"
 
 # 检查文件
 echo "=== 检查输出文件 ==="
-ls -la dist/netbird_linux_amd64/
+ls -la dist/cloink_linux_amd64/
 
 # 打包文件
 echo "=== 打包文件 ==="
-tar -czf dist/cloink-linux-amd64-$APPVER.tar.gz -C dist/netbird_linux_amd64/ .
+tar -czf dist/cloink-linux-amd64-$APPVER.tar.gz -C dist/cloink_linux_amd64/ .
 echo "打包完成: dist/cloink-linux-amd64-$APPVER.tar.gz"
 
 echo "=== 编译完成 ==="
-echo "输出目录: dist/netbird_linux_amd64/"
+echo "输出目录: dist/cloink_linux_amd64/"
 echo ""
 echo "文件列表:"
-ls -la dist/netbird_linux_amd64/
+ls -la dist/cloink_linux_amd64/
 
 echo ""
 echo "Linux 发布包: dist/cloink-linux-amd64-$APPVER.tar.gz"

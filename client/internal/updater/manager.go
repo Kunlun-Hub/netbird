@@ -117,7 +117,7 @@ func (m *Manager) CheckUpdateSuccess(ctx context.Context) {
 			cProto.SystemEvent_INFO,
 			cProto.SystemEvent_SYSTEM,
 			"Auto-update completed",
-			fmt.Sprintf("Your NetBird Client was auto-updated to version %s", m.currentVersion),
+			fmt.Sprintf("Your Cloink client was auto-updated to version %s", m.currentVersion),
 			nil,
 		)
 		return

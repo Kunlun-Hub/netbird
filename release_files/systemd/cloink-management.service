@@ -1,21 +1,21 @@
 [Unit]
-Description=Netbird Signal
-Documentation=https://netbird.io/docs
+Description=Cloink Management
+Documentation=https://cloink.io/docs
 After=network-online.target syslog.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-EnvironmentFile=-/etc/default/netbird-signal
-ExecStart=/usr/bin/netbird-signal run $FLAGS
+EnvironmentFile=-/etc/default/cloink-management
+ExecStart=/usr/bin/cloink-mgmt management $FLAGS
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=10
-CacheDirectory=netbird
-ConfigurationDirectory=netbird
-LogsDirectory=netbird
-RuntimeDirectory=netbird
-StateDirectory=netbird
+CacheDirectory=cloink
+ConfigurationDirectory=cloink
+LogsDirectory=cloink
+RuntimeDirectory=cloink
+StateDirectory=cloink
 
 # sandboxing
 LockPersonality=yes
@@ -38,4 +38,3 @@ RestrictSUIDSGID=yes
 
 [Install]
 WantedBy=multi-user.target
-

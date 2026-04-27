@@ -185,11 +185,16 @@ func getConfigDir() (string, error) {
 		return "", err
 	}
 
-	configDir := filepath.Join(base, "netbird")
-	if err := os.MkdirAll(configDir, 0o755); err != nil {
+	configDir := filepath.Join(base, "cloink")
+	if err := os.MkdirAll(configDir, 0o755); err == nil {
+		return configDir, nil
+	}
+
+	legacyDir := filepath.Join(base, "netbird")
+	if err := os.MkdirAll(legacyDir, 0o755); err != nil {
 		return "", err
 	}
-	return configDir, nil
+	return legacyDir, nil
 }
 
 func baseConfigDir() (string, error) {

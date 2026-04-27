@@ -31,8 +31,8 @@ var (
 
 func init() {
 
-	DefaultConfigPathDir = "/var/lib/netbird/"
-	oldDefaultConfigPathDir = "/etc/netbird/"
+	DefaultConfigPathDir = "/var/lib/cloink/"
+	oldDefaultConfigPathDir = "/var/lib/netbird/"
 
 	if stateDir := os.Getenv("NB_STATE_DIR"); stateDir != "" {
 		DefaultConfigPathDir = stateDir
@@ -43,8 +43,8 @@ func init() {
 			DefaultConfigPathDir = oldDefaultConfigPathDir
 
 		case "freebsd":
+			DefaultConfigPathDir = "/var/db/cloink/"
 			oldDefaultConfigPathDir = "/var/db/netbird/"
-			DefaultConfigPathDir = oldDefaultConfigPathDir
 		}
 	}
 

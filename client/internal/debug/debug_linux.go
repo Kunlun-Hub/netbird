@@ -72,14 +72,14 @@ func (g *BundleGenerator) trySystemdLogFallback() error {
 	return nil
 }
 
-// getServiceName gets the service name from environment or defaults to netbird
+// getServiceName gets the service name from environment or defaults to cloink
 func getServiceName() string {
 	if unitName := os.Getenv("SYSTEMD_UNIT"); unitName != "" {
 		log.Debugf("Detected SYSTEMD_UNIT environment variable: %s", unitName)
 		return unitName
 	}
 
-	return "netbird"
+	return "cloink"
 }
 
 // getSystemdLogs retrieves logs from systemd journal for a specific service using journalctl

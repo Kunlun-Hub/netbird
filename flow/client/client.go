@@ -283,8 +283,7 @@ func checkHeader(stream proto.FlowService_EventsClient) error {
 	}
 
 	if len(header) == 0 {
-		log.Error("flow receiver sent no headers")
-		return fmt.Errorf("should have headers")
+		log.Trace("flow receiver sent no headers, this is acceptable")
 	}
 	return nil
 }

@@ -1,21 +1,21 @@
 [Unit]
-Description=Netbird Client (%i)
-Documentation=https://netbird.io/docs
+Description=Cloink Client (%i)
+Documentation=https://cloink.io/docs
 After=network-online.target syslog.target NetworkManager.service
 Wants=network-online.target
 
 [Service]
 Type=simple
-EnvironmentFile=-/etc/default/netbird
-ExecStart=/usr/bin/netbird service run --log-file /var/log/netbird/client-%i.log --daemon-addr unix:///var/run/netbird/%i.sock $FLAGS
+EnvironmentFile=-/etc/default/cloink
+ExecStart=/usr/bin/cloink service run --log-file /var/log/cloink/client-%i.log --daemon-addr unix:///var/run/cloink/%i.sock $FLAGS
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=10
-CacheDirectory=netbird
-ConfigurationDirectory=netbird
-LogsDirectory=netbird
-RuntimeDirectory=netbird
-StateDirectory=netbird
+CacheDirectory=cloink
+ConfigurationDirectory=cloink
+LogsDirectory=cloink
+RuntimeDirectory=cloink
+StateDirectory=cloink
 
 # sandboxing
 LockPersonality=yes
@@ -39,4 +39,3 @@ RestrictSUIDSGID=yes
 
 [Install]
 WantedBy=multi-user.target
-

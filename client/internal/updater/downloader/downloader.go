@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	userAgent         = "NetBird agent installer/%s"
+	userAgent         = "Cloink agent installer/%s"
 	DefaultRetryDelay = 3 * time.Second
 )
 

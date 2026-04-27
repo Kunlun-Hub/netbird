@@ -281,9 +281,9 @@ func isServiceRunning() (bool, error) {
 const (
 	networkdConf        = "/etc/systemd/networkd.conf"
 	networkdConfDir     = "/etc/systemd/networkd.conf.d"
-	networkdConfFile    = "/etc/systemd/networkd.conf.d/99-netbird.conf"
-	networkdConfContent = `# Created by NetBird to prevent systemd-networkd from removing
-# routes and policy rules managed by NetBird.
+	networkdConfFile    = "/etc/systemd/networkd.conf.d/99-cloink.conf"
+	networkdConfContent = `# Created by Cloink to prevent systemd-networkd from removing
+# routes and policy rules managed by Cloink.
 
 [Network]
 ManageForeignRoutes=no
@@ -292,7 +292,7 @@ ManageForeignRoutingPolicyRules=no
 )
 
 // configureSystemdNetworkd creates a drop-in configuration file to prevent
-// systemd-networkd from removing NetBird's routes and policy rules.
+// systemd-networkd from removing Cloink's routes and policy rules.
 func configureSystemdNetworkd() error {
 	if _, err := os.Stat(networkdConf); os.IsNotExist(err) {
 		log.Debug("systemd-networkd not in use, skipping configuration")
@@ -312,7 +312,7 @@ func configureSystemdNetworkd() error {
 	return nil
 }
 
-// cleanupSystemdNetworkd removes the NetBird systemd-networkd configuration file.
+// cleanupSystemdNetworkd removes the Cloink systemd-networkd configuration file.
 func cleanupSystemdNetworkd() error {
 	if _, err := os.Stat(networkdConfFile); os.IsNotExist(err) {
 		return nil

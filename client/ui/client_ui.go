@@ -142,7 +142,7 @@ type cliFlags struct {
 func parseFlags() *cliFlags {
 	var flags cliFlags
 
-	defaultDaemonAddr := "unix:///var/run/netbird.sock"
+	defaultDaemonAddr := "unix:///var/run/cloink.sock"
 	if runtime.GOOS == "windows" {
 		defaultDaemonAddr = "tcp://127.0.0.1:41731"
 	}
@@ -1510,14 +1510,14 @@ func (s *serviceClient) showLoginURL() context.CancelFunc {
 	resIcon := fyne.NewStaticResource("netbird.png", iconAbout)
 
 	if s.wLoginURL == nil {
-		s.wLoginURL = s.app.NewWindow("NetBird Session Expired")
+		s.wLoginURL = s.app.NewWindow("Cloink Session Expired")
 		s.wLoginURL.Resize(fyne.NewSize(400, 200))
 		s.wLoginURL.SetIcon(resIcon)
 	}
 	// ensure goroutine is cancelled when the window is closed
 	s.wLoginURL.SetOnClosed(func() { cancel() })
 	// add a description label
-	label := widget.NewLabel("Your NetBird session has expired.\nPlease re-authenticate to continue using NetBird.")
+	label := widget.NewLabel("Your Cloink session has expired.\nPlease re-authenticate to continue using Cloink.")
 
 	btn := widget.NewButtonWithIcon("Re-authenticate", theme.ViewRefreshIcon(), func() {
 

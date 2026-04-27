@@ -1343,12 +1343,12 @@ func (s *Server) WaitJWTToken(
 	}, nil
 }
 
-// ExposeService exposes a local port via the NetBird reverse proxy.
+// ExposeService exposes a local port via the Cloink reverse proxy.
 func (s *Server) ExposeService(req *proto.ExposeServiceRequest, srv proto.DaemonService_ExposeServiceServer) error {
 	s.mutex.Lock()
 	if !s.clientRunning {
 		s.mutex.Unlock()
-		return gstatus.Errorf(codes.FailedPrecondition, "client is not running, run 'netbird up' first")
+		return gstatus.Errorf(codes.FailedPrecondition, "client is not running, run 'cloink up' first")
 	}
 	connectClient := s.connectClient
 	s.mutex.Unlock()
@@ -1730,9 +1730,9 @@ func parseEnvDuration(envVar string, defaultDuration time.Duration) time.Duratio
 }
 
 // sendTerminalNotification sends a terminal notification message
-// to inform the user that the NetBird connection session has expired.
+// to inform the user that the Cloink connection session has expired.
 func sendTerminalNotification() error {
-	message := "NetBird connection session expired\n\nPlease re-authenticate to connect to the network."
+	message := "Cloink connection session expired\n\nPlease re-authenticate to connect to the network."
 	echoCmd := exec.Command("echo", message)
 	wallCmd := exec.Command("sudo", "wall")
 

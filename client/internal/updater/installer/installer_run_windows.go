@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	daemonName    = "netbird.exe"
-	uiName        = "netbird-ui.exe"
+	daemonName    = "cloink.exe"
+	uiName        = "cloink-ui.exe"
 	updaterBinary = "updater.exe"
 
 	msiLogFile = "msi.log"
@@ -27,7 +27,7 @@ const (
 )
 
 var (
-	defaultTempDir = filepath.Join(os.Getenv("ProgramData"), "Netbird", "tmp-install")
+	defaultTempDir = filepath.Join(os.Getenv("ProgramData"), "Cloink", "tmp-install")
 
 	// for the cleanup
 	binaryExtensions = []string{"msi", "exe"}
@@ -104,22 +104,22 @@ func (u *Installer) Setup(ctx context.Context, dryRun bool, installerFile string
 }
 
 func (u *Installer) startDaemon(daemonFolder string) error {
-	log.Infof("starting netbird service")
+	log.Infof("starting cloink service")
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, filepath.Join(daemonFolder, daemonName), "service", "start")
 	if output, err := cmd.CombinedOutput(); err != nil {
-		log.Debugf("failed to start netbird service: %v, output: %s", err, string(output))
+		log.Debugf("failed to start cloink service: %v, output: %s", err, string(output))
 		return err
 	}
-	log.Infof("netbird service started successfully")
+	log.Infof("cloink service started successfully")
 	return nil
 }
 
 func (u *Installer) startUIAsUser(daemonFolder string) error {
 	uiPath := filepath.Join(daemonFolder, uiName)
-	log.Infof("starting netbird-ui: %s", uiPath)
+	log.Infof("starting cloink-ui: %s", uiPath)
 
 	// Get the active console session ID
 	sessionID := windows.WTSGetActiveConsoleSessionId()
@@ -197,7 +197,7 @@ func (u *Installer) startUIAsUser(daemonFolder string) error {
 		log.Warnf("failed to close thread handle: %v", err)
 	}
 
-	log.Infof("netbird-ui started successfully in session %d", sessionID)
+	log.Infof("cloink-ui started successfully in session %d", sessionID)
 	return nil
 }
 

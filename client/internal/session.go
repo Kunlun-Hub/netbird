@@ -74,7 +74,7 @@ func CheckUIApp() bool {
 
 	lines := strings.Split(string(output), "\n")
 	for _, line := range lines {
-		if strings.Contains(line, "netbird-ui") && !strings.Contains(line, "grep") {
+		if strings.Contains(line, "cloink-ui") && !strings.Contains(line, "grep") {
 			return true
 		}
 	}

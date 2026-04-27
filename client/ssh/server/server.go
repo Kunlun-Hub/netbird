@@ -777,11 +777,11 @@ func (s *Server) connectionValidator(_ ssh.Context, conn net.Conn) net.Conn {
 	}
 
 	if !netbirdNetwork.Contains(remoteIP) {
-		log.Warnf("SSH connection rejected from non-NetBird IP %s", remoteIP)
+		log.Warnf("SSH connection rejected from non-Cloink IP %s", remoteIP)
 		return nil
 	}
 
-	log.Infof("SSH connection from NetBird peer %s allowed", tcpAddr)
+	log.Infof("SSH connection from Cloink peer %s allowed", tcpAddr)
 	return &trackedConn{
 		Conn:       conn,
 		server:     s,

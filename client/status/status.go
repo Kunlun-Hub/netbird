@@ -25,7 +25,7 @@ import (
 	"github.com/netbirdio/netbird/version"
 )
 
-// DaemonStatus represents the current state of the NetBird daemon.
+// DaemonStatus represents the current state of the Cloink daemon.
 // These values mirror internal.StatusType but are defined here to avoid an import cycle.
 type DaemonStatus string
 
@@ -568,7 +568,7 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 			"Relays: %s\n"+
 			"Nameservers: %s\n"+
 			"FQDN: %s\n"+
-			"NetBird IP: %s\n"+
+			"Cloink IP: %s\n"+
 			"Interface type: %s\n"+
 			"Quantum resistance: %s\n"+
 			"Lazy connection: %s\n"+
@@ -763,7 +763,7 @@ func parsePeers(peers PeersStateOutput, rosenpassEnabled, rosenpassPermissive bo
 
 		peerString := fmt.Sprintf(
 			"\n %s:\n"+
-				"  NetBird IP: %s\n"+
+				"  Cloink IP: %s\n"+
 				"  Public key: %s\n"+
 				"  Status: %s\n"+
 				"  -- detail --\n"+
