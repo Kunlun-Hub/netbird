@@ -33,7 +33,7 @@ const (
 	// It is used for backward compatibility now.
 	ManagementLegacyPort = 33073
 	// DefaultSelfHostedDomain is the default domain used for self-hosted fresh installs.
-	DefaultSelfHostedDomain = "netbird.selfhosted"
+	DefaultSelfHostedDomain = "cloink.local"
 )
 
 type Server interface {
