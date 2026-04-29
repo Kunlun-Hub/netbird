@@ -20,6 +20,7 @@ import (
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
+	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/domain"
 
 	"github.com/netbirdio/netbird/management/server/posture"
@@ -369,21 +370,16 @@ func (am *DefaultAccountManager) CreatePeerJob(ctx context.Context, accountID, p
 		return status.Errorf(status.BadRequest, "peer not connected")
 	}
 
-	// check if already has pending jobs
-	// todo: The job checks here are not protected. The user can run this function from multiple threads,
-	// and each thread can think there is no job yet. This means entries in the pending job map will be overwritten,
-	// and only one will be kept, but potentially another one will overwrite it in the queue.
-	if am.jobManager.IsPeerHasPendingJobs(peerID) {
-		return status.Errorf(status.BadRequest, "peer already has pending job")
-	}
-
 	jobStream, err := job.ToStreamJobRequest()
 	if err != nil {
 		return status.Errorf(status.BadRequest, "invalid job request %v", err)
 	}
 
-	// try sending job first
-	if err := am.jobManager.SendJob(ctx, accountID, peerID, jobStream); err != nil {
+	// atomically check for pending jobs and send the job
+	if err := am.jobManager.TrySendJob(ctx, accountID, peerID, jobStream); err != nil {
+		if err.Error() == "peer already has pending job" {
+			return status.Errorf(status.BadRequest, err.Error())
+		}
 		return status.Errorf(status.Internal, "failed to send job: %v", err)
 	}
 
@@ -1302,6 +1298,33 @@ func (am *DefaultAccountManager) BufferUpdateAccountPeers(ctx context.Context, a
 // Should be called when changes need to be synced to a specific peer only.
 func (am *DefaultAccountManager) UpdateAccountPeer(ctx context.Context, accountId string, peerId string) {
 	_ = am.networkMapController.UpdateAccountPeer(ctx, accountId, peerId)
+}
+
+// OnRouteAdded handles incremental route addition and updates only affected peers
+func (am *DefaultAccountManager) OnRouteAdded(ctx context.Context, accountID string, r *route.Route) ([]string, error) {
+	account, err := am.Store.GetAccount(ctx, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get account: %w", err)
+	}
+	return am.networkMapController.OnRouteAddedUpdNetworkMapCache(account, r)
+}
+
+// OnRouteUpdated handles incremental route update and updates only affected peers
+func (am *DefaultAccountManager) OnRouteUpdated(ctx context.Context, accountID string, oldRoute, newRoute *route.Route) ([]string, error) {
+	account, err := am.Store.GetAccount(ctx, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get account: %w", err)
+	}
+	return am.networkMapController.OnRouteUpdatedUpdNetworkMapCache(account, oldRoute, newRoute)
+}
+
+// OnRouteDeleted handles incremental route deletion and updates only affected peers
+func (am *DefaultAccountManager) OnRouteDeleted(ctx context.Context, accountID string, r *route.Route) ([]string, error) {
+	account, err := am.Store.GetAccount(ctx, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get account: %w", err)
+	}
+	return am.networkMapController.OnRouteDeletedUpdNetworkMapCache(account, r)
 }
 
 // getNextPeerExpiration returns the minimum duration in which the next peer of the account will expire if it was found.

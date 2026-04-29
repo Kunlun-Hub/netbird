@@ -8,6 +8,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/rs/xid"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
@@ -191,7 +192,19 @@ func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID stri
 	am.StoreEvent(ctx, userID, string(newRoute.ID), accountID, activity.RouteCreated, newRoute.EventMeta())
 
 	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID)
+		affectedPeers, err := am.OnRouteAdded(ctx, accountID, newRoute)
+		if err != nil {
+			log.WithContext(ctx).Debugf("incremental route add failed, falling back to full update: %v", err)
+			am.UpdateAccountPeers(ctx, accountID)
+		} else if affectedPeers == nil {
+			log.WithContext(ctx).Debugf("incremental network map not enabled, falling back to full update")
+			am.UpdateAccountPeers(ctx, accountID)
+		} else {
+			log.WithContext(ctx).Debugf("incremental route update for %d affected peers", len(affectedPeers))
+			for _, peerID := range affectedPeers {
+				am.UpdateAccountPeer(ctx, accountID, peerID)
+			}
+		}
 	}
 
 	return newRoute, nil
@@ -245,7 +258,19 @@ func (am *DefaultAccountManager) SaveRoute(ctx context.Context, accountID, userI
 	am.StoreEvent(ctx, userID, string(routeToSave.ID), accountID, activity.RouteUpdated, routeToSave.EventMeta())
 
 	if oldRouteAffectsPeers || newRouteAffectsPeers {
-		am.UpdateAccountPeers(ctx, accountID)
+		affectedPeers, err := am.OnRouteUpdated(ctx, accountID, oldRoute, routeToSave)
+		if err != nil {
+			log.WithContext(ctx).Debugf("incremental route update failed, falling back to full update: %v", err)
+			am.UpdateAccountPeers(ctx, accountID)
+		} else if affectedPeers == nil {
+			log.WithContext(ctx).Debugf("incremental network map not enabled, falling back to full update")
+			am.UpdateAccountPeers(ctx, accountID)
+		} else {
+			log.WithContext(ctx).Debugf("incremental route update for %d affected peers", len(affectedPeers))
+			for _, peerID := range affectedPeers {
+				am.UpdateAccountPeer(ctx, accountID, peerID)
+			}
+		}
 	}
 
 	return nil
@@ -261,16 +286,16 @@ func (am *DefaultAccountManager) DeleteRoute(ctx context.Context, accountID stri
 		return status.NewPermissionDeniedError()
 	}
 
-	var route *route.Route
+	var r *route.Route
 	var updateAccountPeers bool
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		route, err = transaction.GetRouteByID(ctx, store.LockingStrengthUpdate, accountID, string(routeID))
+		r, err = transaction.GetRouteByID(ctx, store.LockingStrengthUpdate, accountID, string(routeID))
 		if err != nil {
 			return err
 		}
 
-		updateAccountPeers, err = areRouteChangesAffectPeers(ctx, transaction, route)
+		updateAccountPeers, err = areRouteChangesAffectPeers(ctx, transaction, r)
 		if err != nil {
 			return err
 		}
@@ -285,10 +310,22 @@ func (am *DefaultAccountManager) DeleteRoute(ctx context.Context, accountID stri
 		return fmt.Errorf("failed to delete route %s: %w", routeID, err)
 	}
 
-	am.StoreEvent(ctx, userID, string(route.ID), accountID, activity.RouteRemoved, route.EventMeta())
+	am.StoreEvent(ctx, userID, string(r.ID), accountID, activity.RouteRemoved, r.EventMeta())
 
 	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID)
+		affectedPeers, err := am.OnRouteDeleted(ctx, accountID, r)
+		if err != nil {
+			log.WithContext(ctx).Debugf("incremental route delete failed, falling back to full update: %v", err)
+			am.UpdateAccountPeers(ctx, accountID)
+		} else if affectedPeers == nil {
+			log.WithContext(ctx).Debugf("incremental network map not enabled, falling back to full update")
+			am.UpdateAccountPeers(ctx, accountID)
+		} else {
+			log.WithContext(ctx).Debugf("incremental route update for %d affected peers", len(affectedPeers))
+			for _, peerID := range affectedPeers {
+				am.UpdateAccountPeer(ctx, accountID, peerID)
+			}
+		}
 	}
 
 	return nil

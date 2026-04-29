@@ -7,6 +7,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/netbirdio/netbird/route"
 )
 
 func (a *Account) initNetworkMapBuilder(validatedPeers map[string]struct{}) {
@@ -64,4 +65,25 @@ func (a *Account) UpdatePeerInNetworkMapCache(peer *nbpeer.Peer) {
 
 func (a *Account) RecalculateNetworkMapCache(validatedPeers map[string]struct{}) {
 	a.initNetworkMapBuilder(validatedPeers)
+}
+
+func (a *Account) OnRouteAddedUpdNetworkMapCache(r *route.Route) ([]string, error) {
+	if a.NetworkMapCache == nil {
+		return nil, nil
+	}
+	return a.NetworkMapCache.OnRouteAdded(a, r)
+}
+
+func (a *Account) OnRouteUpdatedUpdNetworkMapCache(oldRoute, newRoute *route.Route) ([]string, error) {
+	if a.NetworkMapCache == nil {
+		return nil, nil
+	}
+	return a.NetworkMapCache.OnRouteUpdated(a, oldRoute, newRoute)
+}
+
+func (a *Account) OnRouteDeletedUpdNetworkMapCache(r *route.Route) ([]string, error) {
+	if a.NetworkMapCache == nil {
+		return nil, nil
+	}
+	return a.NetworkMapCache.OnRouteDeleted(a, r)
 }

@@ -32,6 +32,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/shared/management/status"
 	"github.com/netbirdio/netbird/util"
@@ -559,6 +560,36 @@ func (c *Controller) UpdatePeerInNetworkMapCache(accountId string, peer *nbpeer.
 		return
 	}
 	account.UpdatePeerInNetworkMapCache(peer)
+}
+
+func (c *Controller) OnRouteAddedUpdNetworkMapCache(account *types.Account, r *route.Route) ([]string, error) {
+	c.enrichAccountFromHolder(account)
+	affectedPeers, err := account.OnRouteAddedUpdNetworkMapCache(r)
+	if err != nil {
+		return nil, err
+	}
+	c.updateAccountInHolder(account)
+	return affectedPeers, nil
+}
+
+func (c *Controller) OnRouteUpdatedUpdNetworkMapCache(account *types.Account, oldRoute, newRoute *route.Route) ([]string, error) {
+	c.enrichAccountFromHolder(account)
+	affectedPeers, err := account.OnRouteUpdatedUpdNetworkMapCache(oldRoute, newRoute)
+	if err != nil {
+		return nil, err
+	}
+	c.updateAccountInHolder(account)
+	return affectedPeers, nil
+}
+
+func (c *Controller) OnRouteDeletedUpdNetworkMapCache(account *types.Account, r *route.Route) ([]string, error) {
+	c.enrichAccountFromHolder(account)
+	affectedPeers, err := account.OnRouteDeletedUpdNetworkMapCache(r)
+	if err != nil {
+		return nil, err
+	}
+	c.updateAccountInHolder(account)
+	return affectedPeers, nil
 }
 
 func (c *Controller) recalculateNetworkMapCache(account *types.Account, validatedPeers map[string]struct{}) {

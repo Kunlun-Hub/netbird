@@ -313,7 +313,6 @@ func (s *SqlStore) AcquireAccountLock(ctx context.Context, accountID string) (un
 	unlock = func() {
 		lock.Unlock()
 		log.WithContext(ctx).Tracef("released lock for account %s in %v", accountID, time.Since(start))
-		s.accountLocks.Delete(accountID)
 	}
 
 	took := time.Since(start)
@@ -340,7 +339,6 @@ func (s *SqlStore) AcquireDomainLock(ctx context.Context, domain string) (unlock
 	unlock = func() {
 		lock.Unlock()
 		log.WithContext(ctx).Tracef("released lock for domain %s in %v", domain, time.Since(start))
-		s.domainLocks.Delete(domain)
 	}
 
 	took := time.Since(start)

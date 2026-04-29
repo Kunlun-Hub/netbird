@@ -735,15 +735,19 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 	return s.waitForUp(callerCtx)
 }
 
-// todo: handle potential race conditions
 func (s *Server) waitForUp(callerCtx context.Context) (*proto.UpResponse, error) {
 	timeoutCtx, cancel := context.WithTimeout(callerCtx, 50*time.Second)
 	defer cancel()
 
+	s.mutex.Lock()
+	giveUpChan := s.clientGiveUpChan
+	runningChan := s.clientRunningChan
+	s.mutex.Unlock()
+
 	select {
-	case <-s.clientGiveUpChan:
+	case <-giveUpChan:
 		return nil, fmt.Errorf("client gave up to connect")
-	case <-s.clientRunningChan:
+	case <-runningChan:
 		s.isSessionActive.Store(true)
 		return &proto.UpResponse{}, nil
 	case <-callerCtx.Done():

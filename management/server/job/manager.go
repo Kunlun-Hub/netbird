@@ -90,6 +90,42 @@ func (jm *Manager) SendJob(ctx context.Context, accountID, peerID string, req *p
 	return nil
 }
 
+// TrySendJob atomically checks if the peer has pending jobs and sends a new job if not
+func (jm *Manager) TrySendJob(ctx context.Context, accountID, peerID string, req *proto.JobRequest) error {
+	jm.mu.Lock()
+	defer jm.mu.Unlock()
+
+	ch, ok := jm.jobChannels[peerID]
+	if !ok {
+		return fmt.Errorf("peer %s has no channel", peerID)
+	}
+
+	for _, ev := range jm.pending {
+		if ev.PeerID == peerID {
+			return fmt.Errorf("peer already has pending job")
+		}
+	}
+
+	event := &Event{
+		PeerID:  peerID,
+		Request: req,
+	}
+	jm.pending[string(req.ID)] = event
+
+	err := ch.AddEvent(ctx, jm.responseWait, event)
+	if err != nil {
+		if ev, ok := jm.pending[string(req.ID)]; ok {
+			if err2 := jm.Store.MarkPendingJobsAsFailed(ctx, accountID, ev.PeerID, string(req.ID), err.Error()); err2 != nil {
+				log.WithContext(ctx).Errorf("failed to mark pending jobs as failed: %v", err2)
+			}
+		}
+		delete(jm.pending, string(req.ID))
+		return err
+	}
+
+	return nil
+}
+
 // HandleResponse marks a job as finished and moves it to completed
 func (jm *Manager) HandleResponse(ctx context.Context, resp *proto.JobResponse, peerKey string) error {
 	jm.mu.Lock()

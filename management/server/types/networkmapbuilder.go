@@ -1782,6 +1782,7 @@ type PeerUpdateDelta struct {
 	AddConnectedPeers        []string
 	AddFirewallRules         []*FirewallRuleDelta
 	AddRoutes                []route.ID
+	RemoveRoutes             []route.ID
 	UpdateRouteFirewallRules []*RouteFirewallRuleUpdate
 	UpdateDNS                bool
 	RebuildRoutesView        bool
@@ -1808,6 +1809,12 @@ func (d *PeerUpdateDelta) mergeFrom(other *PeerUpdateDelta) {
 	for _, routeID := range other.AddRoutes {
 		if !slices.Contains(d.AddRoutes, routeID) {
 			d.AddRoutes = append(d.AddRoutes, routeID)
+		}
+	}
+	
+	for _, routeID := range other.RemoveRoutes {
+		if !slices.Contains(d.RemoveRoutes, routeID) {
+			d.RemoveRoutes = append(d.RemoveRoutes, routeID)
 		}
 	}
 
@@ -1989,9 +1996,33 @@ func (b *NetworkMapBuilder) applyDeltaToPeer(account *Account, peerID string, de
 
 	if delta.RebuildRoutesView {
 		b.buildPeerRoutesView(account, peerID)
-	} else if len(delta.UpdateRouteFirewallRules) > 0 {
+	} else {
 		if routesView := b.cache.peerRoutes[peerID]; routesView != nil {
-			b.updateRouteFirewallRules(routesView, delta.UpdateRouteFirewallRules)
+			if len(delta.RemoveRoutes) > 0 {
+				routesView.NetworkResourceIDs = slices.DeleteFunc(routesView.NetworkResourceIDs, func(routeID route.ID) bool {
+					return slices.Contains(delta.RemoveRoutes, routeID)
+				})
+				routesView.InheritedRouteIDs = slices.DeleteFunc(routesView.InheritedRouteIDs, func(routeID route.ID) bool {
+					return slices.Contains(delta.RemoveRoutes, routeID)
+				})
+				routesView.OwnRouteIDs = slices.DeleteFunc(routesView.OwnRouteIDs, func(routeID route.ID) bool {
+					return slices.Contains(delta.RemoveRoutes, routeID)
+				})
+			}
+			
+			if len(delta.AddRoutes) > 0 {
+				for _, routeID := range delta.AddRoutes {
+					if !slices.Contains(routesView.NetworkResourceIDs, routeID) &&
+						!slices.Contains(routesView.InheritedRouteIDs, routeID) &&
+						!slices.Contains(routesView.OwnRouteIDs, routeID) {
+						routesView.NetworkResourceIDs = append(routesView.NetworkResourceIDs, routeID)
+					}
+				}
+			}
+			
+			if len(delta.UpdateRouteFirewallRules) > 0 {
+				b.updateRouteFirewallRules(routesView, delta.UpdateRouteFirewallRules)
+			}
 		}
 	}
 
@@ -2314,4 +2345,204 @@ func (b *NetworkMapBuilder) UpdatePeer(peer *nbpeer.Peer) {
 		return
 	}
 	*peerStored = *peer
+}
+
+// OnRouteAdded handles incremental update when a route is added
+func (b *NetworkMapBuilder) OnRouteAdded(account *Account, r *route.Route) ([]string, error) {
+	b.cache.mu.Lock()
+	defer b.cache.mu.Unlock()
+
+	log.Debugf("NetworkMapBuilder: Handling route added %s", r.ID)
+	
+	// Update cache
+	b.cache.globalRoutes[r.ID] = r
+	b.updateRouteGroupIndex(r)
+	b.updateRoutePeerIndex(r)
+	
+	// Find affected peers
+	affectedPeers := b.findPeersAffectedByRoute(r)
+	
+	// Update affected peers
+	for _, peerID := range affectedPeers {
+		delta := &PeerUpdateDelta{
+			PeerID:            peerID,
+			AddRoutes:         []route.ID{r.ID},
+			RebuildRoutesView: true,
+		}
+		b.applyDeltaToPeer(account, peerID, delta)
+	}
+	
+	log.Debugf("NetworkMapBuilder: Route added %s, affected %d peers", r.ID, len(affectedPeers))
+	return affectedPeers, nil
+}
+
+// OnRouteUpdated handles incremental update when a route is updated
+func (b *NetworkMapBuilder) OnRouteUpdated(account *Account, oldRoute, newRoute *route.Route) ([]string, error) {
+	b.cache.mu.Lock()
+	defer b.cache.mu.Unlock()
+
+	log.Debugf("NetworkMapBuilder: Handling route updated %s", oldRoute.ID)
+	
+	// Update cache
+	delete(b.cache.globalRoutes, oldRoute.ID)
+	b.removeRouteFromIndexes(oldRoute)
+	
+	b.cache.globalRoutes[newRoute.ID] = newRoute
+	b.updateRouteGroupIndex(newRoute)
+	b.updateRoutePeerIndex(newRoute)
+	
+	// Find affected peers (union of peers affected by old and new route)
+	affectedPeersOld := b.findPeersAffectedByRoute(oldRoute)
+	affectedPeersNew := b.findPeersAffectedByRoute(newRoute)
+	
+	affectedPeersMap := make(map[string]struct{})
+	for _, peerID := range affectedPeersOld {
+		affectedPeersMap[peerID] = struct{}{}
+	}
+	for _, peerID := range affectedPeersNew {
+		affectedPeersMap[peerID] = struct{}{}
+	}
+	
+	affectedPeers := maps.Keys(affectedPeersMap)
+	
+	// Update affected peers (rebuild routes view for simplicity)
+	for _, peerID := range affectedPeers {
+		delta := &PeerUpdateDelta{
+			PeerID:            peerID,
+			RebuildRoutesView: true,
+		}
+		b.applyDeltaToPeer(account, peerID, delta)
+	}
+	
+	log.Debugf("NetworkMapBuilder: Route updated %s, affected %d peers", oldRoute.ID, len(affectedPeers))
+	return affectedPeers, nil
+}
+
+// OnRouteDeleted handles incremental update when a route is deleted
+func (b *NetworkMapBuilder) OnRouteDeleted(account *Account, r *route.Route) ([]string, error) {
+	b.cache.mu.Lock()
+	defer b.cache.mu.Unlock()
+
+	log.Debugf("NetworkMapBuilder: Handling route deleted %s", r.ID)
+	
+	// Find affected peers before removing from cache
+	affectedPeers := b.findPeersAffectedByRoute(r)
+	
+	// Update cache
+	delete(b.cache.globalRoutes, r.ID)
+	b.removeRouteFromIndexes(r)
+	
+	// Update affected peers
+	for _, peerID := range affectedPeers {
+		delta := &PeerUpdateDelta{
+			PeerID:            peerID,
+			RemoveRoutes:      []route.ID{r.ID},
+			RebuildRoutesView: true,
+		}
+		b.applyDeltaToPeer(account, peerID, delta)
+	}
+	
+	log.Debugf("NetworkMapBuilder: Route deleted %s, affected %d peers", r.ID, len(affectedPeers))
+	return affectedPeers, nil
+}
+
+// findPeersAffectedByRoute finds all peers affected by a route change
+func (b *NetworkMapBuilder) findPeersAffectedByRoute(r *route.Route) []string {
+	affectedPeers := make(map[string]struct{})
+	
+	// Peers in route's groups (peers that receive the route)
+	for _, groupID := range r.Groups {
+		if peers := b.cache.groupToPeers[groupID]; peers != nil {
+			for _, peerID := range peers {
+				if _, ok := b.validatedPeers[peerID]; ok {
+					affectedPeers[peerID] = struct{}{}
+				}
+			}
+		}
+	}
+	
+	// Peer that has the route (if it's a single peer route)
+	if r.Peer != "" {
+		if _, ok := b.validatedPeers[r.Peer]; ok {
+			affectedPeers[r.Peer] = struct{}{}
+		}
+	}
+	
+	// Peers in route's peer groups
+	for _, groupID := range r.PeerGroups {
+		if peers := b.cache.groupToPeers[groupID]; peers != nil {
+			for _, peerID := range peers {
+				if _, ok := b.validatedPeers[peerID]; ok {
+					affectedPeers[peerID] = struct{}{}
+				}
+			}
+		}
+	}
+	
+	// Peers in route's access control groups
+	for _, groupID := range r.AccessControlGroups {
+		if peers := b.cache.groupToPeers[groupID]; peers != nil {
+			for _, peerID := range peers {
+				if _, ok := b.validatedPeers[peerID]; ok {
+					affectedPeers[peerID] = struct{}{}
+				}
+			}
+		}
+	}
+	
+	return maps.Keys(affectedPeers)
+}
+
+// updateRouteGroupIndex updates the group to route index
+func (b *NetworkMapBuilder) updateRouteGroupIndex(r *route.Route) {
+	for _, groupID := range r.Groups {
+		if !slices.Contains(b.cache.groupToRoutes[groupID], r) {
+			b.cache.groupToRoutes[groupID] = append(b.cache.groupToRoutes[groupID], r)
+		}
+	}
+	for _, groupID := range r.PeerGroups {
+		if !slices.Contains(b.cache.groupToRoutes[groupID], r) {
+			b.cache.groupToRoutes[groupID] = append(b.cache.groupToRoutes[groupID], r)
+		}
+	}
+}
+
+// updateRoutePeerIndex updates the peer to route index
+func (b *NetworkMapBuilder) updateRoutePeerIndex(r *route.Route) {
+	if r.Peer != "" {  // 这里的 r 是参数，不是包名
+		if !slices.Contains(b.cache.peerToRoutes[r.Peer], r) {
+			b.cache.peerToRoutes[r.Peer] = append(b.cache.peerToRoutes[r.Peer], r)
+		}
+	}
+}
+
+// removeRouteFromIndexes removes route from all indexes
+func (b *NetworkMapBuilder) removeRouteFromIndexes(r *route.Route) {
+	// Remove from groupToRoutes
+	for _, groupID := range r.Groups {
+		b.cache.groupToRoutes[groupID] = slices.DeleteFunc(b.cache.groupToRoutes[groupID], func(rt *route.Route) bool {
+			return rt.ID == r.ID
+		})
+		if len(b.cache.groupToRoutes[groupID]) == 0 {
+			delete(b.cache.groupToRoutes, groupID)
+		}
+	}
+	for _, groupID := range r.PeerGroups {
+		b.cache.groupToRoutes[groupID] = slices.DeleteFunc(b.cache.groupToRoutes[groupID], func(rt *route.Route) bool {
+			return rt.ID == r.ID
+		})
+		if len(b.cache.groupToRoutes[groupID]) == 0 {
+			delete(b.cache.groupToRoutes, groupID)
+		}
+	}
+	
+	// Remove from peerToRoutes
+	if r.Peer != "" {
+		b.cache.peerToRoutes[r.Peer] = slices.DeleteFunc(b.cache.peerToRoutes[r.Peer], func(rt *route.Route) bool {
+			return rt.ID == r.ID
+		})
+		if len(b.cache.peerToRoutes[r.Peer]) == 0 {
+			delete(b.cache.peerToRoutes, r.Peer)
+		}
+	}
 }

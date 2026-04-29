@@ -3,6 +3,9 @@
 
 set -e
 
+# 添加 Go 到 PATH
+export PATH=/root/cloink/go/bin:$PATH
+
 echo "=== NetBird Windows AMD64 GUI 构建脚本 ==="
 
 normalize_windows_version() {
@@ -117,11 +120,11 @@ echo "清理并创建输出目录: dist/netbird_windows_amd64"
 
 # 复制指定版本的 opengl32.dll
 echo "=== 准备 opengl32.dll ==="
-if [ -f "/home/apps/opengl32.dll" ]; then
-    cp /home/apps/opengl32.dll dist/netbird_windows_amd64/opengl32.dll
+if [ -f "/root/cloink/netbird/opengl32/opengl32.dll" ]; then
+    cp /root/cloink/netbird/opengl32/opengl32.dll dist/netbird_windows_amd64/opengl32.dll
     echo "opengl32.dll 已复制到输出目录"
 else
-    echo "错误: 未找到 /home/apps/opengl32.dll"
+    echo "错误: 未找到 /root/cloink/netbird/opengl32/opengl32.dll"
     exit 1
 fi
 
@@ -204,12 +207,12 @@ if [ "$BUILD_NSIS" = true ]; then
     echo "正在构建 NSIS 安装包..."
     if command -v makensis &> /dev/null; then
         # 检查 NSIS 插件
-        if [ -f "/usr/share/nsis/Plugins/amd64-unicode/ShellExecAsUser.dll" ] && [ -f "/usr/share/nsis/Plugins/amd64-unicode/EnVar.dll" ]; then
+        if [ -f "nsis-plugins/amd64-unicode/ShellExecAsUser.dll" ] && [ -f "nsis-plugins/amd64-unicode/EnVar.dll" ]; then
             echo "NSIS 插件已就绪"
             rm -f cloink-installer.exe dist/cloink-installer.exe
-            # 编译安装程序
+            # 编译安装程序 - 使用本地插件目录
             echo "使用版本号: $APPVER (NSIS: $APPVER_NSI)"
-            (cd client && makensis -V4 installer.nsis)
+            (cd client && makensis -V4 -X"!addplugindir ../nsis-plugins/x86-unicode" -X"!addplugindir ../nsis-plugins/amd64-unicode" -X"!addplugindir ../nsis-plugins/x86-ansi" installer.nsis)
             
             if [ -f "cloink-installer.exe" ]; then
                 mv -f cloink-installer.exe dist/
@@ -224,9 +227,7 @@ if [ "$BUILD_NSIS" = true ]; then
             echo "1. EnVar 插件"
             echo "2. ShellExecAsUser 插件"
             echo ""
-            echo "安装命令:"
-            echo "cd /tmp && curl -L -o envar.zip https://nsis.sourceforge.io/mediawiki/images/7/7f/EnVar_plugin.zip && sudo unzip -o envar.zip -d /usr/share/nsis/"
-            echo "cd /tmp && curl -L -o shellexec.7z https://nsis.sourceforge.io/mediawiki/images/6/68/ShellExecAsUser_amd64-Unicode.7z && 7z x shellexec.7z -o/tmp/shellexec -y && sudo cp /tmp/shellexec/ShellExecAsUser.dll /usr/share/nsis/Plugins/amd64-unicode/"
+            echo "插件应位于: nsis-plugins/amd64-unicode/"
         fi
     else
         echo "错误: makensis 未安装"
