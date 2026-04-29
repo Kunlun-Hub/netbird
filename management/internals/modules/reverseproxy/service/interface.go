@@ -20,6 +20,7 @@ type Manager interface {
 	SetStatus(ctx context.Context, accountID, serviceID string, status Status) error
 	ReloadAllServicesForAccount(ctx context.Context, accountID string) error
 	ReloadService(ctx context.Context, accountID, serviceID string) error
+	ReloadServicesForResource(ctx context.Context, accountID, resourceID string) error
 	GetGlobalServices(ctx context.Context) ([]*Service, error)
 	GetServiceByID(ctx context.Context, accountID, serviceID string) (*Service, error)
 	GetAccountServices(ctx context.Context, accountID string) ([]*Service, error)

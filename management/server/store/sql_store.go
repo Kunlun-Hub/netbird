@@ -5635,6 +5635,38 @@ func (s *SqlStore) GetServiceTargetByTargetID(ctx context.Context, lockStrength 
 	return target, nil
 }
 
+func (s *SqlStore) GetServicesByTargetID(ctx context.Context, lockStrength LockingStrength, accountID string, targetID string) ([]*rpservice.Service, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var targets []*rpservice.Target
+	result := tx.Find(&targets, "account_id = ? AND target_id = ?", accountID, targetID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get service targets from store: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get service targets from store")
+	}
+
+	if len(targets) == 0 {
+		return []*rpservice.Service{}, nil
+	}
+
+	serviceIDs := make([]string, 0, len(targets))
+	for _, target := range targets {
+		serviceIDs = append(serviceIDs, target.ServiceID)
+	}
+
+	var services []*rpservice.Service
+	result = tx.Where("account_id = ? AND id IN ?", accountID, serviceIDs).Preload("Targets").Find(&services)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get services from store: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get services from store")
+	}
+
+	return services, nil
+}
+
 // SaveProxy saves or updates a proxy in the database
 func (s *SqlStore) SaveProxy(ctx context.Context, p *proxy.Proxy) error {
 	result := s.db.Save(p)

@@ -921,6 +921,30 @@ func (m *Manager) ReloadService(ctx context.Context, accountID, serviceID string
 	return nil
 }
 
+func (m *Manager) ReloadServicesForResource(ctx context.Context, accountID, resourceID string) error {
+	services, err := m.store.GetServicesByTargetID(ctx, store.LockingStrengthNone, accountID, resourceID)
+	if err != nil {
+		return fmt.Errorf("failed to get services for resource: %w", err)
+	}
+
+	if len(services) == 0 {
+		return nil
+	}
+
+	for _, s := range services {
+		err = m.replaceHostByLookup(ctx, accountID, s)
+		if err != nil {
+			log.WithContext(ctx).Warnf("failed to replace host by lookup for service %s: %v", s.ID, err)
+			continue
+		}
+		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, s.ToProtoMapping(service.Update, "", m.proxyController.GetOIDCValidationConfig()), s.ProxyCluster)
+	}
+
+	m.accountManager.UpdateAccountPeers(ctx, accountID)
+
+	return nil
+}
+
 func (m *Manager) ReloadAllServicesForAccount(ctx context.Context, accountID string) error {
 	services, err := m.store.GetAccountServices(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {

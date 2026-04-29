@@ -183,7 +183,6 @@ func validatePolicy(ctx context.Context, transaction store.Store, accountID stri
 			return err
 		}
 
-		// TODO: Refactor to support multiple rules per policy
 		existingRuleIDs := make(map[string]bool)
 		for _, rule := range existingPolicy.Rules {
 			existingRuleIDs[rule.ID] = true
@@ -212,7 +211,7 @@ func validatePolicy(ctx context.Context, transaction store.Store, accountID stri
 	for i, rule := range policy.Rules {
 		ruleCopy := rule.Copy()
 		if ruleCopy.ID == "" {
-			ruleCopy.ID = policy.ID // TODO: when policy can contain multiple rules, need refactor
+			ruleCopy.ID = xid.New().String()
 			ruleCopy.PolicyID = policy.ID
 		}
 
