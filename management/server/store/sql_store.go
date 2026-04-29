@@ -70,6 +70,8 @@ const (
 type SqlStore struct {
 	db                 *gorm.DB
 	globalAccountLock  sync.Mutex
+	accountLocks       sync.Map
+	domainLocks        sync.Map
 	metrics            telemetry.AppMetrics
 	installationPK     int
 	storeEngine        types.Engine
@@ -289,6 +291,60 @@ func (s *SqlStore) AcquireGlobalLock(ctx context.Context) (unlock func()) {
 
 	took := time.Since(start)
 	log.WithContext(ctx).Tracef("took %v to acquire global lock", took)
+	if s.metrics != nil {
+		s.metrics.StoreMetrics().CountGlobalLockAcquisitionDuration(took)
+	}
+
+	return unlock
+}
+
+func (s *SqlStore) getAccountLock(accountID string) *sync.Mutex {
+	actual, _ := s.accountLocks.LoadOrStore(accountID, &sync.Mutex{})
+	return actual.(*sync.Mutex)
+}
+
+func (s *SqlStore) AcquireAccountLock(ctx context.Context, accountID string) (unlock func()) {
+	log.WithContext(ctx).Tracef("acquiring lock for account %s", accountID)
+	start := time.Now()
+
+	lock := s.getAccountLock(accountID)
+	lock.Lock()
+
+	unlock = func() {
+		lock.Unlock()
+		log.WithContext(ctx).Tracef("released lock for account %s in %v", accountID, time.Since(start))
+		s.accountLocks.Delete(accountID)
+	}
+
+	took := time.Since(start)
+	log.WithContext(ctx).Tracef("took %v to acquire lock for account %s", took, accountID)
+	if s.metrics != nil {
+		s.metrics.StoreMetrics().CountGlobalLockAcquisitionDuration(took)
+	}
+
+	return unlock
+}
+
+func (s *SqlStore) getDomainLock(domain string) *sync.Mutex {
+	actual, _ := s.domainLocks.LoadOrStore(domain, &sync.Mutex{})
+	return actual.(*sync.Mutex)
+}
+
+func (s *SqlStore) AcquireDomainLock(ctx context.Context, domain string) (unlock func()) {
+	log.WithContext(ctx).Tracef("acquiring lock for domain %s", domain)
+	start := time.Now()
+
+	lock := s.getDomainLock(domain)
+	lock.Lock()
+
+	unlock = func() {
+		lock.Unlock()
+		log.WithContext(ctx).Tracef("released lock for domain %s in %v", domain, time.Since(start))
+		s.domainLocks.Delete(domain)
+	}
+
+	took := time.Since(start)
+	log.WithContext(ctx).Tracef("took %v to acquire lock for domain %s", took, domain)
 	if s.metrics != nil {
 		s.metrics.StoreMetrics().CountGlobalLockAcquisitionDuration(took)
 	}

@@ -196,6 +196,12 @@ type Store interface {
 	// AcquireGlobalLock should attempt to acquire a global lock and return a function that releases the lock
 	AcquireGlobalLock(ctx context.Context) func()
 
+	// AcquireAccountLock should attempt to acquire a lock for a specific account and return a function that releases the lock
+	AcquireAccountLock(ctx context.Context, accountID string) func()
+
+	// AcquireDomainLock should attempt to acquire a lock for a specific domain and return a function that releases the lock
+	AcquireDomainLock(ctx context.Context, domain string) func()
+
 	// Close should close the store persisting all unsaved data.
 	Close(ctx context.Context) error
 	// GetStoreEngine should return Engine of the current store implementation.

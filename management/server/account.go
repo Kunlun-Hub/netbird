@@ -1784,8 +1784,8 @@ func (am *DefaultAccountManager) getPrivateDomainWithGlobalLock(ctx context.Cont
 		return domainAccountID, nil, nil
 	}
 
-	log.WithContext(ctx).Debugf("no primary account found for domain %s, acquiring global lock", domain)
-	cancel := am.Store.AcquireGlobalLock(ctx)
+	log.WithContext(ctx).Debugf("no primary account found for domain %s, acquiring domain lock", domain)
+	cancel := am.Store.AcquireDomainLock(ctx, domain)
 
 	// check again if the domain has a primary account because of simultaneous requests
 	domainAccountID, err = am.Store.GetAccountIDByPrivateDomain(ctx, store.LockingStrengthNone, domain)
@@ -2058,9 +2058,6 @@ func (am *DefaultAccountManager) GetStore() store.Store {
 }
 
 func (am *DefaultAccountManager) GetOrCreateAccountByPrivateDomain(ctx context.Context, initiatorId, domain string) (*types.Account, bool, error) {
-	cancel := am.Store.AcquireGlobalLock(ctx)
-	defer cancel()
-
 	existingPrimaryAccountID, err := am.Store.GetAccountIDByPrivateDomain(ctx, store.LockingStrengthNone, domain)
 	if handleNotFound(err) != nil {
 		return nil, false, err
@@ -2085,6 +2082,8 @@ func (am *DefaultAccountManager) GetOrCreateAccountByPrivateDomain(ctx context.C
 		if err != nil || exists {
 			continue
 		}
+
+		cancel := am.Store.AcquireAccountLock(ctx, accountId)
 
 		network := types.NewNetwork()
 		peers := make(map[string]*nbpeer.Peer)
@@ -2128,10 +2127,12 @@ func (am *DefaultAccountManager) GetOrCreateAccountByPrivateDomain(ctx context.C
 		}
 
 		if err := newAccount.AddAllGroup(am.disableDefaultPolicy); err != nil {
+			cancel()
 			return nil, false, status.Errorf(status.Internal, "failed to add all group to new account by private domain")
 		}
 
 		if err := am.Store.SaveAccount(ctx, newAccount); err != nil {
+			cancel()
 			log.WithContext(ctx).WithFields(log.Fields{
 				"accountId": newAccount.Id,
 				"domain":    domain,
@@ -2139,6 +2140,7 @@ func (am *DefaultAccountManager) GetOrCreateAccountByPrivateDomain(ctx context.C
 			return nil, false, err
 		}
 
+		cancel()
 		am.StoreEvent(ctx, initiatorId, newAccount.Id, accountId, activity.AccountCreated, nil)
 		return newAccount, true, nil
 	}

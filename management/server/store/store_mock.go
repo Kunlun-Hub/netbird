@@ -81,6 +81,34 @@ func (mr *MockStoreMockRecorder) AcquireGlobalLock(ctx interface{}) *gomock.Call
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AcquireGlobalLock", reflect.TypeOf((*MockStore)(nil).AcquireGlobalLock), ctx)
 }
 
+// AcquireAccountLock mocks base method.
+func (m *MockStore) AcquireAccountLock(ctx context.Context, accountID string) func() {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AcquireAccountLock", ctx, accountID)
+	ret0, _ := ret[0].(func())
+	return ret0
+}
+
+// AcquireAccountLock indicates an expected call of AcquireAccountLock.
+func (mr *MockStoreMockRecorder) AcquireAccountLock(ctx, accountID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AcquireAccountLock", reflect.TypeOf((*MockStore)(nil).AcquireAccountLock), ctx, accountID)
+}
+
+// AcquireDomainLock mocks base method.
+func (m *MockStore) AcquireDomainLock(ctx context.Context, domain string) func() {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AcquireDomainLock", ctx, domain)
+	ret0, _ := ret[0].(func())
+	return ret0
+}
+
+// AcquireDomainLock indicates an expected call of AcquireDomainLock.
+func (mr *MockStoreMockRecorder) AcquireDomainLock(ctx, domain interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AcquireDomainLock", reflect.TypeOf((*MockStore)(nil).AcquireDomainLock), ctx, domain)
+}
+
 // AddPeerToAccount mocks base method.
 func (m *MockStore) AddPeerToAccount(ctx context.Context, peer *peer.Peer) error {
 	m.ctrl.T.Helper()
