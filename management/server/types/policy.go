@@ -126,9 +126,6 @@ func (p *Policy) RuleGroups() []string {
 
 // SourceGroups returns a slice of all unique source groups referenced in the policy's rules.
 func (p *Policy) SourceGroups() []string {
-	if len(p.Rules) == 1 {
-		return p.Rules[0].Sources
-	}
 	groups := make(map[string]struct{}, len(p.Rules))
 	for _, rule := range p.Rules {
 		for _, source := range rule.Sources {
@@ -142,6 +139,23 @@ func (p *Policy) SourceGroups() []string {
 	}
 
 	return groupIDs
+}
+
+// SourceResourcePeers returns all unique direct peer resources referenced as sources.
+func (p *Policy) SourceResourcePeers() []string {
+	peers := make(map[string]struct{}, len(p.Rules))
+	for _, rule := range p.Rules {
+		if rule.SourceResource.Type == ResourceTypePeer && rule.SourceResource.ID != "" {
+			peers[rule.SourceResource.ID] = struct{}{}
+		}
+	}
+
+	peerIDs := make([]string, 0, len(peers))
+	for peerID := range peers {
+		peerIDs = append(peerIDs, peerID)
+	}
+
+	return peerIDs
 }
 
 func ParseRuleString(rule string) (PolicyRuleProtocolType, RulePortRange, error) {

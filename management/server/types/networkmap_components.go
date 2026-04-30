@@ -526,7 +526,6 @@ func (c *NetworkMapComponents) getRoutingPeerRoutes(peerID string) (enabledRoute
 	return enabledRoutes, disabledRoutes
 }
 
-
 func (c *NetworkMapComponents) filterRoutesByGroups(routes []*route.Route, groupListMap LookupMap) []*route.Route {
 	var filteredRoutes []*route.Route
 	for _, r := range routes {
@@ -714,12 +713,10 @@ func (c *NetworkMapComponents) getNetworkResourcesRoutesToSync(peerID string) (b
 
 		addedResourceRoute := false
 		for _, policy := range c.ResourcePoliciesMap[resource.ID] {
-			var peers []string
-			if policy.Rules[0].SourceResource.Type == ResourceTypePeer && policy.Rules[0].SourceResource.ID != "" {
-				peers = []string{policy.Rules[0].SourceResource.ID}
-			} else {
-				peers = c.getUniquePeerIDsFromGroupsIDs(policy.SourceGroups())
-			}
+			peers := append(
+				policy.SourceResourcePeers(),
+				c.getUniquePeerIDsFromGroupsIDs(policy.SourceGroups())...,
+			)
 			if addSourcePeers {
 				for _, pID := range c.getPostureValidPeers(peers, policy.SourcePostureChecks) {
 					allSourcePeers[pID] = struct{}{}

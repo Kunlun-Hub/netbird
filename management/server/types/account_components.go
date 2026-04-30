@@ -152,22 +152,18 @@ func (a *Account) GetPeerNetworkMapComponents(
 
 		for _, policy := range policies {
 			if addSourcePeers {
-				var peers []string
-				if policy.Rules[0].SourceResource.Type == ResourceTypePeer && policy.Rules[0].SourceResource.ID != "" {
-					peers = []string{policy.Rules[0].SourceResource.ID}
-				} else {
-					peers = a.getUniquePeerIDsFromGroupsIDs(ctx, policy.SourceGroups())
-				}
+				peers := append(
+					policy.SourceResourcePeers(),
+					a.getUniquePeerIDsFromGroupsIDs(ctx, policy.SourceGroups())...,
+				)
 				for _, pID := range a.getPostureValidPeersSaveFailed(peers, policy.SourcePostureChecks, validatedPeersMap, &components.PostureFailedPeers) {
 					if _, exists := components.Peers[pID]; !exists {
 						components.Peers[pID] = a.GetPeer(pID)
 					}
 				}
 			} else {
-				peerInSources := false
-				if policy.Rules[0].SourceResource.Type == ResourceTypePeer && policy.Rules[0].SourceResource.ID != "" {
-					peerInSources = policy.Rules[0].SourceResource.ID == peerID
-				} else {
+				peerInSources := slices.Contains(policy.SourceResourcePeers(), peerID)
+				if !peerInSources {
 					for _, groupID := range policy.SourceGroups() {
 						if group := a.GetGroup(groupID); group != nil && slices.Contains(group.Peers, peerID) {
 							peerInSources = true
