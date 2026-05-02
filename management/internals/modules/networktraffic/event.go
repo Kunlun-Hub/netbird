@@ -3,6 +3,7 @@ package networktraffic
 import (
 	"fmt"
 	"net"
+	"strings"
 	"time"
 
 	"github.com/netbirdio/netbird/shared/management/http/api"
@@ -58,6 +59,11 @@ type Event struct {
 	TxBytes   int64
 	TxPackets int64
 
+	DNSDomain    string
+	DNSQueryType string
+	DNSAnswers   []string `gorm:"serializer:json"`
+	DNSRCode     string
+
 	UserName  string
 	UserEmail string
 }
@@ -82,6 +88,7 @@ func (e *Event) ToAPIResponse() *api.NetworkTrafficEvent {
 		RxPackets:   int(e.RxPackets),
 		TxBytes:     int(e.TxBytes),
 		TxPackets:   int(e.TxPackets),
+		Dns:         e.toDNSInfo(),
 		Source:      e.toEndpoint(true),
 		Destination: e.toEndpoint(false),
 		Policy:      api.NetworkTrafficPolicy{Id: e.PolicyID, Name: e.PolicyName},
@@ -91,6 +98,31 @@ func (e *Event) ToAPIResponse() *api.NetworkTrafficEvent {
 			Timestamp: e.Timestamp,
 			Type:      e.EventType,
 		}},
+	}
+}
+
+func (e *Event) toDNSInfo() *api.NetworkTrafficDNSInfo {
+	if e.DNSDomain == "" && e.DNSQueryType == "" && len(e.DNSAnswers) == 0 && e.DNSRCode == "" {
+		return nil
+	}
+
+	answers := make([]string, 0, len(e.DNSAnswers))
+	for _, answer := range e.DNSAnswers {
+		answer = strings.TrimSpace(answer)
+		if answer != "" {
+			answers = append(answers, answer)
+		}
+	}
+
+	return &api.NetworkTrafficDNSInfo{
+		Domain:    stringPtr(e.DNSDomain),
+		Query:     stringPtr(e.DNSDomain),
+		QueryName: stringPtr(e.DNSDomain),
+		Type:      stringPtr(e.DNSQueryType),
+		QueryType: stringPtr(e.DNSQueryType),
+		Answers:   &answers,
+		Result:    &answers,
+		Rcode:     stringPtr(e.DNSRCode),
 	}
 }
 

@@ -295,6 +295,15 @@ func toProtoEvent(publicKey []byte, event *nftypes.Event) *proto.FlowEvent {
 		},
 	}
 
+	if event.DNSInfo != nil {
+		protoEvent.FlowFields.DnsInfo = &proto.DNSInfo{
+			Domain:    event.DNSInfo.Domain,
+			QueryType: event.DNSInfo.QueryType,
+			Answers:   event.DNSInfo.Answers,
+			Rcode:     event.DNSInfo.RCode,
+		}
+	}
+
 	if event.Protocol == nftypes.ICMP {
 		protoEvent.FlowFields.ConnectionInfo = &proto.FlowFields_IcmpInfo{
 			IcmpInfo: &proto.ICMPInfo{

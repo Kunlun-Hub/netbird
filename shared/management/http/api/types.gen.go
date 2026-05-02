@@ -38,6 +38,27 @@ func (e AccessRestrictionsCrowdsecMode) Valid() bool {
 	}
 }
 
+// Defines values for AccountSettingsLoginMethod.
+const (
+	AccountSettingsLoginMethodAll        AccountSettingsLoginMethod = "all"
+	AccountSettingsLoginMethodEmail      AccountSettingsLoginMethod = "email"
+	AccountSettingsLoginMethodWechatwork AccountSettingsLoginMethod = "wechatwork"
+)
+
+// Valid indicates whether the value is a known member of the AccountSettingsLoginMethod enum.
+func (e AccountSettingsLoginMethod) Valid() bool {
+	switch e {
+	case AccountSettingsLoginMethodAll:
+		return true
+	case AccountSettingsLoginMethodEmail:
+		return true
+	case AccountSettingsLoginMethodWechatwork:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CreateAzureIntegrationRequestHost.
 const (
 	CreateAzureIntegrationRequestHostMicrosoftCom CreateAzureIntegrationRequestHost = "microsoft.com"
@@ -1422,35 +1443,35 @@ type Account struct {
 
 // AccountExtraSettings defines model for AccountExtraSettings.
 type AccountExtraSettings struct {
-	// Counters Alias for packet counter flow setting.
-	Counters bool `json:"counters"`
+	// Counters Legacy alias for network_traffic_packet_counter_enabled.
+	Counters bool `json:"counters,omitempty"`
 
-	// DnsCollection Alias for DNS collection flow setting.
-	DnsCollection bool `json:"dns_collection"`
+	// DnsCollection Legacy alias for network_traffic_dns_collection_enabled.
+	DnsCollection bool `json:"dns_collection,omitempty"`
 
-	// ExitNodeCollection Alias for exit node collection flow setting.
-	ExitNodeCollection bool `json:"exit_node_collection"`
+	// ExitNodeCollection Legacy alias for network_traffic_exit_node_collection_enabled.
+	ExitNodeCollection bool `json:"exit_node_collection,omitempty"`
 
-	// FlowEnabled Alias for network traffic logging enabled.
-	FlowEnabled bool `json:"flow_enabled"`
+	// FlowDnsCollectionEnabled Legacy alias for network_traffic_dns_collection_enabled.
+	FlowDnsCollectionEnabled bool `json:"flow_dns_collection_enabled,omitempty"`
 
-	// FlowGroups Alias for network traffic logging groups.
-	FlowGroups []string `json:"flow_groups"`
+	// FlowEnabled Legacy alias for network_traffic_logs_enabled.
+	FlowEnabled bool `json:"flow_enabled,omitempty"`
 
-	// FlowLogsEnabled Alias for network traffic logging enabled.
-	FlowLogsEnabled bool `json:"flow_logs_enabled"`
+	// FlowExitNodeCollectionEnabled Legacy alias for network_traffic_exit_node_collection_enabled.
+	FlowExitNodeCollectionEnabled bool `json:"flow_exit_node_collection_enabled,omitempty"`
 
-	// FlowLogsGroups Alias for network traffic logging groups.
-	FlowLogsGroups []string `json:"flow_logs_groups"`
+	// FlowGroups Legacy alias for network_traffic_logs_groups.
+	FlowGroups []string `json:"flow_groups,omitempty"`
 
-	// FlowDnsCollectionEnabled Alias for DNS collection flow setting.
-	FlowDnsCollectionEnabled bool `json:"flow_dns_collection_enabled"`
+	// FlowLogsEnabled Legacy alias for network_traffic_logs_enabled.
+	FlowLogsEnabled bool `json:"flow_logs_enabled,omitempty"`
 
-	// FlowExitNodeCollectionEnabled Alias for exit node collection flow setting.
-	FlowExitNodeCollectionEnabled bool `json:"flow_exit_node_collection_enabled"`
+	// FlowLogsGroups Legacy alias for network_traffic_logs_groups.
+	FlowLogsGroups []string `json:"flow_logs_groups,omitempty"`
 
-	// FlowPacketCounterEnabled Alias for packet counter flow setting.
-	FlowPacketCounterEnabled bool `json:"flow_packet_counter_enabled"`
+	// FlowPacketCounterEnabled Legacy alias for network_traffic_packet_counter_enabled.
+	FlowPacketCounterEnabled bool `json:"flow_packet_counter_enabled,omitempty"`
 
 	// NetworkTrafficDnsCollectionEnabled Enables or disables DNS collection in network traffic logs.
 	NetworkTrafficDnsCollectionEnabled bool `json:"network_traffic_dns_collection_enabled"`
@@ -1488,16 +1509,6 @@ type AccountRequest struct {
 	Onboarding *AccountOnboarding `json:"onboarding,omitempty"`
 	Settings   AccountSettings    `json:"settings"`
 }
-
-// AccountSettingsLoginMethod defines model for AccountSettingsLoginMethod.
-type AccountSettingsLoginMethod string
-
-// Defines values for AccountSettingsLoginMethod.
-const (
-	AccountSettingsLoginMethodAll        AccountSettingsLoginMethod = "all"
-	AccountSettingsLoginMethodEmail      AccountSettingsLoginMethod = "email"
-	AccountSettingsLoginMethodWechatwork AccountSettingsLoginMethod = "wechatwork"
-)
 
 // AccountSettings defines model for AccountSettings.
 type AccountSettings struct {
@@ -1562,6 +1573,9 @@ type AccountSettings struct {
 	// RoutingPeerDnsResolutionEnabled Enables or disables DNS resolution on the routing peers
 	RoutingPeerDnsResolutionEnabled *bool `json:"routing_peer_dns_resolution_enabled,omitempty"`
 }
+
+// AccountSettingsLoginMethod Controls which login method is presented on the embedded identity provider login screen.
+type AccountSettingsLoginMethod string
 
 // AvailablePorts defines model for AvailablePorts.
 type AvailablePorts struct {
@@ -2365,7 +2379,7 @@ type HuntressMatchAttributes struct {
 // IdentityProvider defines model for IdentityProvider.
 type IdentityProvider struct {
 	// AgentId WeChat Work application agent ID used by the official login widget
-	AgentId string `json:"agent_id"`
+	AgentId *string `json:"agent_id,omitempty"`
 
 	// ClientId OAuth2 client ID
 	ClientId string `json:"client_id"`
@@ -2374,7 +2388,7 @@ type IdentityProvider struct {
 	Id *string `json:"id,omitempty"`
 
 	// Issuer OIDC issuer URL
-	Issuer string `json:"issuer"`
+	Issuer *string `json:"issuer,omitempty"`
 
 	// Name Human-readable name for the identity provider
 	Name string `json:"name"`
@@ -2386,7 +2400,7 @@ type IdentityProvider struct {
 // IdentityProviderRequest defines model for IdentityProviderRequest.
 type IdentityProviderRequest struct {
 	// AgentId WeChat Work application agent ID used by the official login widget
-	AgentId string `json:"agent_id"`
+	AgentId *string `json:"agent_id,omitempty"`
 
 	// ClientId OAuth2 client ID
 	ClientId string `json:"client_id"`
@@ -2395,7 +2409,7 @@ type IdentityProviderRequest struct {
 	ClientSecret string `json:"client_secret"`
 
 	// Issuer OIDC issuer URL
-	Issuer string `json:"issuer"`
+	Issuer *string `json:"issuer,omitempty"`
 
 	// Name Human-readable name for the identity provider
 	Name string `json:"name"`
@@ -2898,6 +2912,33 @@ type NetworkRouterRequest struct {
 	PeerGroups *[]string `json:"peer_groups,omitempty"`
 }
 
+// NetworkTrafficDNSInfo defines model for NetworkTrafficDNSInfo.
+type NetworkTrafficDNSInfo struct {
+	// Answers DNS answer values extracted from the response.
+	Answers *[]string `json:"answers,omitempty"`
+
+	// Domain DNS query domain name without the trailing dot.
+	Domain *string `json:"domain,omitempty"`
+
+	// Query Alias of domain for dashboard compatibility.
+	Query *string `json:"query,omitempty"`
+
+	// QueryName Alias of domain for dashboard compatibility.
+	QueryName *string `json:"query_name,omitempty"`
+
+	// QueryType Alias of type for dashboard compatibility.
+	QueryType *string `json:"query_type,omitempty"`
+
+	// Rcode DNS response code.
+	Rcode *string `json:"rcode,omitempty"`
+
+	// Result Alias of answers for dashboard compatibility.
+	Result *[]string `json:"result,omitempty"`
+
+	// Type DNS record type.
+	Type *string `json:"type,omitempty"`
+}
+
 // NetworkTrafficEndpoint defines model for NetworkTrafficEndpoint.
 type NetworkTrafficEndpoint struct {
 	// Address IP address (and possibly port) in string form.
@@ -2925,7 +2966,8 @@ type NetworkTrafficEvent struct {
 	Destination NetworkTrafficEndpoint `json:"destination"`
 
 	// Direction Direction of the traffic (e.g. DIRECTION_UNKNOWN, INGRESS, EGRESS).
-	Direction string `json:"direction"`
+	Direction string                 `json:"direction"`
+	Dns       *NetworkTrafficDNSInfo `json:"dns,omitempty"`
 
 	// Events List of events that are correlated to this flow (e.g., start, end).
 	Events []NetworkTrafficSubEvent `json:"events"`
@@ -4839,7 +4881,16 @@ type GetApiEventsNetworkTrafficParams struct {
 	// Direction Filter by direction
 	Direction *GetApiEventsNetworkTrafficParamsDirection `form:"direction,omitempty" json:"direction,omitempty"`
 
-	// Search Case-insensitive partial match on user email, source/destination names, and source/destination addresses
+	// Dns Filter DNS-enriched network traffic events.
+	Dns *bool `form:"dns,omitempty" json:"dns,omitempty"`
+
+	// DnsDomain Partial match on DNS query domain.
+	DnsDomain *string `form:"dns_domain,omitempty" json:"dns_domain,omitempty"`
+
+	// DnsType Exact DNS record type, for example A, AAAA, CNAME, TXT.
+	DnsType *string `form:"dns_type,omitempty" json:"dns_type,omitempty"`
+
+	// Search Case-insensitive partial match on user email, source/destination names, source/destination addresses, DNS domain, DNS type, and DNS answers
 	Search *string `form:"search,omitempty" json:"search,omitempty"`
 
 	// StartDate Start date for filtering events (ISO 8601 format, e.g., 2024-01-01T00:00:00Z).

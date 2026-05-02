@@ -36,6 +36,9 @@ type Filter struct {
 	EventType      *string
 	ConnectionType *string
 	Direction      *string
+	DNS            *bool
+	DNSDomain      *string
+	DNSType        *string
 	StartDate      *time.Time
 	EndDate        *time.Time
 }
@@ -53,6 +56,9 @@ func (f *Filter) ParseFromRequest(r *http.Request) {
 	f.EventType = parseOptionalString(query.Get("type"))
 	f.ConnectionType = parseOptionalString(query.Get("connection_type"))
 	f.Direction = parseOptionalString(query.Get("direction"))
+	f.DNS = parseOptionalBool(query.Get("dns"))
+	f.DNSDomain = parseOptionalString(query.Get("dns_domain"))
+	f.DNSType = parseOptionalString(query.Get("dns_type"))
 	f.StartDate = parseOptionalRFC3339(query.Get("start_date"))
 	f.EndDate = parseOptionalRFC3339(query.Get("end_date"))
 }
@@ -102,6 +108,22 @@ func parseOptionalInt(s string) *int {
 	}
 	if val, err := strconv.Atoi(s); err == nil {
 		return &val
+	}
+	return nil
+}
+
+func parseOptionalBool(s string) *bool {
+	if s == "" {
+		return nil
+	}
+	value := strings.ToLower(s)
+	if value == "true" || value == "1" || value == "yes" {
+		parsed := true
+		return &parsed
+	}
+	if value == "false" || value == "0" || value == "no" {
+		parsed := false
+		return &parsed
 	}
 	return nil
 }

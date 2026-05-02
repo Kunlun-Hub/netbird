@@ -868,7 +868,7 @@ func (m *Manager) trackOutbound(d *decoder, srcIP, dstIP netip.Addr, packetData 
 	transport := d.decoded[1]
 	switch transport {
 	case layers.LayerTypeUDP:
-		origPort := m.udpTracker.TrackOutbound(srcIP, dstIP, uint16(d.udp.SrcPort), uint16(d.udp.DstPort), size)
+		origPort := m.udpTracker.TrackOutbound(srcIP, dstIP, uint16(d.udp.SrcPort), uint16(d.udp.DstPort), size, nftypes.ParseDNSInfo(d.udp.Payload))
 		if origPort == 0 {
 			break
 		}
@@ -877,7 +877,7 @@ func (m *Manager) trackOutbound(d *decoder, srcIP, dstIP netip.Addr, packetData 
 		}
 	case layers.LayerTypeTCP:
 		flags := getTCPFlags(&d.tcp)
-		origPort := m.tcpTracker.TrackOutbound(srcIP, dstIP, uint16(d.tcp.SrcPort), uint16(d.tcp.DstPort), flags, size)
+		origPort := m.tcpTracker.TrackOutbound(srcIP, dstIP, uint16(d.tcp.SrcPort), uint16(d.tcp.DstPort), flags, size, d.tcp.Payload)
 		if origPort == 0 {
 			break
 		}
@@ -893,10 +893,10 @@ func (m *Manager) trackInbound(d *decoder, srcIP, dstIP netip.Addr, ruleID []byt
 	transport := d.decoded[1]
 	switch transport {
 	case layers.LayerTypeUDP:
-		m.udpTracker.TrackInbound(srcIP, dstIP, uint16(d.udp.SrcPort), uint16(d.udp.DstPort), ruleID, size, d.dnatOrigPort)
+		m.udpTracker.TrackInbound(srcIP, dstIP, uint16(d.udp.SrcPort), uint16(d.udp.DstPort), ruleID, size, d.dnatOrigPort, nftypes.ParseDNSInfo(d.udp.Payload))
 	case layers.LayerTypeTCP:
 		flags := getTCPFlags(&d.tcp)
-		m.tcpTracker.TrackInbound(srcIP, dstIP, uint16(d.tcp.SrcPort), uint16(d.tcp.DstPort), flags, ruleID, size, d.dnatOrigPort)
+		m.tcpTracker.TrackInbound(srcIP, dstIP, uint16(d.tcp.SrcPort), uint16(d.tcp.DstPort), flags, ruleID, size, d.dnatOrigPort, d.tcp.Payload)
 	case layers.LayerTypeICMPv4:
 		m.icmpTracker.TrackInbound(srcIP, dstIP, d.icmp4.Id, d.icmp4.TypeCode, ruleID, d.icmp4.Payload, size)
 	}
@@ -1159,6 +1159,7 @@ func (m *Manager) isValidTrackedConnection(d *decoder, srcIP, dstIP netip.Addr, 
 			uint16(d.tcp.DstPort),
 			getTCPFlags(&d.tcp),
 			size,
+			d.tcp.Payload,
 		)
 
 	case layers.LayerTypeUDP:
@@ -1168,6 +1169,7 @@ func (m *Manager) isValidTrackedConnection(d *decoder, srcIP, dstIP netip.Addr, 
 			uint16(d.udp.SrcPort),
 			uint16(d.udp.DstPort),
 			size,
+			nftypes.ParseDNSInfo(d.udp.Payload),
 		)
 
 	case layers.LayerTypeICMPv4:

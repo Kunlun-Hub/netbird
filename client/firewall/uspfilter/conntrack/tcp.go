@@ -13,6 +13,7 @@ import (
 
 	nblog "github.com/netbirdio/netbird/client/firewall/uspfilter/log"
 	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
+	nbdns "github.com/netbirdio/netbird/dns"
 )
 
 const (
@@ -89,10 +90,13 @@ const (
 // TCPConnTrack represents a TCP connection state
 type TCPConnTrack struct {
 	BaseConnTrack
-	SourcePort uint16
-	DestPort   uint16
-	state      atomic.Int32
-	tombstone  atomic.Bool
+	SourcePort       uint16
+	DestPort         uint16
+	DNSInfo          *nftypes.DNSInfo
+	DNSForwardBuffer []byte
+	DNSReverseBuffer []byte
+	state            atomic.Int32
+	tombstone        atomic.Bool
 }
 
 // GetState safely retrieves the current state
@@ -168,7 +172,7 @@ func NewTCPTracker(timeout time.Duration, logger *nblog.Logger, flowLogger nftyp
 	return tracker
 }
 
-func (t *TCPTracker) updateIfExists(srcIP, dstIP netip.Addr, srcPort, dstPort uint16, flags uint8, direction nftypes.Direction, size int) (ConnKey, uint16, bool) {
+func (t *TCPTracker) updateIfExists(srcIP, dstIP netip.Addr, srcPort, dstPort uint16, flags uint8, direction nftypes.Direction, size int, payload []byte) (ConnKey, uint16, bool) {
 	key := ConnKey{
 		SrcIP:   srcIP,
 		DstIP:   dstIP,
@@ -182,6 +186,7 @@ func (t *TCPTracker) updateIfExists(srcIP, dstIP netip.Addr, srcPort, dstPort ui
 
 	if exists && !conn.IsSupersededBy(flags) {
 		t.updateState(key, conn, flags, direction, size)
+		conn.addDNSPayload(srcIP, dstIP, srcPort, dstPort, payload)
 		return key, uint16(conn.DNATOrigPort.Load()), true
 	}
 
@@ -189,23 +194,30 @@ func (t *TCPTracker) updateIfExists(srcIP, dstIP netip.Addr, srcPort, dstPort ui
 }
 
 // TrackOutbound records an outbound TCP connection and returns the original port if DNAT reversal is needed
-func (t *TCPTracker) TrackOutbound(srcIP, dstIP netip.Addr, srcPort, dstPort uint16, flags uint8, size int) uint16 {
-	if _, origPort, exists := t.updateIfExists(dstIP, srcIP, dstPort, srcPort, flags, nftypes.Egress, size); exists {
+func (t *TCPTracker) TrackOutbound(srcIP, dstIP netip.Addr, srcPort, dstPort uint16, flags uint8, size int, payload ...[]byte) uint16 {
+	if _, origPort, exists := t.updateIfExists(dstIP, srcIP, dstPort, srcPort, flags, nftypes.Egress, size, firstTCPPayload(payload)); exists {
 		return origPort
 	}
 	// if (inverted direction) conn is not tracked, track this direction
-	t.track(srcIP, dstIP, srcPort, dstPort, flags, nftypes.Egress, nil, size, 0)
+	t.track(srcIP, dstIP, srcPort, dstPort, flags, nftypes.Egress, nil, size, 0, firstTCPPayload(payload))
 	return 0
 }
 
 // TrackInbound processes an inbound TCP packet and updates connection state
-func (t *TCPTracker) TrackInbound(srcIP, dstIP netip.Addr, srcPort, dstPort uint16, flags uint8, ruleID []byte, size int, dnatOrigPort uint16) {
-	t.track(srcIP, dstIP, srcPort, dstPort, flags, nftypes.Ingress, ruleID, size, dnatOrigPort)
+func (t *TCPTracker) TrackInbound(srcIP, dstIP netip.Addr, srcPort, dstPort uint16, flags uint8, ruleID []byte, size int, dnatOrigPort uint16, payload ...[]byte) {
+	t.track(srcIP, dstIP, srcPort, dstPort, flags, nftypes.Ingress, ruleID, size, dnatOrigPort, firstTCPPayload(payload))
+}
+
+func firstTCPPayload(values [][]byte) []byte {
+	if len(values) == 0 {
+		return nil
+	}
+	return values[0]
 }
 
 // track is the common implementation for tracking both inbound and outbound connections
-func (t *TCPTracker) track(srcIP, dstIP netip.Addr, srcPort, dstPort uint16, flags uint8, direction nftypes.Direction, ruleID []byte, size int, origPort uint16) {
-	key, _, exists := t.updateIfExists(srcIP, dstIP, srcPort, dstPort, flags, direction, size)
+func (t *TCPTracker) track(srcIP, dstIP netip.Addr, srcPort, dstPort uint16, flags uint8, direction nftypes.Direction, ruleID []byte, size int, origPort uint16, payload []byte) {
+	key, _, exists := t.updateIfExists(srcIP, dstIP, srcPort, dstPort, flags, direction, size, payload)
 	if exists || flags&TCPSyn == 0 {
 		return
 	}
@@ -231,6 +243,7 @@ func (t *TCPTracker) track(srcIP, dstIP netip.Addr, srcPort, dstPort uint16, fla
 		t.logger.Trace2("New %s TCP connection: %s", direction, key)
 	}
 	t.updateState(key, conn, flags, direction, size)
+	conn.addDNSPayload(srcIP, dstIP, srcPort, dstPort, payload)
 
 	t.mutex.Lock()
 	t.connections[key] = conn
@@ -240,7 +253,7 @@ func (t *TCPTracker) track(srcIP, dstIP netip.Addr, srcPort, dstPort uint16, fla
 }
 
 // IsValidInbound checks if an inbound TCP packet matches a tracked connection
-func (t *TCPTracker) IsValidInbound(srcIP, dstIP netip.Addr, srcPort, dstPort uint16, flags uint8, size int) bool {
+func (t *TCPTracker) IsValidInbound(srcIP, dstIP netip.Addr, srcPort, dstPort uint16, flags uint8, size int, payload ...[]byte) bool {
 	key := ConnKey{
 		SrcIP:   dstIP,
 		DstIP:   srcIP,
@@ -267,7 +280,29 @@ func (t *TCPTracker) IsValidInbound(srcIP, dstIP netip.Addr, srcPort, dstPort ui
 	}
 
 	t.updateState(key, conn, flags, nftypes.Ingress, size)
+	conn.addDNSPayload(srcIP, dstIP, srcPort, dstPort, firstTCPPayload(payload))
 	return true
+}
+
+func (t *TCPConnTrack) addDNSPayload(srcIP, dstIP netip.Addr, srcPort, dstPort uint16, payload []byte) {
+	if !isTCPDNSPort(srcPort) && !isTCPDNSPort(dstPort) {
+		return
+	}
+
+	if srcIP == t.SourceIP && dstIP == t.DestIP && srcPort == t.SourcePort && dstPort == t.DestPort {
+		info, buffer := nftypes.AppendTCPDNSInfo(t.DNSForwardBuffer, payload)
+		t.DNSForwardBuffer = buffer
+		t.DNSInfo = nftypes.MergeDNSInfo(t.DNSInfo, info)
+		return
+	}
+
+	info, buffer := nftypes.AppendTCPDNSInfo(t.DNSReverseBuffer, payload)
+	t.DNSReverseBuffer = buffer
+	t.DNSInfo = nftypes.MergeDNSInfo(t.DNSInfo, info)
+}
+
+func isTCPDNSPort(port uint16) bool {
+	return port == 53 || port == nbdns.ForwarderClientPort || port == nbdns.ForwarderServerPort
 }
 
 // updateState updates the TCP connection state based on flags
@@ -521,5 +556,6 @@ func (t *TCPTracker) sendEvent(typ nftypes.Type, conn *TCPConnTrack, ruleID []by
 		TxPackets:  conn.PacketsTx.Load(),
 		RxBytes:    conn.BytesRx.Load(),
 		TxBytes:    conn.BytesTx.Load(),
+		DNSInfo:    conn.DNSInfo,
 	})
 }

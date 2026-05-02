@@ -167,6 +167,13 @@ func (s *FlowServer) saveEvent(ctx context.Context, event *proto.FlowEvent) erro
 		TxPackets:              int64(fields.GetTxPackets()),
 	}
 
+	if dnsInfo := fields.GetDnsInfo(); dnsInfo != nil {
+		record.DNSDomain = dnsInfo.GetDomain()
+		record.DNSQueryType = dnsInfo.GetQueryType()
+		record.DNSAnswers = dnsInfo.GetAnswers()
+		record.DNSRCode = dnsInfo.GetRcode()
+	}
+
 	return s.accountManager.GetStore().CreateNetworkTrafficEvent(ctx, record)
 }
 

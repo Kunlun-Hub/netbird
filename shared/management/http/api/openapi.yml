@@ -404,6 +404,60 @@ components:
           description: Enables manual approval for new users joining via domain matching. When enabled, users are blocked with pending approval status until explicitly approved by an admin.
           type: boolean
           example: false
+        enabled:
+          description: Legacy alias for network_traffic_logs_enabled.
+          type: boolean
+          example: true
+        flow_enabled:
+          description: Legacy alias for network_traffic_logs_enabled.
+          type: boolean
+          example: true
+        flow_logs_enabled:
+          description: Legacy alias for network_traffic_logs_enabled.
+          type: boolean
+          example: true
+        groups:
+          description: Legacy alias for network_traffic_logs_groups.
+          type: array
+          items:
+            type: string
+            example: ch8i4ug6lnn4g9hqv7m0
+        flow_groups:
+          description: Legacy alias for network_traffic_logs_groups.
+          type: array
+          items:
+            type: string
+            example: ch8i4ug6lnn4g9hqv7m0
+        flow_logs_groups:
+          description: Legacy alias for network_traffic_logs_groups.
+          type: array
+          items:
+            type: string
+            example: ch8i4ug6lnn4g9hqv7m0
+        counters:
+          description: Legacy alias for network_traffic_packet_counter_enabled.
+          type: boolean
+          example: true
+        flow_packet_counter_enabled:
+          description: Legacy alias for network_traffic_packet_counter_enabled.
+          type: boolean
+          example: true
+        dns_collection:
+          description: Legacy alias for network_traffic_dns_collection_enabled.
+          type: boolean
+          example: false
+        flow_dns_collection_enabled:
+          description: Legacy alias for network_traffic_dns_collection_enabled.
+          type: boolean
+          example: false
+        exit_node_collection:
+          description: Legacy alias for network_traffic_exit_node_collection_enabled.
+          type: boolean
+          example: false
+        flow_exit_node_collection_enabled:
+          description: Legacy alias for network_traffic_exit_node_collection_enabled.
+          type: boolean
+          example: false
         network_traffic_logs_enabled:
           description: Enables or disables network traffic logging. If enabled, all network traffic events from peers will be stored.
           type: boolean
@@ -2728,6 +2782,8 @@ components:
           $ref: '#/components/schemas/NetworkTrafficPolicy'
         icmp:
           $ref: '#/components/schemas/NetworkTrafficICMP'
+        dns:
+          $ref: '#/components/schemas/NetworkTrafficDNSInfo'
         protocol:
           type: integer
           description: "Protocol is the protocol of the traffic (e.g. 1 = ICMP, 6 = TCP, 17 = UDP, etc.)."
@@ -2774,6 +2830,45 @@ components:
         - tx_bytes
         - tx_packets
         - events
+    NetworkTrafficDNSInfo:
+      type: object
+      properties:
+        domain:
+          type: string
+          description: DNS query domain name without the trailing dot.
+          example: example.com
+        query:
+          type: string
+          description: Alias of domain for dashboard compatibility.
+          example: example.com
+        query_name:
+          type: string
+          description: Alias of domain for dashboard compatibility.
+          example: example.com
+        type:
+          type: string
+          description: DNS record type.
+          example: A
+        query_type:
+          type: string
+          description: Alias of type for dashboard compatibility.
+          example: A
+        answers:
+          type: array
+          description: DNS answer values extracted from the response.
+          items:
+            type: string
+          example:
+            - 93.184.216.34
+        result:
+          type: array
+          description: Alias of answers for dashboard compatibility.
+          items:
+            type: string
+        rcode:
+          type: string
+          description: DNS response code.
+          example: NOERROR
     NetworkTrafficEventsResponse:
       type: object
       properties:
@@ -8080,9 +8175,27 @@ paths:
           schema:
             type: string
             enum: [ INGRESS, EGRESS, DIRECTION_UNKNOWN ]
+        - name: dns
+          in: query
+          description: Filter DNS-enriched network traffic events.
+          required: false
+          schema:
+            type: boolean
+        - name: dns_domain
+          in: query
+          description: Partial match on DNS query domain.
+          required: false
+          schema:
+            type: string
+        - name: dns_type
+          in: query
+          description: Exact DNS record type, for example A, AAAA, CNAME, TXT.
+          required: false
+          schema:
+            type: string
         - name: search
           in: query
-          description: Case-insensitive partial match on user email, source/destination names, and source/destination addresses
+          description: Case-insensitive partial match on user email, source/destination names, source/destination addresses, DNS domain, DNS type, and DNS answers
           required: false
           schema:
             type: string

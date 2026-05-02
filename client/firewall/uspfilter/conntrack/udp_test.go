@@ -8,6 +8,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 )
 
 func TestNewUDPTracker(t *testing.T) {
@@ -153,6 +155,35 @@ func TestUDPTracker_IsValidInbound(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func TestUDPTracker_MergesDNSInfo(t *testing.T) {
+	tracker := NewUDPTracker(DefaultUDPTimeout, logger, flowLogger)
+	defer tracker.Close()
+
+	srcIP := netip.MustParseAddr("192.168.1.2")
+	dstIP := netip.MustParseAddr("192.168.1.3")
+	srcPort := uint16(12345)
+	dstPort := uint16(53)
+
+	tracker.TrackOutbound(srcIP, dstIP, srcPort, dstPort, 0, &nftypes.DNSInfo{
+		Domain:    "example.com",
+		QueryType: "A",
+	})
+
+	valid := tracker.IsValidInbound(dstIP, srcIP, dstPort, srcPort, 0, &nftypes.DNSInfo{
+		RCode:   "NOERROR",
+		Answers: []string{"93.184.216.34"},
+	})
+	require.True(t, valid)
+
+	conn, exists := tracker.GetConnection(srcIP, srcPort, dstIP, dstPort)
+	require.True(t, exists)
+	require.NotNil(t, conn.DNSInfo)
+	assert.Equal(t, "example.com", conn.DNSInfo.Domain)
+	assert.Equal(t, "A", conn.DNSInfo.QueryType)
+	assert.Equal(t, "NOERROR", conn.DNSInfo.RCode)
+	assert.Equal(t, []string{"93.184.216.34"}, conn.DNSInfo.Answers)
 }
 
 func TestUDPTracker_Cleanup(t *testing.T) {

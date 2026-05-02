@@ -24,6 +24,7 @@ type UDPConnTrack struct {
 	BaseConnTrack
 	SourcePort uint16
 	DestPort   uint16
+	DNSInfo    *nftypes.DNSInfo
 }
 
 // UDPTracker manages UDP connection states
@@ -59,22 +60,29 @@ func NewUDPTracker(timeout time.Duration, logger *nblog.Logger, flowLogger nftyp
 }
 
 // TrackOutbound records an outbound UDP connection and returns the original port if DNAT reversal is needed
-func (t *UDPTracker) TrackOutbound(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, dstPort uint16, size int) uint16 {
-	_, origPort, exists := t.updateIfExists(dstIP, srcIP, dstPort, srcPort, nftypes.Egress, size)
+func (t *UDPTracker) TrackOutbound(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, dstPort uint16, size int, dnsInfo ...*nftypes.DNSInfo) uint16 {
+	_, origPort, exists := t.updateIfExists(dstIP, srcIP, dstPort, srcPort, nftypes.Egress, size, firstDNSInfo(dnsInfo))
 	if exists {
 		return origPort
 	}
 	// if (inverted direction) conn is not tracked, track this direction
-	t.track(srcIP, dstIP, srcPort, dstPort, nftypes.Egress, nil, size, 0)
+	t.track(srcIP, dstIP, srcPort, dstPort, nftypes.Egress, nil, size, 0, firstDNSInfo(dnsInfo))
 	return 0
 }
 
 // TrackInbound records an inbound UDP connection
-func (t *UDPTracker) TrackInbound(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, dstPort uint16, ruleID []byte, size int, dnatOrigPort uint16) {
-	t.track(srcIP, dstIP, srcPort, dstPort, nftypes.Ingress, ruleID, size, dnatOrigPort)
+func (t *UDPTracker) TrackInbound(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, dstPort uint16, ruleID []byte, size int, dnatOrigPort uint16, dnsInfo ...*nftypes.DNSInfo) {
+	t.track(srcIP, dstIP, srcPort, dstPort, nftypes.Ingress, ruleID, size, dnatOrigPort, firstDNSInfo(dnsInfo))
 }
 
-func (t *UDPTracker) updateIfExists(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, dstPort uint16, direction nftypes.Direction, size int) (ConnKey, uint16, bool) {
+func firstDNSInfo(values []*nftypes.DNSInfo) *nftypes.DNSInfo {
+	if len(values) == 0 {
+		return nil
+	}
+	return values[0]
+}
+
+func (t *UDPTracker) updateIfExists(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, dstPort uint16, direction nftypes.Direction, size int, dnsInfo *nftypes.DNSInfo) (ConnKey, uint16, bool) {
 	key := ConnKey{
 		SrcIP:   srcIP,
 		DstIP:   dstIP,
@@ -89,6 +97,7 @@ func (t *UDPTracker) updateIfExists(srcIP netip.Addr, dstIP netip.Addr, srcPort 
 	if exists {
 		conn.UpdateLastSeen()
 		conn.UpdateCounters(direction, size)
+		conn.DNSInfo = nftypes.MergeDNSInfo(conn.DNSInfo, dnsInfo)
 		return key, uint16(conn.DNATOrigPort.Load()), true
 	}
 
@@ -96,8 +105,8 @@ func (t *UDPTracker) updateIfExists(srcIP netip.Addr, dstIP netip.Addr, srcPort 
 }
 
 // track is the common implementation for tracking both inbound and outbound connections
-func (t *UDPTracker) track(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, dstPort uint16, direction nftypes.Direction, ruleID []byte, size int, origPort uint16) {
-	key, _, exists := t.updateIfExists(srcIP, dstIP, srcPort, dstPort, direction, size)
+func (t *UDPTracker) track(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, dstPort uint16, direction nftypes.Direction, ruleID []byte, size int, origPort uint16, dnsInfo *nftypes.DNSInfo) {
+	key, _, exists := t.updateIfExists(srcIP, dstIP, srcPort, dstPort, direction, size, dnsInfo)
 	if exists {
 		return
 	}
@@ -111,6 +120,7 @@ func (t *UDPTracker) track(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, d
 		},
 		SourcePort: srcPort,
 		DestPort:   dstPort,
+		DNSInfo:    dnsInfo,
 	}
 	conn.DNATOrigPort.Store(uint32(origPort))
 	conn.UpdateLastSeen()
@@ -129,7 +139,7 @@ func (t *UDPTracker) track(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, d
 }
 
 // IsValidInbound checks if an inbound packet matches a tracked connection
-func (t *UDPTracker) IsValidInbound(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, dstPort uint16, size int) bool {
+func (t *UDPTracker) IsValidInbound(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, dstPort uint16, size int, dnsInfo ...*nftypes.DNSInfo) bool {
 	key := ConnKey{
 		SrcIP:   dstIP,
 		DstIP:   srcIP,
@@ -147,6 +157,7 @@ func (t *UDPTracker) IsValidInbound(srcIP netip.Addr, dstIP netip.Addr, srcPort 
 
 	conn.UpdateLastSeen()
 	conn.UpdateCounters(nftypes.Ingress, size)
+	conn.DNSInfo = nftypes.MergeDNSInfo(conn.DNSInfo, firstDNSInfo(dnsInfo))
 
 	return true
 }
@@ -224,5 +235,6 @@ func (t *UDPTracker) sendEvent(typ nftypes.Type, conn *UDPConnTrack, ruleID []by
 		TxPackets:  conn.PacketsTx.Load(),
 		RxBytes:    conn.BytesRx.Load(),
 		TxBytes:    conn.BytesTx.Load(),
+		DNSInfo:    conn.DNSInfo,
 	})
 }

@@ -75,6 +75,15 @@ message FlowFields {
   bytes source_resource_id = 14;
   bytes dest_resource_id = 15;
 
+  // DNS query/response information when this flow carries DNS traffic.
+  DNSInfo dns_info = 16;
+}
+
+message DNSInfo {
+  string domain = 1;
+  string query_type = 2;
+  repeated string answers = 3;
+  string rcode = 4;
 }
 
 // Flow event types

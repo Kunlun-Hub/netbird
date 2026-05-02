@@ -5575,8 +5575,8 @@ func (s *SqlStore) applyNetworkTrafficFilters(query *gorm.DB, filter networktraf
 	if filter.Search != nil {
 		searchPattern := "%" + *filter.Search + "%"
 		query = query.Where(
-			"user_name LIKE ? OR user_email LIKE ? OR source_name LIKE ? OR destination_name LIKE ? OR source_address LIKE ? OR destination_address LIKE ?",
-			searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern,
+			"user_name LIKE ? OR user_email LIKE ? OR source_name LIKE ? OR destination_name LIKE ? OR source_address LIKE ? OR destination_address LIKE ? OR dns_domain LIKE ? OR dns_query_type LIKE ? OR dns_answers LIKE ?",
+			searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern,
 		)
 	}
 
@@ -5602,6 +5602,22 @@ func (s *SqlStore) applyNetworkTrafficFilters(query *gorm.DB, filter networktraf
 
 	if filter.Direction != nil {
 		query = query.Where("direction = ?", *filter.Direction)
+	}
+
+	if filter.DNS != nil {
+		if *filter.DNS {
+			query = query.Where("dns_domain <> ''")
+		} else {
+			query = query.Where("dns_domain = ''")
+		}
+	}
+
+	if filter.DNSDomain != nil {
+		query = query.Where("dns_domain LIKE ?", "%"+*filter.DNSDomain+"%")
+	}
+
+	if filter.DNSType != nil {
+		query = query.Where("dns_query_type = ?", *filter.DNSType)
 	}
 
 	if filter.StartDate != nil {

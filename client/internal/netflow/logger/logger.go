@@ -31,13 +31,13 @@ type Logger struct {
 	fileStore          types.Store
 	syslogSender       *syslog.Sender
 
-	localStorageEnabled atomic.Bool
-	localStoragePath    string
+	localStorageEnabled   atomic.Bool
+	localStoragePath      string
 	localStorageMaxSizeMB int
 	localStorageMaxFiles  int
 
-	syslogEnabled atomic.Bool
-	syslogServer  string
+	syslogEnabled  atomic.Bool
+	syslogServer   string
 	syslogProtocol string
 	syslogFacility string
 	syslogTag      string
@@ -223,9 +223,14 @@ func (l *Logger) UpdateConfig(dnsCollection, exitNodeCollection bool) {
 
 func (l *Logger) shouldStore(event *types.EventFields, isExitNode bool) bool {
 	// check dns collection
-	if !l.dnsCollection.Load() && event.Protocol == types.UDP &&
-		(event.DestPort == 53 || event.DestPort == dns.ForwarderClientPort || event.DestPort == dns.ForwarderServerPort) {
-		return false
+	if !l.dnsCollection.Load() {
+		if event.DNSInfo != nil {
+			return false
+		}
+		if (event.Protocol == types.UDP || event.Protocol == types.TCP) &&
+			(event.DestPort == 53 || event.DestPort == dns.ForwarderClientPort || event.DestPort == dns.ForwarderServerPort) {
+			return false
+		}
 	}
 
 	// check exit node collection
