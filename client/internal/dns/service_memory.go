@@ -8,10 +8,12 @@ import (
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
+	"github.com/google/uuid"
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/iface"
+	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 	nbnet "github.com/netbirdio/netbird/client/net"
 )
 
@@ -24,9 +26,10 @@ type ServiceViaMemory struct {
 	tcpHookSet        bool
 	listenerIsRunning bool
 	listenerFlagLock  sync.Mutex
+	flowLogger        nftypes.FlowLogger
 }
 
-func NewServiceViaMemory(wgIface WGIface) *ServiceViaMemory {
+func NewServiceViaMemory(wgIface WGIface, flowLogger nftypes.FlowLogger) *ServiceViaMemory {
 	lastIP, err := nbnet.GetLastIPFromNetwork(wgIface.Address().Network, 1)
 	if err != nil {
 		log.Errorf("get last ip from network: %v", err)
@@ -37,6 +40,7 @@ func NewServiceViaMemory(wgIface WGIface) *ServiceViaMemory {
 		dnsMux:      dns.NewServeMux(),
 		runtimeIP:   lastIP,
 		runtimePort: DefaultPort,
+		flowLogger:  flowLogger,
 	}
 }
 
@@ -140,10 +144,32 @@ func (s *ServiceViaMemory) filterDNSTraffic() error {
 			return true
 		}
 
+		// 提取 IP 层来获取源和目的 IP 和端口
+		var srcIP, dstIP netip.Addr
+		if ipLayer := packet.Layer(layers.LayerTypeIPv4); ipLayer != nil {
+			ip, _ := ipLayer.(*layers.IPv4)
+			srcIP, _ = netip.AddrFromSlice(ip.SrcIP)
+			dstIP, _ = netip.AddrFromSlice(ip.DstIP)
+		} else if ipLayer := packet.Layer(layers.LayerTypeIPv6); ipLayer != nil {
+			ip, _ := ipLayer.(*layers.IPv6)
+			srcIP, _ = netip.AddrFromSlice(ip.SrcIP)
+			dstIP, _ = netip.AddrFromSlice(ip.DstIP)
+		}
+
+		// 解析 DNS 请求信息
+		dnsInfo := nftypes.ParseDNSInfo(udp.Payload)
+
 		writer := &responseWriter{
-			remote: remoteAddrFromPacket(packet),
-			packet: packet,
-			device: dev.Device,
+			remote:     remoteAddrFromPacket(packet),
+			packet:     packet,
+			device:     dev.Device,
+			flowID:     uuid.New(),
+			dnsInfo:    dnsInfo,
+			flowLogger: s.flowLogger,
+			srcIP:      srcIP,
+			dstIP:      dstIP,
+			srcPort:    uint16(udp.SrcPort),
+			dstPort:    uint16(udp.DstPort),
 		}
 		go s.dnsMux.ServeDNS(writer, msg)
 		return true

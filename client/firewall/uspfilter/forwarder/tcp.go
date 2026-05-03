@@ -3,7 +3,6 @@ package forwarder
 import (
 	"context"
 	"fmt"
-	"io"
 	"net"
 	"net/netip"
 	"sync"
@@ -71,6 +70,12 @@ func (f *Forwarder) proxyTCP(id stack.TransportEndpointID, inConn *gonet.TCPConn
 	ctx, cancel := context.WithCancel(f.ctx)
 	defer cancel()
 
+	isDNS := id.LocalPort == 53
+
+	var dnsInfo *nftypes.DNSInfo
+	var dnsMu sync.Mutex
+	var tcpBuffer []byte
+
 	go func() {
 		<-ctx.Done()
 		// Close connections and endpoint.
@@ -95,14 +100,69 @@ func (f *Forwarder) proxyTCP(id stack.TransportEndpointID, inConn *gonet.TCPConn
 	)
 
 	go func() {
-		bytesFromInToOut, errInToOut = io.Copy(outConn, inConn)
+		buf := make([]byte, 65536)
+		for {
+			n, err := inConn.Read(buf)
+			if err != nil {
+				if !isClosedError(err) {
+					errInToOut = err
+				}
+				break
+			}
+			if n > 0 {
+				if isDNS {
+					dnsMu.Lock()
+					var info *nftypes.DNSInfo
+					info, tcpBuffer = nftypes.AppendTCPDNSInfo(tcpBuffer, buf[:n])
+					if info != nil {
+						dnsInfo = nftypes.MergeDNSInfo(dnsInfo, info)
+					}
+					dnsMu.Unlock()
+				}
+				written, writeErr := outConn.Write(buf[:n])
+				if writeErr != nil {
+					if !isClosedError(writeErr) {
+						errInToOut = writeErr
+					}
+					break
+				}
+				bytesFromInToOut += int64(written)
+			}
+		}
 		cancel()
 		wg.Done()
 	}()
 
 	go func() {
-
-		bytesFromOutToIn, errOutToIn = io.Copy(inConn, outConn)
+		buf := make([]byte, 65536)
+		for {
+			n, err := outConn.Read(buf)
+			if err != nil {
+				if !isClosedError(err) {
+					errOutToIn = err
+				}
+				break
+			}
+			if n > 0 {
+				if isDNS {
+					dnsMu.Lock()
+					var info *nftypes.DNSInfo
+					info, tcpBuffer = nftypes.AppendTCPDNSInfo(tcpBuffer, buf[:n])
+					if info != nil {
+						dnsInfo = nftypes.MergeDNSInfo(dnsInfo, info)
+					}
+					dnsMu.Unlock()
+				}
+				written, writeErr := inConn.Write(buf[:n])
+				if writeErr != nil {
+					if !isClosedError(writeErr) {
+						errOutToIn = writeErr
+					}
+					break
+				}
+				bytesFromOutToIn += int64(written)
+			}
+		}
 		cancel()
 		wg.Done()
 	}()
@@ -129,10 +189,10 @@ func (f *Forwarder) proxyTCP(id stack.TransportEndpointID, inConn *gonet.TCPConn
 
 	f.logger.Trace5("forwarder: Removed TCP connection %s [in: %d Pkts/%d B, out: %d Pkts/%d B]", epID(id), rxPackets, bytesFromOutToIn, txPackets, bytesFromInToOut)
 
-	f.sendTCPEvent(nftypes.TypeEnd, flowID, id, uint64(bytesFromOutToIn), uint64(bytesFromInToOut), rxPackets, txPackets)
+	f.sendTCPEvent(nftypes.TypeEnd, flowID, id, uint64(bytesFromOutToIn), uint64(bytesFromInToOut), rxPackets, txPackets, dnsInfo)
 }
 
-func (f *Forwarder) sendTCPEvent(typ nftypes.Type, flowID uuid.UUID, id stack.TransportEndpointID, rxBytes, txBytes, rxPackets, txPackets uint64) {
+func (f *Forwarder) sendTCPEvent(typ nftypes.Type, flowID uuid.UUID, id stack.TransportEndpointID, rxBytes, txBytes, rxPackets, txPackets uint64, dnsInfo ...*nftypes.DNSInfo) {
 	srcIp := netip.AddrFrom4(id.RemoteAddress.As4())
 	dstIp := netip.AddrFrom4(id.LocalAddress.As4())
 
@@ -150,6 +210,10 @@ func (f *Forwarder) sendTCPEvent(typ nftypes.Type, flowID uuid.UUID, id stack.Tr
 		TxBytes:    txBytes,
 		RxPackets:  rxPackets,
 		TxPackets:  txPackets,
+	}
+
+	if len(dnsInfo) > 0 && dnsInfo[0] != nil {
+		fields.DNSInfo = dnsInfo[0]
 	}
 
 	if typ == nftypes.TypeStart {

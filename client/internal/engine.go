@@ -1820,6 +1820,11 @@ func (e *Engine) newDnsServer(dnsConfig *nbdns.Config) (dns.Server, error) {
 		return e.dnsServer, nil
 	}
 
+	var flowLogger nftypes.FlowLogger
+	if e.flowManager != nil {
+		flowLogger = e.flowManager.GetLogger()
+	}
+
 	switch runtime.GOOS {
 	case "android":
 		dnsServer := dns.NewDefaultServerPermanentUpstream(
@@ -1846,6 +1851,7 @@ func (e *Engine) newDnsServer(dnsConfig *nbdns.Config) (dns.Server, error) {
 			StatusRecorder: e.statusRecorder,
 			StateManager:   e.stateManager,
 			DisableSys:     e.config.DisableDNS,
+			FlowLogger:     flowLogger,
 		})
 		if err != nil {
 			return nil, err

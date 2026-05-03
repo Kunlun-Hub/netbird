@@ -21,8 +21,9 @@ import (
 	dnsconfig "github.com/netbirdio/netbird/client/internal/dns/config"
 	"github.com/netbirdio/netbird/client/internal/dns/local"
 	"github.com/netbirdio/netbird/client/internal/dns/mgmt"
-	"github.com/netbirdio/netbird/client/internal/dns/types"
+	dnstypes "github.com/netbirdio/netbird/client/internal/dns/types"
 	"github.com/netbirdio/netbird/client/internal/listener"
+	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 	nbdns "github.com/netbirdio/netbird/dns"
@@ -107,6 +108,7 @@ type DefaultServer struct {
 	statusRecorder *peer.Status
 	stateManager   *statemanager.Manager
 	routeMatch     func(netip.Addr) bool
+	flowLogger     nftypes.FlowLogger
 
 	probeMu     sync.Mutex
 	probeCancel context.CancelFunc
@@ -117,7 +119,7 @@ type handlerWithStop interface {
 	dns.Handler
 	Stop()
 	ProbeAvailability(context.Context)
-	ID() types.HandlerID
+	ID() dnstypes.HandlerID
 }
 
 type handlerWrapper struct {
@@ -126,7 +128,7 @@ type handlerWrapper struct {
 	priority int
 }
 
-type registeredHandlerMap map[types.HandlerID]handlerWrapper
+type registeredHandlerMap map[dnstypes.HandlerID]handlerWrapper
 
 // DefaultServerConfig holds configuration parameters for NewDefaultServer
 type DefaultServerConfig struct {
@@ -135,6 +137,7 @@ type DefaultServerConfig struct {
 	StatusRecorder *peer.Status
 	StateManager   *statemanager.Manager
 	DisableSys     bool
+	FlowLogger     nftypes.FlowLogger
 }
 
 // NewDefaultServer returns a new dns server
@@ -150,12 +153,12 @@ func NewDefaultServer(ctx context.Context, config DefaultServerConfig) (*Default
 
 	var dnsService service
 	if config.WgInterface.IsUserspaceBind() {
-		dnsService = NewServiceViaMemory(config.WgInterface)
+		dnsService = NewServiceViaMemory(config.WgInterface, config.FlowLogger)
 	} else {
 		dnsService = newServiceViaListener(config.WgInterface, addrPort, nil)
 	}
 
-	server := newDefaultServer(ctx, config.WgInterface, dnsService, config.StatusRecorder, config.StateManager, config.DisableSys)
+	server := newDefaultServer(ctx, config.WgInterface, dnsService, config.StatusRecorder, config.StateManager, config.DisableSys, config.FlowLogger)
 	return server, nil
 }
 
@@ -170,7 +173,7 @@ func NewDefaultServerPermanentUpstream(
 	disableSys bool,
 ) *DefaultServer {
 	log.Debugf("host dns address list is: %v", hostsDnsList)
-	ds := newDefaultServer(ctx, wgInterface, NewServiceViaMemory(wgInterface), statusRecorder, nil, disableSys)
+	ds := newDefaultServer(ctx, wgInterface, NewServiceViaMemory(wgInterface, nil), statusRecorder, nil, disableSys, nil)
 
 	ds.hostsDNSHolder.set(hostsDnsList)
 	ds.permanent = true
@@ -192,7 +195,7 @@ func NewDefaultServerIos(
 	disableSys bool,
 ) *DefaultServer {
 	log.Debugf("iOS host dns address list is: %v", hostsDnsList)
-	ds := newDefaultServer(ctx, wgInterface, NewServiceViaMemory(wgInterface), statusRecorder, nil, disableSys)
+	ds := newDefaultServer(ctx, wgInterface, NewServiceViaMemory(wgInterface, nil), statusRecorder, nil, disableSys, nil)
 	ds.iosDnsManager = iosDnsManager
 	ds.hostsDNSHolder.set(hostsDnsList)
 	ds.permanent = true
@@ -207,6 +210,7 @@ func newDefaultServer(
 	statusRecorder *peer.Status,
 	stateManager *statemanager.Manager,
 	disableSys bool,
+	flowLogger nftypes.FlowLogger,
 ) *DefaultServer {
 	handlerChain := NewHandlerChain()
 	ctx, stop := context.WithCancel(ctx)
@@ -229,6 +233,7 @@ func newDefaultServer(
 		hostManager:       &noopHostConfigurator{},
 		mgmtCacheResolver: mgmtCacheResolver,
 		currentConfigHash: ^uint64(0), // Initialize to max uint64 to ensure first config is always applied
+		flowLogger:        flowLogger,
 	}
 
 	// register with root zone, handler chain takes care of the routing

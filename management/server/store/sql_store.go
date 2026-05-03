@@ -5606,7 +5606,13 @@ func (s *SqlStore) applyNetworkTrafficFilters(query *gorm.DB, filter networktraf
 
 	if filter.DNS != nil {
 		if *filter.DNS {
-			query = query.Where("dns_domain <> ''")
+			// DNS 过滤：检查有明确 DNS 字段的记录，或者是 UDP 协议到 DNS 端口的流量
+			query = query.Where(
+				"dns_domain <> '' OR "+
+					"(protocol = 17 AND "+
+					" (destination_address LIKE '%:53' OR destination_address LIKE '%:5353' OR destination_address LIKE '%:22054' OR "+
+					"  source_address LIKE '%:53' OR source_address LIKE '%:5353' OR source_address LIKE '%:22054'))",
+			)
 		} else {
 			query = query.Where("dns_domain = ''")
 		}
