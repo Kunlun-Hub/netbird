@@ -171,6 +171,9 @@ func (s *BaseServer) Start(ctx context.Context) error {
 	// registered during GRPCServer() construction (e.g., SetServiceManager).
 	s.GRPCServer()
 
+	// Start network traffic cleanup routine
+	s.startNetworkTrafficCleanup(srvCtx)
+
 	for _, fn := range s.afterInit {
 		if fn != nil {
 			fn(s)

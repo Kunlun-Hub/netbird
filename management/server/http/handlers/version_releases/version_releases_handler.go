@@ -21,6 +21,7 @@ import (
 )
 
 type PlatformType string
+type ArchitectureType string
 
 const (
 	PlatformTypeMacOS    PlatformType = "macos"
@@ -29,14 +30,22 @@ const (
 	PlatformTypeAndroid  PlatformType = "android"
 )
 
+const (
+	ArchitectureAMD64  ArchitectureType = "amd64"
+	ArchitectureARM64  ArchitectureType = "arm64"
+	ArchitectureARMv7  ArchitectureType = "armv7"
+	ArchitectureUniversal ArchitectureType = "universal"
+)
+
 type VersionRelease struct {
-	ID          string       `json:"id"`
-	Version     string       `json:"version"`
-	Platform    PlatformType `json:"platform"`
-	DownloadURL string       `json:"downloadUrl"`
-	Description string       `json:"description,omitempty"`
-	IsLatest    bool         `json:"isLatest,omitempty"`
-	CreatedAt   time.Time    `json:"createdAt"`
+	ID           string          `json:"id"`
+	Version      string          `json:"version"`
+	Platform     PlatformType    `json:"platform"`
+	Architecture ArchitectureType `json:"architecture"`
+	DownloadURL  string          `json:"downloadUrl"`
+	Description  string          `json:"description,omitempty"`
+	IsLatest     bool            `json:"isLatest,omitempty"`
+	CreatedAt    time.Time       `json:"createdAt"`
 }
 
 type FileInfo struct {
@@ -76,6 +85,9 @@ func AddEndpoints(accountManager account.Manager, router *mux.Router, rootRouter
 	router.HandleFunc("/version-releases", h.getAll).Methods("GET", "OPTIONS")
 	router.HandleFunc("/version-releases", h.create).Methods("POST", "OPTIONS")
 	router.HandleFunc("/version-releases/upload", h.uploadFile).Methods("POST", "OPTIONS")
+	// Public endpoint must be registered BEFORE /{id} route to avoid "public" being matched as an id.
+	// Auth is bypassed via bypass.AddBypassPath("/api/version-releases/public") in handler.go.
+	router.HandleFunc("/version-releases/public", h.getAllPublic).Methods("GET", "OPTIONS")
 	router.HandleFunc("/version-releases/{id}", h.get).Methods("GET", "OPTIONS")
 	router.HandleFunc("/version-releases/{id}", h.update).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/version-releases/{id}", h.delete).Methods("DELETE", "OPTIONS")
@@ -184,11 +196,12 @@ func newHandler(accountManager account.Manager) *handler {
 }
 
 type CreateRequest struct {
-	Version     string       `json:"version"`
-	Platform    PlatformType `json:"platform"`
-	DownloadURL string       `json:"downloadUrl"`
-	Description string       `json:"description,omitempty"`
-	IsLatest    bool         `json:"isLatest,omitempty"`
+	Version      string          `json:"version"`
+	Platform     PlatformType    `json:"platform"`
+	Architecture ArchitectureType `json:"architecture"`
+	DownloadURL  string          `json:"downloadUrl"`
+	Description  string          `json:"description,omitempty"`
+	IsLatest     bool            `json:"isLatest,omitempty"`
 }
 
 func (h *handler) create(w http.ResponseWriter, r *http.Request) {
@@ -223,16 +236,21 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.Architecture == "" {
+		req.Architecture = ArchitectureAMD64
+	}
+
 	id := uuid.New().String()
 
 	version := &VersionRelease{
-		ID:          id,
-		Version:     req.Version,
-		Platform:    req.Platform,
-		DownloadURL: req.DownloadURL,
-		Description: req.Description,
-		IsLatest:    req.IsLatest,
-		CreatedAt:   time.Now(),
+		ID:           id,
+		Version:      req.Version,
+		Platform:     req.Platform,
+		Architecture: req.Architecture,
+		DownloadURL:  req.DownloadURL,
+		Description:  req.Description,
+		IsLatest:     req.IsLatest,
+		CreatedAt:    time.Now(),
 	}
 
 	mu.Lock()
@@ -274,6 +292,38 @@ func (h *handler) getAll(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(r.Context(), w, result)
 }
 
+// getAllPublic returns all versions publicly without authentication
+func (h *handler) getAllPublic(w http.ResponseWriter, r *http.Request) {
+	// Handle CORS preflight OPTIONS request
+	if r.Method == "OPTIONS" {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	mu.RLock()
+	var result []*VersionRelease
+	for _, v := range versions {
+		result = append(result, v)
+	}
+	mu.RUnlock()
+
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Content-Type", "application/json")
+	
+	// 最简单最安全的直接编码 JSON
+	encoder := json.NewEncoder(w)
+	err := encoder.Encode(result)
+	if err != nil {
+		log.Errorf("failed to encode version releases for public: %v", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`[]`))
+		return
+	}
+}
+
 func (h *handler) get(w http.ResponseWriter, r *http.Request) {
 	_, err := nbcontext.GetUserAuthFromContext(r.Context())
 	if err != nil {
@@ -301,11 +351,12 @@ func (h *handler) get(w http.ResponseWriter, r *http.Request) {
 }
 
 type UpdateRequest struct {
-	Version     string       `json:"version"`
-	Platform    PlatformType `json:"platform"`
-	DownloadURL string       `json:"downloadUrl"`
-	Description string       `json:"description,omitempty"`
-	IsLatest    bool         `json:"isLatest,omitempty"`
+	Version      string          `json:"version"`
+	Platform     PlatformType    `json:"platform"`
+	Architecture ArchitectureType `json:"architecture"`
+	DownloadURL  string          `json:"downloadUrl"`
+	Description  string          `json:"description,omitempty"`
+	IsLatest     bool            `json:"isLatest,omitempty"`
 }
 
 func (h *handler) update(w http.ResponseWriter, r *http.Request) {
@@ -348,10 +399,12 @@ func (h *handler) update(w http.ResponseWriter, r *http.Request) {
 
 	version.Version = req.Version
 	version.Platform = req.Platform
+	version.Architecture = req.Architecture
 	version.DownloadURL = req.DownloadURL
 	version.Description = req.Description
 	version.IsLatest = req.IsLatest
 
+	saveData()
 	util.WriteJSONObject(r.Context(), w, version)
 }
 

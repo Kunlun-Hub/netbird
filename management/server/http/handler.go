@@ -94,6 +94,10 @@ func NewAPIHandler(ctx context.Context, accountManager account.Manager, networks
 	if err := bypass.AddBypassPath(types.ProxyCallbackEndpointFull); err != nil {
 		return nil, fmt.Errorf("failed to add bypass path: %w", err)
 	}
+	// Public version releases endpoint for install script
+	if err := bypass.AddBypassPath("/api/version-releases/public"); err != nil {
+		return nil, fmt.Errorf("failed to add bypass path: %w", err)
+	}
 
 	var rateLimitingConfig *middleware.RateLimiterConfig
 	if os.Getenv(rateLimitingEnabledKey) == "true" {

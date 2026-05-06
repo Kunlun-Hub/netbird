@@ -74,6 +74,7 @@ type ServerConfig struct {
 	ActivityStore           StoreConfig        `yaml:"activityStore"`
 	AuthStore               StoreConfig        `yaml:"authStore"`
 	ReverseProxy            ReverseProxyConfig `yaml:"reverseProxy"`
+	NetworkTraffic          NetworkTrafficConfig `yaml:"networkTraffic"`
 }
 
 // TLSConfig contains TLS/HTTPS settings
@@ -129,6 +130,7 @@ type ManagementConfig struct {
 	SignalURI               string             `yaml:"signalUri"`
 	Store                   StoreConfig        `yaml:"store"`
 	ReverseProxy            ReverseProxyConfig `yaml:"reverseProxy"`
+	NetworkTraffic          NetworkTrafficConfig `yaml:"networkTraffic"`
 }
 
 // AuthConfig contains authentication/identity provider settings
@@ -184,6 +186,12 @@ type ReverseProxyConfig struct {
 	TrustedPeers                  []string `yaml:"trustedPeers"`
 	AccessLogRetentionDays        int      `yaml:"accessLogRetentionDays"`
 	AccessLogCleanupIntervalHours int      `yaml:"accessLogCleanupIntervalHours"`
+}
+
+// NetworkTrafficConfig contains network traffic event settings
+type NetworkTrafficConfig struct {
+	RetentionDays        int `yaml:"retentionDays"`
+	CleanupIntervalHours int `yaml:"cleanupIntervalHours"`
 }
 
 // DefaultConfig returns a CombinedConfig with default values
@@ -367,6 +375,11 @@ func (c *CombinedConfig) applyManagementDefaults(exposedHost string) {
 	// Copy reverse proxy config from server
 	if len(c.Server.ReverseProxy.TrustedHTTPProxies) > 0 || c.Server.ReverseProxy.TrustedHTTPProxiesCount > 0 || len(c.Server.ReverseProxy.TrustedPeers) > 0 {
 		c.Management.ReverseProxy = c.Server.ReverseProxy
+	}
+
+	// Copy network traffic config from server
+	if c.Server.NetworkTraffic.RetentionDays != 0 || c.Server.NetworkTraffic.CleanupIntervalHours != 0 {
+		c.Management.NetworkTraffic = c.Server.NetworkTraffic
 	}
 }
 
@@ -669,6 +682,12 @@ func (c *CombinedConfig) ToManagementConfig() (*nbconfig.Config, error) {
 		}
 	}
 
+	// Build network traffic config
+	networkTraffic := nbconfig.NetworkTraffic{
+		RetentionDays:        mgmt.NetworkTraffic.RetentionDays,
+		CleanupIntervalHours: mgmt.NetworkTraffic.CleanupIntervalHours,
+	}
+
 	// Build HTTP config (required, even if empty)
 	httpConfig := &nbconfig.HttpServerConfig{}
 
@@ -699,6 +718,7 @@ func (c *CombinedConfig) ToManagementConfig() (*nbconfig.Config, error) {
 		HttpConfig:             httpConfig,
 		StoreConfig:            storeConfig,
 		ReverseProxy:           reverseProxy,
+		NetworkTraffic:         networkTraffic,
 		DisableDefaultPolicy:   mgmt.DisableDefaultPolicy,
 		EmbeddedIdP:            embeddedIdP,
 	}, nil
