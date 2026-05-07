@@ -28,7 +28,6 @@ type Logger struct {
 	dnsCollection      atomic.Bool
 	exitNodeCollection atomic.Bool
 	Store              types.Store
-	fileStore          types.Store
 	syslogSender       *syslog.Sender
 
 	localStorageEnabled   atomic.Bool
@@ -47,7 +46,7 @@ func New(statusRecorder *peer.Status, wgIfaceIPNet netip.Prefix) *Logger {
 	return &Logger{
 		statusRecorder: statusRecorder,
 		wgIfaceNet:     wgIfaceIPNet,
-		Store:          store.NewMemoryStore(),
+		Store:          store.NewFileStore("", 100, 10),
 	}
 }
 
@@ -89,10 +88,13 @@ func (l *Logger) refreshStorage() {
 		if maxFiles <= 0 {
 			maxFiles = 10
 		}
-		l.fileStore = store.NewFileStore(l.localStoragePath, maxSize, maxFiles)
-	} else if l.fileStore != nil {
-		l.fileStore.Close()
-		l.fileStore = nil
+		if current, ok := l.Store.(*store.File); !ok || !current.Matches(l.localStoragePath, maxSize, maxFiles) {
+			l.replaceStore(store.NewFileStore(l.localStoragePath, maxSize, maxFiles))
+		}
+	} else {
+		if current, ok := l.Store.(*store.File); !ok || !current.Matches("", 100, 10) {
+			l.replaceStore(store.NewFileStore("", 100, 10))
+		}
 	}
 
 	if l.syslogEnabled.Load() && l.syslogServer != "" {
@@ -104,6 +106,21 @@ func (l *Logger) refreshStorage() {
 		l.syslogSender.Close()
 		l.syslogSender = nil
 	}
+}
+
+func (l *Logger) replaceStore(next types.Store) {
+	if next == nil || l.Store == next {
+		return
+	}
+
+	if l.Store != nil {
+		for _, event := range l.Store.GetEvents() {
+			next.StoreEvent(event)
+		}
+		l.Store.Close()
+	}
+
+	l.Store = next
 }
 
 func (l *Logger) StoreEvent(flowEvent types.EventFields) {
@@ -168,10 +185,6 @@ func (l *Logger) startReceiver() {
 			if l.shouldStore(eventFields, isSrcExitNode || isDestExitNode) {
 				l.Store.StoreEvent(&event)
 
-				if l.localStorageEnabled.Load() && l.fileStore != nil {
-					l.fileStore.StoreEvent(&event)
-				}
-
 				if l.syslogEnabled.Load() && l.syslogSender != nil {
 					if err := l.syslogSender.Send(&event); err != nil {
 						log.Debugf("failed to send event to syslog: %v", err)
@@ -185,9 +198,6 @@ func (l *Logger) startReceiver() {
 func (l *Logger) Close() {
 	l.stop()
 	l.Store.Close()
-	if l.fileStore != nil {
-		l.fileStore.Close()
-	}
 	if l.syslogSender != nil {
 		l.syslogSender.Close()
 	}

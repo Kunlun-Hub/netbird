@@ -31,10 +31,10 @@ func NewWGIfaceMonitor() *WGIfaceMonitor {
 func (m *WGIfaceMonitor) Start(ctx context.Context, ifaceName string) (shouldRestart bool, err error) {
 	defer close(m.done)
 
-	// Skip on mobile platforms as they handle interface lifecycle differently
-	if runtime.GOOS == "android" || runtime.GOOS == "ios" {
+	// Skip on platforms that don't expose a regular OS WireGuard interface.
+	if shouldSkipWGIfaceMonitor(runtime.GOOS) {
 		log.Debugf("Interface monitor: skipped on %s platform", runtime.GOOS)
-		return false, errors.New("not supported on mobile platforms")
+		return false, nil
 	}
 
 	if netstack.IsEnabled() {
@@ -81,6 +81,10 @@ func (m *WGIfaceMonitor) Start(ctx context.Context, ifaceName string) (shouldRes
 		}
 	}
 
+}
+
+func shouldSkipWGIfaceMonitor(goos string) bool {
+	return goos == "android" || goos == "ios" || goos == "js"
 }
 
 // getInterfaceIndex returns the index of a network interface by name.

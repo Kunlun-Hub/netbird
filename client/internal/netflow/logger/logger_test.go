@@ -13,6 +13,7 @@ import (
 
 func TestStore(t *testing.T) {
 	logger := logger.New(nil, netip.Prefix{})
+	logger.UpdateFlowStorageConfig(true, t.TempDir(), 1, 10, false, "", "", "", "")
 	logger.Enable()
 
 	event := types.EventFields{
@@ -28,6 +29,7 @@ func TestStore(t *testing.T) {
 	wait()
 
 	allEvents := logger.GetEvents()
+	eventCount := len(allEvents)
 	matched := false
 	for _, e := range allEvents {
 		if e.EventFields.FlowID == event.FlowID {
@@ -44,8 +46,8 @@ func TestStore(t *testing.T) {
 	logger.StoreEvent(event)
 	wait()
 	allEvents = logger.GetEvents()
-	if len(allEvents) != 0 {
-		t.Errorf("expected 0 events, got %d", len(allEvents))
+	if len(allEvents) != eventCount {
+		t.Errorf("expected %d events, got %d", eventCount, len(allEvents))
 	}
 
 	// test re-enable
@@ -63,5 +65,46 @@ func TestStore(t *testing.T) {
 	}
 	if !matched {
 		t.Errorf("didn't match any event")
+	}
+}
+
+func TestLocalStorageRestoresPendingEvents(t *testing.T) {
+	dir := t.TempDir()
+	wgNet := netip.MustParsePrefix("100.64.0.0/10")
+	flowID := uuid.New()
+
+	first := logger.New(nil, wgNet)
+	first.UpdateFlowStorageConfig(true, dir, 1, 10, false, "", "", "", "")
+	first.Enable()
+	time.Sleep(time.Millisecond)
+
+	first.StoreEvent(types.EventFields{
+		FlowID:    flowID,
+		Type:      types.TypeStart,
+		Direction: types.Ingress,
+		Protocol:  types.TCP,
+		SourceIP:  netip.MustParseAddr("100.64.0.1"),
+		DestIP:    netip.MustParseAddr("100.64.0.2"),
+	})
+	time.Sleep(10 * time.Millisecond)
+	first.Close()
+
+	second := logger.New(nil, wgNet)
+	second.UpdateFlowStorageConfig(true, dir, 1, 10, false, "", "", "", "")
+
+	allEvents := second.GetEvents()
+	matched := false
+	for _, e := range allEvents {
+		if e.EventFields.FlowID == flowID {
+			matched = true
+			second.DeleteEvents([]uuid.UUID{e.ID})
+		}
+	}
+	if !matched {
+		t.Fatalf("expected pending flow event to be restored from local storage")
+	}
+
+	if len(second.GetEvents()) != 0 {
+		t.Fatalf("expected restored event to be deleted after ack")
 	}
 }
