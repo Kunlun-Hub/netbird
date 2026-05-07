@@ -37,6 +37,8 @@ func (h *eventHandler) listen(ctx context.Context) {
 			h.handleConnectClick()
 		case <-h.client.mDown.ClickedCh:
 			h.handleDisconnectClick()
+		case <-h.client.mNetworks.ClickedCh:
+			h.handleNetworksClick()
 		case <-h.client.mAllowSSH.ClickedCh:
 			h.handleAllowSSHClick()
 		case <-h.client.mAutoConnect.ClickedCh:
@@ -51,15 +53,11 @@ func (h *eventHandler) listen(ctx context.Context) {
 			h.handleAdvancedSettingsClick()
 		case <-h.client.mCreateDebugBundle.ClickedCh:
 			h.handleCreateDebugBundleClick()
+		case <-h.client.mNotifications.ClickedCh:
+			h.handleNotificationsClick()
 		case <-h.client.mQuit.ClickedCh:
 			h.handleQuitClick()
 			return
-		case <-h.client.mNetworks.ClickedCh:
-			h.handleNetworksClick()
-		case <-h.client.mNotifications.ClickedCh:
-			h.handleNotificationsClick()
-		case <-systray.TrayOpenedCh:
-			h.client.updateExitNodes()
 		}
 	}
 }
@@ -120,20 +118,31 @@ func (h *eventHandler) handleDisconnectClick() {
 	}()
 }
 
+func (h *eventHandler) handleQuitClick() {
+	systray.Quit()
+}
+
+func (h *eventHandler) handleNetworksClick() {
+	h.client.mNetworks.Disable()
+	go func() {
+		defer h.client.mNetworks.Enable()
+		h.runSelfCommand(h.client.ctx, "networks")
+	}()
+}
+
 func (h *eventHandler) handleAllowSSHClick() {
 	h.toggleCheckbox(h.client.mAllowSSH)
 	if err := h.updateConfigWithErr(); err != nil {
-		h.toggleCheckbox(h.client.mAllowSSH) // revert checkbox state on error
+		h.toggleCheckbox(h.client.mAllowSSH)
 		log.Errorf("failed to update config: %v", err)
 		h.client.app.SendNotification(fyne.NewNotification("错误", "更新 SSH 设置失败"))
 	}
-
 }
 
 func (h *eventHandler) handleAutoConnectClick() {
 	h.toggleCheckbox(h.client.mAutoConnect)
 	if err := h.updateConfigWithErr(); err != nil {
-		h.toggleCheckbox(h.client.mAutoConnect) // revert checkbox state on error
+		h.toggleCheckbox(h.client.mAutoConnect)
 		log.Errorf("failed to update config: %v", err)
 		h.client.app.SendNotification(fyne.NewNotification("错误", "更新自动连接设置失败"))
 	}
@@ -142,7 +151,7 @@ func (h *eventHandler) handleAutoConnectClick() {
 func (h *eventHandler) handleRosenpassClick() {
 	h.toggleCheckbox(h.client.mEnableRosenpass)
 	if err := h.updateConfigWithErr(); err != nil {
-		h.toggleCheckbox(h.client.mEnableRosenpass) // revert checkbox state on error
+		h.toggleCheckbox(h.client.mEnableRosenpass)
 		log.Errorf("failed to update config: %v", err)
 		h.client.app.SendNotification(fyne.NewNotification("错误", "更新量子抗性设置失败"))
 	}
@@ -151,7 +160,7 @@ func (h *eventHandler) handleRosenpassClick() {
 func (h *eventHandler) handleLazyConnectionClick() {
 	h.toggleCheckbox(h.client.mLazyConnEnabled)
 	if err := h.updateConfigWithErr(); err != nil {
-		h.toggleCheckbox(h.client.mLazyConnEnabled) // revert checkbox state on error
+		h.toggleCheckbox(h.client.mLazyConnEnabled)
 		log.Errorf("failed to update config: %v", err)
 		h.client.app.SendNotification(fyne.NewNotification("错误", "更新懒连接设置失败"))
 	}
@@ -160,7 +169,7 @@ func (h *eventHandler) handleLazyConnectionClick() {
 func (h *eventHandler) handleBlockInboundClick() {
 	h.toggleCheckbox(h.client.mBlockInbound)
 	if err := h.updateConfigWithErr(); err != nil {
-		h.toggleCheckbox(h.client.mBlockInbound) // revert checkbox state on error
+		h.toggleCheckbox(h.client.mBlockInbound)
 		log.Errorf("failed to update config: %v", err)
 		h.client.app.SendNotification(fyne.NewNotification("错误", "更新阻止入站连接设置失败"))
 	}
@@ -169,13 +178,12 @@ func (h *eventHandler) handleBlockInboundClick() {
 func (h *eventHandler) handleNotificationsClick() {
 	h.toggleCheckbox(h.client.mNotifications)
 	if err := h.updateConfigWithErr(); err != nil {
-		h.toggleCheckbox(h.client.mNotifications) // revert checkbox state on error
+		h.toggleCheckbox(h.client.mNotifications)
 		log.Errorf("failed to update config: %v", err)
 		h.client.app.SendNotification(fyne.NewNotification("错误", "更新通知设置失败"))
 	} else if h.client.eventManager != nil {
 		h.client.eventManager.SetNotificationsEnabled(h.client.mNotifications.Checked())
 	}
-
 }
 
 func (h *eventHandler) handleAdvancedSettingsClick() {
@@ -195,18 +203,6 @@ func (h *eventHandler) handleCreateDebugBundleClick() {
 	}()
 }
 
-func (h *eventHandler) handleQuitClick() {
-	systray.Quit()
-}
-
-func (h *eventHandler) handleNetworksClick() {
-	h.client.mNetworks.Disable()
-	go func() {
-		defer h.client.mNetworks.Enable()
-		h.runSelfCommand(h.client.ctx, "networks")
-	}()
-}
-
 func (h *eventHandler) toggleCheckbox(item *systray.MenuItem) {
 	if item.Checked() {
 		item.Uncheck()
@@ -219,7 +215,6 @@ func (h *eventHandler) updateConfigWithErr() error {
 	if err := h.client.updateConfig(); err != nil {
 		return err
 	}
-
 	return nil
 }
 

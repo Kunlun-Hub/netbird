@@ -12,7 +12,7 @@ import (
 )
 
 var (
-	ErrPrivilegeRequired    = errors.New("SeAssignPrimaryTokenPrivilege required for user switching - NetBird must run with elevated privileges")
+	ErrPrivilegeRequired    = errors.New("SeAssignPrimaryTokenPrivilege required for user switching - Cloink must run with elevated privileges")
 	ErrPrivilegedUserSwitch = errors.New("cannot switch to privileged user - current user lacks required privileges")
 )
 

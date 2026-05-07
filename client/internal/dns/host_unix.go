@@ -26,7 +26,7 @@ type osManagerType int
 func (t osManagerType) String() string {
 	switch t {
 	case netbirdManager:
-		return "netbird"
+		return "cloink"
 	case fileManager:
 		return "file"
 	case networkManager:

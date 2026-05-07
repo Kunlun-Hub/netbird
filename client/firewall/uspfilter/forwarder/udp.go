@@ -33,6 +33,8 @@ type udpPacketConn struct {
 	cancel   context.CancelFunc
 	ep       tcpip.Endpoint
 	flowID   uuid.UUID
+	dnsInfo  *nftypes.DNSInfo
+	dnsMu    sync.Mutex
 }
 
 type udpForwarder struct {
@@ -217,6 +219,8 @@ func (f *Forwarder) proxyUDP(ctx context.Context, pConn *udpPacketConn, id stack
 	ctx, cancel := context.WithCancel(f.ctx)
 	defer cancel()
 
+	isDNS := id.LocalPort == 53
+
 	go func() {
 		<-ctx.Done()
 
@@ -240,13 +244,13 @@ func (f *Forwarder) proxyUDP(ctx context.Context, pConn *udpPacketConn, id stack
 	// outbound->inbound: copy from pConn.conn to pConn.outConn
 	go func() {
 		defer wg.Done()
-		txBytes, outboundErr = pConn.copy(ctx, pConn.conn, pConn.outConn, &f.udpForwarder.bufPool, "outbound->inbound")
+		txBytes, outboundErr = pConn.copy(ctx, pConn.conn, pConn.outConn, &f.udpForwarder.bufPool, "outbound->inbound", isDNS)
 	}()
 
 	// inbound->outbound: copy from pConn.outConn to pConn.conn
 	go func() {
 		defer wg.Done()
-		rxBytes, inboundErr = pConn.copy(ctx, pConn.outConn, pConn.conn, &f.udpForwarder.bufPool, "inbound->outbound")
+		rxBytes, inboundErr = pConn.copy(ctx, pConn.outConn, pConn.conn, &f.udpForwarder.bufPool, "inbound->outbound", isDNS)
 	}()
 
 	wg.Wait()
@@ -271,11 +275,11 @@ func (f *Forwarder) proxyUDP(ctx context.Context, pConn *udpPacketConn, id stack
 	delete(f.udpForwarder.conns, id)
 	f.udpForwarder.Unlock()
 
-	f.sendUDPEvent(nftypes.TypeEnd, pConn.flowID, id, uint64(rxBytes), uint64(txBytes), rxPackets, txPackets)
+	f.sendUDPEvent(nftypes.TypeEnd, pConn.flowID, id, uint64(rxBytes), uint64(txBytes), rxPackets, txPackets, pConn.dnsInfo)
 }
 
 // sendUDPEvent stores flow events for UDP connections
-func (f *Forwarder) sendUDPEvent(typ nftypes.Type, flowID uuid.UUID, id stack.TransportEndpointID, rxBytes, txBytes, rxPackets, txPackets uint64) {
+func (f *Forwarder) sendUDPEvent(typ nftypes.Type, flowID uuid.UUID, id stack.TransportEndpointID, rxBytes, txBytes, rxPackets, txPackets uint64, dnsInfo ...*nftypes.DNSInfo) {
 	srcIp := netip.AddrFrom4(id.RemoteAddress.As4())
 	dstIp := netip.AddrFrom4(id.LocalAddress.As4())
 
@@ -293,6 +297,10 @@ func (f *Forwarder) sendUDPEvent(typ nftypes.Type, flowID uuid.UUID, id stack.Tr
 		TxBytes:    txBytes,
 		RxPackets:  rxPackets,
 		TxPackets:  txPackets,
+	}
+
+	if len(dnsInfo) > 0 && dnsInfo[0] != nil {
+		fields.DNSInfo = dnsInfo[0]
 	}
 
 	if typ == nftypes.TypeStart {
@@ -316,7 +324,7 @@ func (c *udpPacketConn) getIdleDuration() time.Duration {
 }
 
 // copy reads from src and writes to dst.
-func (c *udpPacketConn) copy(ctx context.Context, dst net.Conn, src net.Conn, bufPool *sync.Pool, direction string) (int64, error) {
+func (c *udpPacketConn) copy(ctx context.Context, dst net.Conn, src net.Conn, bufPool *sync.Pool, direction string, isDNS bool) (int64, error) {
 	bufp := bufPool.Get().(*[]byte)
 	defer bufPool.Put(bufp)
 	buffer := *bufp
@@ -339,6 +347,10 @@ func (c *udpPacketConn) copy(ctx context.Context, dst net.Conn, src net.Conn, bu
 			return totalBytes, fmt.Errorf("read from %s: %w", direction, err)
 		}
 
+		if isDNS && n > 0 {
+			c.parseAndMergeDNS(buffer[:n])
+		}
+
 		nWritten, err := dst.Write(buffer[:n])
 		if err != nil {
 			return totalBytes, fmt.Errorf("write to %s: %w", direction, err)
@@ -347,6 +359,22 @@ func (c *udpPacketConn) copy(ctx context.Context, dst net.Conn, src net.Conn, bu
 		totalBytes += int64(nWritten)
 		c.updateLastSeen()
 	}
+}
+
+func (c *udpPacketConn) parseAndMergeDNS(payload []byte) {
+	if len(payload) == 0 {
+		return
+	}
+
+	info := nftypes.ParseDNSInfo(payload)
+	if info == nil {
+		return
+	}
+
+	c.dnsMu.Lock()
+	defer c.dnsMu.Unlock()
+
+	c.dnsInfo = nftypes.MergeDNSInfo(c.dnsInfo, info)
 }
 
 func isClosedError(err error) bool {

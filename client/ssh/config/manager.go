@@ -82,7 +82,7 @@ func writeFileWithTimeout(filename string, data []byte, perm os.FileMode) error 
 	}
 }
 
-// Manager handles SSH client configuration for NetBird peers
+// Manager handles SSH client configuration for Cloink peers
 type Manager struct {
 	sshConfigDir  string
 	sshConfigFile string
@@ -120,7 +120,7 @@ func getWindowsSSHConfigDir() string {
 	return filepath.Join(programData, nbssh.WindowsSSHConfigDir)
 }
 
-// SetupSSHClientConfig creates SSH client configuration for NetBird peers
+// SetupSSHClientConfig creates SSH client configuration for Cloink peers
 func (m *Manager) SetupSSHClientConfig(peers []PeerSSHInfo) error {
 	if !shouldGenerateSSHConfig(len(peers)) {
 		m.logSkipReason(len(peers))
@@ -164,11 +164,11 @@ func (m *Manager) buildSSHConfig(peers []PeerSSHInfo) (string, error) {
 }
 
 func (m *Manager) buildConfigHeader() string {
-	return "# NetBird SSH client configuration\n" +
+	return "# Cloink SSH client configuration\n" +
 		"# Generated automatically - do not edit manually\n" +
 		"#\n" +
 		"# To disable SSH config management, use:\n" +
-		"#   netbird service reconfigure --service-env NB_DISABLE_SSH_CONFIG=true\n" +
+		"#   cloink service reconfigure --service-env NB_DISABLE_SSH_CONFIG=true\n" +
 		"#\n\n"
 }
 
@@ -184,7 +184,7 @@ func (m *Manager) buildPeerConfig(allHostPatterns []string) (string, error) {
 
 	execPath, err := m.getNetBirdExecutablePath()
 	if err != nil {
-		return "", fmt.Errorf("get NetBird executable path: %w", err)
+		return "", fmt.Errorf("get Cloink executable path: %w", err)
 	}
 
 	hostLine := strings.Join(deduplicatedPatterns, " ")
@@ -234,11 +234,11 @@ func (m *Manager) writeSSHConfig(sshConfig string) error {
 		return fmt.Errorf("write SSH config file %s: %w", sshConfigPath, err)
 	}
 
-	log.Infof("Created NetBird SSH client config: %s", sshConfigPath)
+	log.Infof("Created Cloink SSH client config: %s", sshConfigPath)
 	return nil
 }
 
-// RemoveSSHClientConfig removes NetBird SSH configuration
+// RemoveSSHClientConfig removes Cloink SSH configuration
 func (m *Manager) RemoveSSHClientConfig() error {
 	sshConfigPath := filepath.Join(m.sshConfigDir, m.sshConfigFile)
 	err := os.Remove(sshConfigPath)
@@ -246,7 +246,7 @@ func (m *Manager) RemoveSSHClientConfig() error {
 		return fmt.Errorf("remove SSH config %s: %w", sshConfigPath, err)
 	}
 	if err == nil {
-		log.Infof("Removed NetBird SSH config: %s", sshConfigPath)
+		log.Infof("Removed Cloink SSH config: %s", sshConfigPath)
 	}
 	return nil
 }

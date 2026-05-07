@@ -143,6 +143,51 @@ func TestPoliciesGetPolicy(t *testing.T) {
 	}
 }
 
+func TestToPolicyResponseRepeatedSourceGroupAcrossRules(t *testing.T) {
+	groups := []*types.Group{
+		{ID: "11", Name: "11"},
+		{ID: "22", Name: "22"},
+		{ID: "DNS", Name: "DNS"},
+	}
+	policy := &types.Policy{
+		ID:      "policy-id",
+		Name:    "multi-rule",
+		Enabled: true,
+		Rules: []*types.PolicyRule{
+			{
+				ID:            "rule-1",
+				Name:          "allow-11-to-22",
+				Sources:       []string{"11"},
+				Destinations:  []string{"22"},
+				Bidirectional: true,
+				Protocol:      types.PolicyRuleProtocolALL,
+				Action:        types.PolicyTrafficActionAccept,
+				Enabled:       true,
+			},
+			{
+				ID:            "rule-2",
+				Name:          "drop-11-to-dns",
+				Sources:       []string{"11"},
+				Destinations:  []string{"DNS"},
+				Bidirectional: false,
+				Protocol:      types.PolicyRuleProtocolALL,
+				Action:        types.PolicyTrafficActionDrop,
+				Enabled:       true,
+			},
+		},
+	}
+
+	response := toPolicyResponse(groups, policy)
+
+	assert.Len(t, response.Rules, 2)
+	assert.NotNil(t, response.Rules[0].Sources)
+	assert.NotNil(t, response.Rules[1].Sources)
+	assert.Equal(t, []api.GroupMinimum{{Id: "11", Name: "11"}}, *response.Rules[0].Sources)
+	assert.Equal(t, []api.GroupMinimum{{Id: "11", Name: "11"}}, *response.Rules[1].Sources)
+	assert.Equal(t, []api.GroupMinimum{{Id: "22", Name: "22"}}, *response.Rules[0].Destinations)
+	assert.Equal(t, []api.GroupMinimum{{Id: "DNS", Name: "DNS"}}, *response.Rules[1].Destinations)
+}
+
 func TestPoliciesWritePolicy(t *testing.T) {
 	str := func(s string) *string { return &s }
 	emptyString := ""

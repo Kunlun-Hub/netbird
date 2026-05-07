@@ -20,6 +20,7 @@ import (
 
 	cachestore "github.com/eko/gocache/lib/v4/store"
 	"github.com/netbirdio/management-integrations/integrations"
+	flowproto "github.com/netbirdio/netbird/flow/proto"
 
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/formatter/hook"
@@ -173,6 +174,7 @@ func (s *BaseServer) GRPCServer() *grpc.Server {
 			serviceMgr.StartExposeReaper(context.Background())
 		}
 		mgmtProto.RegisterManagementServiceServer(gRPCAPIHandler, srv)
+		flowproto.RegisterFlowServiceServer(gRPCAPIHandler, nbgrpc.NewFlowServer(s.AccountManager()))
 
 		mgmtProto.RegisterProxyServiceServer(gRPCAPIHandler, s.ReverseProxyGRPCServer())
 		log.Info("ProxyService registered on gRPC server")
@@ -231,6 +233,65 @@ func (s *BaseServer) AccessLogsManager() accesslogs.Manager {
 		)
 		return accessLogManager
 	})
+}
+
+// startNetworkTrafficCleanup starts periodic cleanup of old network traffic events
+func (s *BaseServer) startNetworkTrafficCleanup(ctx context.Context) {
+	retentionDays := s.Config.NetworkTraffic.RetentionDays
+	cleanupIntervalHours := s.Config.NetworkTraffic.CleanupIntervalHours
+
+	if retentionDays < 0 {
+		log.WithContext(ctx).Debug("network traffic cleanup disabled: retention days is negative")
+		return
+	}
+
+	if retentionDays == 0 {
+		retentionDays = 7
+		log.WithContext(ctx).Debugf("no retention days specified for network traffic cleanup, defaulting to %d days", retentionDays)
+	} else {
+		log.WithContext(ctx).Debugf("network traffic retention period set to %d days", retentionDays)
+	}
+
+	if cleanupIntervalHours <= 0 {
+		cleanupIntervalHours = 24
+		log.WithContext(ctx).Debugf("no cleanup interval specified for network traffic cleanup, defaulting to %d hours", cleanupIntervalHours)
+	} else {
+		log.WithContext(ctx).Debugf("network traffic cleanup interval set to %d hours", cleanupIntervalHours)
+	}
+
+	cleanupInterval := time.Duration(cleanupIntervalHours) * time.Hour
+	ticker := time.NewTicker(cleanupInterval)
+
+	// Run cleanup immediately on startup
+	log.WithContext(ctx).Infof("starting network traffic cleanup routine (retention: %d days, interval: %d hours)", retentionDays, cleanupIntervalHours)
+	s.cleanupOldNetworkTrafficEvents(ctx, retentionDays)
+
+	go func() {
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				log.WithContext(ctx).Info("stopping network traffic cleanup routine")
+				return
+			case <-ticker.C:
+				s.cleanupOldNetworkTrafficEvents(ctx, retentionDays)
+			}
+		}
+	}()
+}
+
+// cleanupOldNetworkTrafficEvents deletes network traffic events older than the specified retention days
+func (s *BaseServer) cleanupOldNetworkTrafficEvents(ctx context.Context, retentionDays int) {
+	cutoffTime := time.Now().AddDate(0, 0, -retentionDays)
+	deletedCount, err := s.Store().DeleteOldNetworkTrafficEvents(ctx, cutoffTime)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to cleanup old network traffic events: %v", err)
+		return
+	}
+
+	if deletedCount > 0 {
+		log.WithContext(ctx).Infof("cleaned up %d network traffic events older than %d days", deletedCount, retentionDays)
+	}
 }
 
 func loadTLSConfig(certFile string, certKey string) (*tls.Config, error) {

@@ -6,6 +6,14 @@ import (
 	"time"
 )
 
+type LoginMethod string
+
+const (
+	LoginMethodAll        LoginMethod = "all"
+	LoginMethodEmail      LoginMethod = "email"
+	LoginMethodWeChatWork LoginMethod = "wechatwork"
+)
+
 // Settings represents Account settings structure that can be modified via API and Dashboard
 type Settings struct {
 	// PeerLoginExpirationEnabled globally enables or disables peer login expiration
@@ -72,10 +80,19 @@ type Settings struct {
 	// LocalAuthDisabled indicates if local (email/password) authentication is disabled.
 	// This is a runtime-only field, not stored in the database.
 	LocalAuthDisabled bool `gorm:"-"`
+
+	// LoginMethod controls which login option is presented on the embedded IdP sign-in screen.
+	// "all" shows the login chooser, while provider-specific values can automatically redirect.
+	LoginMethod LoginMethod `gorm:"default:'all'"`
 }
 
 // Copy copies the Settings struct
 func (s *Settings) Copy() *Settings {
+	loginMethod := s.LoginMethod
+	if loginMethod == "" {
+		loginMethod = LoginMethodAll
+	}
+
 	settings := &Settings{
 		PeerLoginExpirationEnabled: s.PeerLoginExpirationEnabled,
 		PeerLoginExpiration:        s.PeerLoginExpiration,
@@ -98,6 +115,7 @@ func (s *Settings) Copy() *Settings {
 		AutoUpdateAlways:                s.AutoUpdateAlways,
 		EmbeddedIdpEnabled:              s.EmbeddedIdpEnabled,
 		LocalAuthDisabled:               s.LocalAuthDisabled,
+		LoginMethod:                     loginMethod,
 	}
 	if s.Extra != nil {
 		settings.Extra = s.Extra.Copy()
@@ -117,11 +135,31 @@ type ExtraSettings struct {
 	// IntegratedValidatorGroups list of group IDs to be used with integrated approval configurations
 	IntegratedValidatorGroups []string `gorm:"serializer:json"`
 
-	FlowEnabled              bool     `gorm:"-"`
-	FlowGroups               []string `gorm:"-"`
-	FlowPacketCounterEnabled bool     `gorm:"-"`
-	FlowENCollectionEnabled  bool     `gorm:"-"`
-	FlowDnsCollectionEnabled bool     `gorm:"-"`
+	FlowEnabled              bool
+	FlowGroups               []string `gorm:"serializer:json"`
+	FlowPacketCounterEnabled bool
+	FlowENCollectionEnabled  bool
+	FlowDnsCollectionEnabled bool
+
+	// FlowLocalStorageEnabled enables or disables local storage of flow logs
+	FlowLocalStorageEnabled bool
+	// FlowLocalStoragePath sets the path where flow logs are stored locally
+	FlowLocalStoragePath string
+	// FlowLocalStorageMaxSizeMB sets the max size of local log files in MB
+	FlowLocalStorageMaxSizeMB int
+	// FlowLocalStorageMaxFiles sets the max number of local log files to keep
+	FlowLocalStorageMaxFiles int
+
+	// FlowSyslogEnabled enables or disables sending flow logs to a syslog server
+	FlowSyslogEnabled bool
+	// FlowSyslogServer sets the syslog server address (host:port)
+	FlowSyslogServer string
+	// FlowSyslogProtocol sets the syslog protocol (udp/tcp)
+	FlowSyslogProtocol string
+	// FlowSyslogFacility sets the syslog facility
+	FlowSyslogFacility string
+	// FlowSyslogTag sets the syslog tag
+	FlowSyslogTag string
 }
 
 // Copy copies the ExtraSettings struct
@@ -136,5 +174,14 @@ func (e *ExtraSettings) Copy() *ExtraSettings {
 		FlowPacketCounterEnabled:  e.FlowPacketCounterEnabled,
 		FlowENCollectionEnabled:   e.FlowENCollectionEnabled,
 		FlowDnsCollectionEnabled:  e.FlowDnsCollectionEnabled,
+		FlowLocalStorageEnabled:   e.FlowLocalStorageEnabled,
+		FlowLocalStoragePath:      e.FlowLocalStoragePath,
+		FlowLocalStorageMaxSizeMB: e.FlowLocalStorageMaxSizeMB,
+		FlowLocalStorageMaxFiles:  e.FlowLocalStorageMaxFiles,
+		FlowSyslogEnabled:         e.FlowSyslogEnabled,
+		FlowSyslogServer:          e.FlowSyslogServer,
+		FlowSyslogProtocol:        e.FlowSyslogProtocol,
+		FlowSyslogFacility:        e.FlowSyslogFacility,
+		FlowSyslogTag:             e.FlowSyslogTag,
 	}
 }

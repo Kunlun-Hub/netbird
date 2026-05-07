@@ -371,6 +371,26 @@ func toPolicyResponse(groups []*types.Group, policy *types.Policy) *api.Policy {
 	}
 
 	cache := make(map[string]api.GroupMinimum)
+	getGroupMinimum := func(gid string) (api.GroupMinimum, bool) {
+		if cachedMinimum, ok := cache[gid]; ok {
+			return cachedMinimum, true
+		}
+
+		group, ok := groupsMap[gid]
+		if !ok {
+			return api.GroupMinimum{}, false
+		}
+
+		minimum := api.GroupMinimum{
+			Id:             group.ID,
+			Name:           group.Name,
+			PeersCount:     len(group.Peers),
+			ResourcesCount: len(group.Resources),
+		}
+		cache[gid] = minimum
+		return minimum, true
+	}
+
 	ap := &api.Policy{
 		Id:                  &policy.ID,
 		Name:                policy.Name,
@@ -416,39 +436,16 @@ func toPolicyResponse(groups []*types.Group, policy *types.Policy) *api.Policy {
 
 		var sources []api.GroupMinimum
 		for _, gid := range r.Sources {
-			_, ok := cache[gid]
-			if ok {
-				continue
-			}
-
-			if group, ok := groupsMap[gid]; ok {
-				minimum := api.GroupMinimum{
-					Id:         group.ID,
-					Name:       group.Name,
-					PeersCount: len(group.Peers),
-				}
+			if minimum, ok := getGroupMinimum(gid); ok {
 				sources = append(sources, minimum)
-				cache[gid] = minimum
 			}
 		}
 		rule.Sources = &sources
 
 		var destinations []api.GroupMinimum
 		for _, gid := range r.Destinations {
-			cachedMinimum, ok := cache[gid]
-			if ok {
-				destinations = append(destinations, cachedMinimum)
-				continue
-			}
-			if group, ok := groupsMap[gid]; ok {
-				minimum := api.GroupMinimum{
-					Id:             group.ID,
-					Name:           group.Name,
-					PeersCount:     len(group.Peers),
-					ResourcesCount: len(group.Resources),
-				}
+			if minimum, ok := getGroupMinimum(gid); ok {
 				destinations = append(destinations, minimum)
-				cache[gid] = minimum
 			}
 		}
 		rule.Destinations = &destinations

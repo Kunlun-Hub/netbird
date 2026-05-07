@@ -937,16 +937,16 @@ func (am *DefaultAccountManager) GetOrCreateAccountByUser(ctx context.Context, u
 	userID := userAuth.UserId
 	domain := userAuth.Domain
 
-	start := time.Now()
-	unlock := am.Store.AcquireGlobalLock(ctx)
-	defer unlock()
-	log.WithContext(ctx).Debugf("Acquired global lock in %s for user %s", time.Since(start), userID)
-
 	lowerDomain := strings.ToLower(domain)
 
 	account, err := am.Store.GetAccountByUser(ctx, userID)
 	if err != nil {
 		if s, ok := status.FromError(err); ok && s.Type() == status.NotFound {
+			start := time.Now()
+			unlock := am.Store.AcquireAccountLock(ctx, userID)
+			defer unlock()
+			log.WithContext(ctx).Debugf("Acquired account lock in %s for user %s", time.Since(start), userID)
+
 			account, err = am.newAccount(ctx, userID, lowerDomain, userAuth.Email, userAuth.Name)
 			if err != nil {
 				return nil, err

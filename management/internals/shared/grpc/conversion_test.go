@@ -3,6 +3,7 @@ package grpc
 import (
 	"fmt"
 	"net/netip"
+	"os"
 	"reflect"
 	"testing"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller/cache"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
+	"github.com/netbirdio/netbird/management/server/types"
 )
 
 func TestToProtocolDNSConfigWithCache(t *testing.T) {
@@ -199,4 +201,54 @@ func TestBuildJWTConfig_Audiences(t *testing.T) {
 			assert.Equal(t, tc.expectedAudience, result.Audience, "audience should match expected")
 		})
 	}
+}
+
+func TestBuildFlowConfig(t *testing.T) {
+	t.Setenv("NB_FLOW_URL", "https://flow.example.com")
+
+	relayToken := &Token{
+		Payload:   "payload",
+		Signature: "signature",
+	}
+
+	t.Run("disabled still sends explicit disable config", func(t *testing.T) {
+		cfg := buildFlowConfig(&nbconfig.Config{}, relayToken, &types.ExtraSettings{})
+		assert.NotNil(t, cfg)
+		assert.False(t, cfg.Enabled)
+		assert.NotNil(t, cfg.Interval)
+		assert.Equal(t, "payload", cfg.TokenPayload)
+		assert.Equal(t, "signature", cfg.TokenSignature)
+	})
+
+	t.Run("enabled sends active config", func(t *testing.T) {
+		cfg := buildFlowConfig(&nbconfig.Config{}, relayToken, &types.ExtraSettings{
+			FlowEnabled:              true,
+			FlowPacketCounterEnabled: true,
+			FlowENCollectionEnabled:  true,
+			FlowDnsCollectionEnabled: true,
+		})
+		assert.NotNil(t, cfg)
+		assert.True(t, cfg.Enabled)
+		assert.True(t, cfg.Counters)
+		assert.True(t, cfg.ExitNodeCollection)
+		assert.True(t, cfg.DnsCollection)
+		assert.Equal(t, "https://flow.example.com", cfg.Url)
+	})
+}
+
+func TestDeriveFlowURL(t *testing.T) {
+	t.Run("prefers explicit env", func(t *testing.T) {
+		t.Setenv("NB_FLOW_URL", "https://env.example.com")
+		assert.Equal(t, "https://env.example.com", deriveFlowURL(&nbconfig.Config{}))
+	})
+
+	t.Run("falls back to http config URLs", func(t *testing.T) {
+		_ = os.Unsetenv("NB_FLOW_URL")
+		cfg := &nbconfig.Config{
+			HttpConfig: &nbconfig.HttpServerConfig{
+				AuthIssuer: "https://issuer.example.com",
+			},
+		}
+		assert.Equal(t, "https://issuer.example.com", deriveFlowURL(cfg))
+	})
 }

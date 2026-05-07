@@ -78,6 +78,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 
 	sr := func(v string) *string { return &v }
 	br := func(v bool) *bool { return &v }
+	lmr := func(v api.AccountSettingsLoginMethod) *api.AccountSettingsLoginMethod { return &v }
 
 	handler := initAccountsTestData(t, &types.Account{
 		Id:      accountID,
@@ -125,6 +126,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				AutoUpdateVersion:               sr(""),
 				EmbeddedIdpEnabled:              br(false),
 				LocalAuthDisabled:               br(false),
+				LoginMethod:                     lmr(api.AccountSettingsLoginMethodAll),
 			},
 			expectedArray: true,
 			expectedID:    accountID,
@@ -151,6 +153,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				AutoUpdateVersion:               sr(""),
 				EmbeddedIdpEnabled:              br(false),
 				LocalAuthDisabled:               br(false),
+				LoginMethod:                     lmr(api.AccountSettingsLoginMethodAll),
 			},
 			expectedArray: false,
 			expectedID:    accountID,
@@ -177,6 +180,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				AutoUpdateVersion:               sr("latest"),
 				EmbeddedIdpEnabled:              br(false),
 				LocalAuthDisabled:               br(false),
+				LoginMethod:                     lmr(api.AccountSettingsLoginMethodAll),
 			},
 			expectedArray: false,
 			expectedID:    accountID,
@@ -203,6 +207,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				AutoUpdateVersion:               sr(""),
 				EmbeddedIdpEnabled:              br(false),
 				LocalAuthDisabled:               br(false),
+				LoginMethod:                     lmr(api.AccountSettingsLoginMethodAll),
 			},
 			expectedArray: false,
 			expectedID:    accountID,
@@ -229,6 +234,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				AutoUpdateVersion:               sr(""),
 				EmbeddedIdpEnabled:              br(false),
 				LocalAuthDisabled:               br(false),
+				LoginMethod:                     lmr(api.AccountSettingsLoginMethodAll),
 			},
 			expectedArray: false,
 			expectedID:    accountID,
@@ -255,6 +261,34 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				AutoUpdateVersion:               sr(""),
 				EmbeddedIdpEnabled:              br(false),
 				LocalAuthDisabled:               br(false),
+				LoginMethod:                     lmr(api.AccountSettingsLoginMethodAll),
+			},
+			expectedArray: false,
+			expectedID:    accountID,
+		},
+		{
+			name:           "PutAccount OK with login method",
+			expectedBody:   true,
+			requestType:    http.MethodPut,
+			requestPath:    "/api/accounts/" + accountID,
+			requestBody:    bytes.NewBufferString("{\"settings\": {\"peer_login_expiration\": 15552000,\"peer_login_expiration_enabled\": false,\"login_method\":\"wechatwork\"}}"),
+			expectedStatus: http.StatusOK,
+			expectedSettings: api.AccountSettings{
+				PeerLoginExpiration:             15552000,
+				PeerLoginExpirationEnabled:      false,
+				GroupsPropagationEnabled:        br(false),
+				JwtGroupsClaimName:              sr(""),
+				JwtGroupsEnabled:                br(false),
+				JwtAllowGroups:                  &[]string{},
+				RegularUsersViewBlocked:         false,
+				RoutingPeerDnsResolutionEnabled: br(false),
+				LazyConnectionEnabled:           br(false),
+				DnsDomain:                       sr(""),
+				AutoUpdateAlways:                br(false),
+				AutoUpdateVersion:               sr(""),
+				EmbeddedIdpEnabled:              br(false),
+				LocalAuthDisabled:               br(false),
+				LoginMethod:                     lmr(api.AccountSettingsLoginMethodWechatwork),
 			},
 			expectedArray: false,
 			expectedID:    accountID,
@@ -334,5 +368,127 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 			assert.Equal(t, tc.expectedID, actual.Id)
 			assert.Equal(t, tc.expectedSettings, actual.Settings)
 		})
+	}
+}
+
+func TestUpdateAccountFlowCompatPayload(t *testing.T) {
+	accountID := "test_account"
+	adminUser := types.NewAdminUser("test_user")
+
+	handler := initAccountsTestData(t, &types.Account{
+		Id:      accountID,
+		Domain:  "hotmail.com",
+		Network: types.NewNetwork(),
+		Users: map[string]*types.User{
+			adminUser.Id: adminUser,
+		},
+		Settings: &types.Settings{
+			PeerLoginExpirationEnabled: false,
+			PeerLoginExpiration:        time.Hour,
+			RegularUsersViewBlocked:    true,
+		},
+	})
+
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(
+		http.MethodPut,
+		"/api/accounts/"+accountID,
+		bytes.NewBufferString(`{
+			"settings": {
+				"peer_login_expiration": 7200,
+				"peer_login_expiration_enabled": true,
+				"flow": {
+					"enabled": true,
+					"counters": true,
+					"dns_collection": true,
+					"exit_node_collection": true,
+					"groups": ["group-a","group-b"]
+				}
+			}
+		}`),
+	)
+
+	req = mux.SetURLVars(req, map[string]string{"accountId": accountID})
+	req = req.WithContext(nbcontext.SetUserAuthInContext(req.Context(), auth.UserAuth{
+		UserId:    adminUser.Id,
+		AccountId: accountID,
+		Domain:    "hotmail.com",
+	}))
+
+	handler.updateAccount(recorder, req)
+	assert.Equal(t, http.StatusOK, recorder.Code)
+
+	var response api.Account
+	err := json.Unmarshal(recorder.Body.Bytes(), &response)
+	assert.NoError(t, err)
+	if assert.NotNil(t, response.Settings.Extra) {
+		assert.True(t, response.Settings.Extra.FlowEnabled)
+		assert.True(t, response.Settings.Extra.FlowLogsEnabled)
+		assert.True(t, response.Settings.Extra.NetworkTrafficLogsEnabled)
+		assert.True(t, response.Settings.Extra.Counters)
+		assert.True(t, response.Settings.Extra.FlowPacketCounterEnabled)
+		assert.True(t, response.Settings.Extra.NetworkTrafficPacketCounterEnabled)
+		assert.True(t, response.Settings.Extra.DnsCollection)
+		assert.True(t, response.Settings.Extra.FlowDnsCollectionEnabled)
+		assert.True(t, response.Settings.Extra.NetworkTrafficDnsCollectionEnabled)
+		assert.True(t, response.Settings.Extra.ExitNodeCollection)
+		assert.True(t, response.Settings.Extra.FlowExitNodeCollectionEnabled)
+		assert.True(t, response.Settings.Extra.NetworkTrafficExitNodeCollectionEnabled)
+		assert.Equal(t, []string{"group-a", "group-b"}, response.Settings.Extra.FlowGroups)
+		assert.Equal(t, []string{"group-a", "group-b"}, response.Settings.Extra.FlowLogsGroups)
+		assert.Equal(t, []string{"group-a", "group-b"}, response.Settings.Extra.NetworkTrafficLogsGroups)
+	}
+}
+
+func TestGetAccountFlowCompatResponse(t *testing.T) {
+	accountID := "test_account"
+	adminUser := types.NewAdminUser("test_user")
+
+	handler := initAccountsTestData(t, &types.Account{
+		Id:      accountID,
+		Domain:  "hotmail.com",
+		Network: types.NewNetwork(),
+		Users: map[string]*types.User{
+			adminUser.Id: adminUser,
+		},
+		Settings: &types.Settings{
+			PeerLoginExpirationEnabled: false,
+			PeerLoginExpiration:        time.Hour,
+			RegularUsersViewBlocked:    true,
+			Extra: &types.ExtraSettings{
+				FlowEnabled:              true,
+				FlowGroups:               []string{"group-a"},
+				FlowPacketCounterEnabled: true,
+				FlowDnsCollectionEnabled: true,
+				FlowENCollectionEnabled:  false,
+			},
+		},
+	})
+
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/accounts", nil)
+	req = req.WithContext(nbcontext.SetUserAuthInContext(req.Context(), auth.UserAuth{
+		UserId:    adminUser.Id,
+		AccountId: accountID,
+		Domain:    "hotmail.com",
+	}))
+
+	handler.getAllAccounts(recorder, req)
+	assert.Equal(t, http.StatusOK, recorder.Code)
+
+	var response []map[string]any
+	err := json.Unmarshal(recorder.Body.Bytes(), &response)
+	assert.NoError(t, err)
+	if assert.Len(t, response, 1) {
+		settings := response[0]["settings"].(map[string]any)
+		flow := settings["flow"].(map[string]any)
+		flowLogs := settings["flow_logs"].(map[string]any)
+
+		assert.Equal(t, true, flow["enabled"])
+		assert.Equal(t, true, flow["counters"])
+		assert.Equal(t, true, flow["dns_collection"])
+		assert.Equal(t, false, flow["exit_node_collection"])
+		assert.Equal(t, flow["enabled"], flowLogs["enabled"])
+		assert.Equal(t, flow["counters"], flowLogs["counters"])
 	}
 }

@@ -1,364 +1,221 @@
 #!/bin/bash
-# Cloink Linux 一键安装脚本
-# 支持 amd64/arm64/armv7
 
-set -e
+# 暂时关闭严格错误检查，便于调试
+# set -eo pipefail
 
-# 颜色输出
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-NC='\033[0m' # No Color
+CLOINK_API_URL="${1:-}"
 
-info() {
-    echo -e "${BLUE}[INFO]${NC} $1"
+echo "========================================"
+echo "       Cloink 客户端安装程序"
+echo "========================================"
+echo ""
+
+echo "调试参数："
+echo "  CLOINK_API_URL=${CLOINK_API_URL}"
+echo "  第1个参数：${1}"
+echo ""
+
+if [ -z "${CLOINK_API_URL}" ]; then
+    if [ -n "${1}" ] && echo "${1}" | grep -q "^--"; then
+        true
+    elif [ -n "${1}" ]; then
+        CLOINK_API_URL="${1}"
+    fi
+fi
+
+echo "最终 CLOINK_API_URL=${CLOINK_API_URL}"
+echo ""
+
+if command -v cloink >/dev/null 2>&1; then
+    echo "检测到 Cloink 已安装"
+    if [ -t 0 ]; then
+        read -p "是否继续更新? (y/n): " -n 1 -r
+        echo
+        if [ "${REPLY}" = "y" ] || [ "${REPLY}" = "Y" ]; then
+            echo "继续更新..."
+        else
+            exit 0
+        fi
+    else
+        echo "非交互式模式，自动继续更新..."
+    fi
+    echo "停止现有服务..."
+    if systemctl is-active --quiet cloink 2>/dev/null; then
+        systemctl stop cloink 2>/dev/null || true
+    fi
+fi
+
+detect_os() {
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        echo "${ID}"
+    elif command -v lsb_release >/dev/null 2>&1; then
+        lsb_release -si | tr '[:upper:]' '[:lower:]'
+    elif [ -f /etc/debian_version ]; then
+        echo "debian"
+    elif [ -f /etc/redhat-release ]; then
+        echo "centos"
+    else
+        uname -s | tr '[:upper:]' '[:lower:]'
+    fi
 }
 
-success() {
-    echo -e "${GREEN}[SUCCESS]${NC} $1"
-}
-
-warning() {
-    echo -e "${YELLOW}[WARNING]${NC} $1"
-}
-
-error() {
-    echo -e "${RED}[ERROR]${NC} $1"
-}
-
-# 默认配置
-DEFAULT_VERSION="0.68.3"
-BASE_URL="https://pan.4w.ink/f/d/peID"
-INSTALL_DIR="/usr/local/bin"
-CONFIG_DIR="/etc/cloink"
-DATA_DIR="/var/lib/cloink"
-SERVICE_NAME="cloink"
-
-# 显示帮助信息
-show_help() {
-    cat << EOF
-Cloink Linux 一键安装脚本
-
-用法: $0 [OPTIONS]
-
-选项:
-  -v, --version VERSION  指定安装版本 (默认: $DEFAULT_VERSION)
-  -u, --url URL          自定义下载链接
-  -s, --setup-key KEY    设置 Setup Key
-  -m, --management URL   设置 Management 服务器地址
-  -h, --help             显示此帮助信息
-
-示例:
-  $0                                    # 使用默认配置安装
-  $0 -v 1.2.3                           # 安装指定版本
-  $0 -s your-key-here -m https://your-server.com  # 完整配置安装
-
-EOF
-}
-
-# 检测架构
-detect_arch() {
-    local arch=$(uname -m)
-    case "$arch" in
-        x86_64|amd64)
-            echo "amd64"
+install_dependencies() {
+    OS=$(detect_os)
+    echo "检查并安装依赖，OS=${OS}"
+    case "${OS}" in
+        ubuntu|debian|linuxmint|pop)
+            apt-get update -y
+            apt-get install -y curl tar ca-certificates systemd
             ;;
-        aarch64|arm64)
-            echo "arm64"
+        centos|rhel|fedora|rocky|almalinux)
+            if command -v dnf >/dev/null 2>&1; then
+                dnf install -y curl tar ca-certificates systemd -y
+            else
+                yum install -y curl tar ca-certificates systemd -y
+            fi
             ;;
-        armv7*)
-            echo "armv7"
+        arch|manjaro)
+            pacman -Sy --noconfirm curl tar ca-certificates systemd
             ;;
         *)
-            error "不支持的架构: $arch"
-            exit 1
+            echo "警告：无法检测系统，请确保已安装 curl、tar、ca-certificates"
             ;;
     esac
 }
 
-# 检查是否为 root
-check_root() {
-    if [ "$EUID" -ne 0 ]; then
-        error "请使用 root 权限运行此脚本"
-        echo "尝试使用: sudo $0 $*"
+# 只返回下载链接，不输出额外内容
+get_download_url_value() {
+    if [ -z "${CLOINK_API_URL}" ]; then
         exit 1
     fi
+    RESPONSE=$(curl -s "${CLOINK_API_URL}/api/version-releases/public")
+    # 提取所有 downloadUrl
+    ALL_URLS=$(echo "${RESPONSE}" | grep -o '"downloadUrl":"[^"]*"' | cut -d'"' -f4)
+    # 找包含 linux 的链接
+    DOWNLOAD_URL=$(echo "${ALL_URLS}" | grep -i linux | head -n1)
+    if [ -z "${DOWNLOAD_URL}" ]; then
+        DOWNLOAD_URL=$(echo "${ALL_URLS}" | head -n1)
+    fi
+    echo "${DOWNLOAD_URL}"
 }
 
-# 检测系统是否使用 systemd
-check_systemd() {
-    if command -v systemctl &> /dev/null; then
-        return 0
-    else
-        return 1
-    fi
+detect_architecture() {
+    ARCH=$(uname -m)
+    echo "检测到系统架构：${ARCH}"
 }
 
-# 停止旧服务
-stop_service() {
-    if systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
-        info "正在停止 Cloink 服务..."
-        systemctl stop "$SERVICE_NAME" || true
+download_and_install() {
+    detect_architecture
+    echo "获取下载链接..."
+    echo "正在请求 API：${CLOINK_API_URL}/api/version-releases/public"
+    
+    # 先测试 API
+    RESPONSE=$(curl -s "${CLOINK_API_URL}/api/version-releases/public")
+    echo "API 返回：${RESPONSE}"
+    if [ -z "${RESPONSE}" ]; then
+        echo "错误：API 返回为空"
+        exit 1
     fi
-    if pgrep -x "cloink" > /dev/null; then
-        warning "发现 Cloink 进程正在运行，正在终止..."
-        pkill -x "cloink" 2>/dev/null || true
-    fi
-}
-
-# 创建目录
-create_dirs() {
-    info "创建必要目录..."
-    mkdir -p "$INSTALL_DIR"
-    mkdir -p "$CONFIG_DIR"
-    mkdir -p "$DATA_DIR"
-    mkdir -p "/var/log/cloink"
-}
-
-# 下载安装包
-download_package() {
-    local arch=$1
-    local version=$2
-    local filename="cloink-linux-${arch}-${version}.tar.gz"
-    local download_url="${BASE_URL}/${filename}"
-
-    if [ -n "$CUSTOM_URL" ]; then
-        download_url="$CUSTOM_URL"
-    fi
-
-    info "下载 Cloink v${version} (${arch})..."
-
-    local temp_dir=$(mktemp -d)
-    local temp_file="${temp_dir}/${filename}"
-
-    if command -v curl &> /dev/null; then
-        curl -L -o "$temp_file" "$download_url"
-    elif command -v wget &> /dev/null; then
-        wget -O "$temp_file" "$download_url"
-    else
-        error "未找到 curl 或 wget，请先安装其中一个"
+    
+    # 真正获取下载链接（静默函数）
+    DOWNLOAD_URL=$(get_download_url_value)
+    echo "找到的下载链接：${DOWNLOAD_URL}"
+    if [ -z "${DOWNLOAD_URL}" ]; then
+        echo "错误：没有找到任何下载链接"
         exit 1
     fi
 
-    if [ ! -f "$temp_file" ]; then
-        error "下载失败"
+    echo "正在下载：${DOWNLOAD_URL}"
+    cd /tmp
+    curl -fL -o cloink.tar.gz "${DOWNLOAD_URL}"
+    if [ $? -ne 0 ]; then
+        echo "下载失败"
         exit 1
     fi
 
-    echo "$temp_file"
-    echo "$temp_dir"
+    echo "检查文件类型..."
+    file cloink.tar.gz
+    ls -lh cloink.tar.gz
+
+    echo "正在解压..."
+    tar -xzf cloink.tar.gz || {
+        echo "解压失败！尝试不使用 gzip 选项..."
+        tar -xf cloink.tar.gz || {
+            echo "无法解压，请检查上传的文件是否是正确的压缩包！"
+            echo "文件内容（前 100 字节）："
+            head -c 100 cloink.tar.gz
+            exit 1
+        }
+    }
+    ls -la
+
+    cd * 2>/dev/null || true
+    if [ ! -f cloink ]; then
+        echo "错误：找不到可执行文件"
+        ls -la
+        exit 1
+    fi
+
+    echo "正在安装..."
+    cp cloink /usr/bin/
+    chmod +x /usr/bin/cloink
+    if [ -f cloink-ui ]; then
+        cp cloink-ui /usr/bin/
+        chmod +x /usr/bin/cloink-ui
+    fi
+
+    cd /tmp
+    rm -f cloink.tar.gz
+    rm -rf cloink-* *cloink*
 }
 
-# 解压安装
-extract_install() {
-    local archive=$1
-    local temp_dir=$2
-
-    info "解压安装包..."
-    tar -xzf "$archive" -C "$temp_dir"
-
-    local extract_dir=$(find "$temp_dir" -type d -name "cloink*" | head -n 1)
-    if [ -z "$extract_dir" ]; then
-        extract_dir="$temp_dir"
-    fi
-
-    info "安装 Cloink 可执行文件..."
-    if [ -f "$extract_dir/cloink" ]; then
-        install -m 755 "$extract_dir/cloink" "$INSTALL_DIR/"
-    fi
-    if [ -f "$extract_dir/cloink-ui" ]; then
-        install -m 755 "$extract_dir/cloink-ui" "$INSTALL_DIR/"
-    fi
-
-    # 清理临时文件
-    rm -rf "$temp_dir"
+check_tun() {
+    echo "检查 tun 模块..."
+    mkdir -p /dev/net
+    [ ! -c /dev/net/tun ] && mknod /dev/net/tun c 10 200 2>/dev/null || true
+    chmod 666 /dev/net/tun 2>/dev/null || true
 }
 
-# 创建 systemd 服务
-create_systemd_service() {
-    info "创建 systemd 服务..."
-
-    cat > "/etc/systemd/system/${SERVICE_NAME}.service" << EOF
+setup_systemd() {
+    echo "配置 systemd 服务..."
+    cat > /etc/systemd/system/cloink.service << 'EOF'
 [Unit]
 Description=Cloink VPN Client
-Documentation=https://cloink.io
-After=network.target network-online.target
-Wants=network-online.target
+After=network.target
 
 [Service]
 Type=simple
-User=root
-Group=root
-ExecStart=${INSTALL_DIR}/cloink service run
+ExecStart=/usr/bin/cloink service run --daemon-addr unix:///var/run/cloink.sock --log-file /var/log/cloink/client.log
 Restart=always
-RestartSec=5s
-StartLimitInterval=0
-Environment=HOME=/root
-
-# 日志
+RestartSec=5
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=cloink
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
     systemctl daemon-reload
-}
+    systemctl enable cloink
+    systemctl start cloink
 
-# 配置 Cloink
-configure_cloink() {
-    if [ -n "$SETUP_KEY" ] || [ -n "$MANAGEMENT_URL" ]; then
-        info "配置 Cloink..."
-        
-        local config_args=()
-        
-        if [ -n "$SETUP_KEY" ]; then
-            config_args+=("--setup-key" "$SETUP_KEY")
-        fi
-        
-        if [ -n "$MANAGEMENT_URL" ]; then
-            config_args+=("--management-url" "$MANAGEMENT_URL")
-        fi
-        
-        # 创建临时配置
-        info "初始化配置..."
-        if [ ! -f "$CONFIG_DIR/config.json" ]; then
-            # 这里可以添加默认配置
-            true
-        fi
-    fi
-}
-
-# 启用并启动服务
-start_service() {
-    info "启用 Cloink 服务..."
-    systemctl enable "$SERVICE_NAME"
-    
-    info "启动 Cloink 服务..."
-    systemctl start "$SERVICE_NAME"
-    
-    sleep 3
-    
-    if systemctl is-active --quiet "$SERVICE_NAME"; then
-        success "Cloink 服务已成功启动"
-    else
-        error "Cloink 服务启动失败"
-        echo "查看日志: journalctl -u ${SERVICE_NAME} -n 50"
-        exit 1
-    fi
-}
-
-# 显示安装完成信息
-show_summary() {
     echo ""
-    echo -e "${CYAN}╔════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${NC}                        ${GREEN}安装完成！${NC}                         ${CYAN}║${NC}"
-    echo -e "${CYAN}╠════════════════════════════════════════════════════════════╣${NC}"
-    echo -e "${CYAN}║${NC} ${BLUE}安装目录：${NC} ${INSTALL_DIR}                                   ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC} ${BLUE}数据目录：${NC} ${DATA_DIR}                                     ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC} ${BLUE}配置目录：${NC} ${CONFIG_DIR}                                  ${CYAN}║${NC}"
-    echo -e "${CYAN}╠════════════════════════════════════════════════════════════╣${NC}"
-    echo -e "${CYAN}║${NC} ${BLUE}常用命令：${NC}                                             ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}   cloink --help              # 查看帮助                ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}   cloink status              # 查看状态                ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}   cloink up                  # 启动连接                ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}   cloink down                # 断开连接                ${CYAN}║${NC}"
-    echo -e "${CYAN}╠════════════════════════════════════════════════════════════╣${NC}"
-    echo -e "${CYAN}║${NC} ${BLUE}服务管理：${NC}                                             ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}   systemctl start cloink     # 启动服务                ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}   systemctl stop cloink      # 停止服务                ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}   systemctl restart cloink   # 重启服务                ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}   systemctl status cloink    # 查看服务状态            ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}   journalctl -u cloink -f    # 查看服务日志            ${CYAN}║${NC}"
-    echo -e "${CYAN}╠════════════════════════════════════════════════════════════╣${NC}"
-    echo -e "${CYAN}║${NC} ${BLUE}卸载命令：${NC}                                             ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}   curl -s ${BASE_URL}/uninstall.sh | sudo bash           ${CYAN}║${NC}"
-    echo -e "${CYAN}╚════════════════════════════════════════════════════════════╝${NC}"
-    echo ""
-}
-
-# 主函数
-main() {
-    local version="$DEFAULT_VERSION"
-    local arch
-    arch=$(detect_arch)
-    
-    # 解析命令行参数
-    while [[ $# -gt 0 ]]; do
-        case $1 in
-            -v|--version)
-                version="$2"
-                shift 2
-                ;;
-            -u|--url)
-                CUSTOM_URL="$2"
-                shift 2
-                ;;
-            -s|--setup-key)
-                SETUP_KEY="$2"
-                shift 2
-                ;;
-            -m|--management)
-                MANAGEMENT_URL="$2"
-                shift 2
-                ;;
-            -h|--help)
-                show_help
-                exit 0
-                ;;
-            *)
-                error "未知选项: $1"
-                show_help
-                exit 1
-                ;;
-        esac
-    done
-
-    echo -e "${CYAN}╔════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${NC}                   ${GREEN}Cloink 安装脚本${NC}                        ${CYAN}║${NC}"
-    echo -e "${CYAN}╚════════════════════════════════════════════════════════════╝${NC}"
+    echo "========================================"
+    echo "  安装完成！"
+    echo "========================================"
     echo ""
 
-    check_root "$@"
-
-    if ! check_systemd; then
-        error "此脚本需要 systemd 系统"
-        exit 1
+    if [ -n "${CLOINK_API_URL}" ]; then
+        echo "配置管理地址：${CLOINK_API_URL}"
+        echo ""
+        echo "如果需要，请运行："
+        echo "  cloink up --management-url ${CLOINK_API_URL}"
+        echo ""
     fi
-
-    info "系统架构: $arch"
-    info "安装版本: $version"
-
-    stop_service
-    create_dirs
-
-    # 下载并解压
-    read -r temp_file temp_dir < <(download_package "$arch" "$version")
-
-    if [ -z "$temp_file" ] || [ ! -f "$temp_file" ]; then
-        error "下载失败"
-        exit 1
-    fi
-
-    extract_install "$temp_file" "$temp_dir"
-
-    # 验证安装
-    if ! command -v cloink &> /dev/null; then
-        error "安装失败: 找不到 cloink 命令"
-        exit 1
-    fi
-
-    success "Cloink 安装成功！版本: $(cloink --version 2>&1 || echo "unknown")"
-
-    create_systemd_service
-    configure_cloink
-    start_service
-    show_summary
 }
 
-# 运行主函数
-main "$@"
+install_dependencies
+check_tun
+download_and_install
+setup_systemd

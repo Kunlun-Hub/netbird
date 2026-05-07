@@ -10,7 +10,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-var scanDir = "/var/run/netbird"
+var scanDir = "/var/run/cloink"
 
 // setScanDir overrides the scan directory (used by tests).
 func setScanDir(dir string) {
@@ -18,9 +18,9 @@ func setScanDir(dir string) {
 }
 
 // ResolveUnixDaemonAddr checks whether the default Unix socket exists and, if not,
-// scans /var/run/netbird/ for a single .sock file to use instead. This handles the
-// mismatch between the netbird@.service template (which places the socket under
-// /var/run/netbird/<instance>.sock) and the CLI default (/var/run/netbird.sock).
+// scans /var/run/cloink/ for a single .sock file to use instead. This handles the
+// mismatch between the cloink@.service template (which places the socket under
+// /var/run/cloink/<instance>.sock) and the CLI default (/var/run/cloink.sock).
 func ResolveUnixDaemonAddr(addr string) string {
 	if !strings.HasPrefix(addr, "unix://") {
 		return addr

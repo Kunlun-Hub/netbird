@@ -74,14 +74,11 @@ func (m *managerImpl) GetSettings(ctx context.Context, accountID, userID string)
 		return nil, fmt.Errorf("get account settings: %w", err)
 	}
 
-	// Once we migrate the peer approval to settings manager this merging is obsolete
-	if settings.Extra != nil {
-		settings.Extra.FlowEnabled = extraSettings.FlowEnabled
-		settings.Extra.FlowGroups = extraSettings.FlowGroups
-		settings.Extra.FlowPacketCounterEnabled = extraSettings.FlowPacketCounterEnabled
-		settings.Extra.FlowENCollectionEnabled = extraSettings.FlowENCollectionEnabled
-		settings.Extra.FlowDnsCollectionEnabled = extraSettings.FlowDnsCollectionEnabled
+	if settings.Extra == nil {
+		settings.Extra = &types.ExtraSettings{}
 	}
+
+	mergeFlowExtraSettings(settings.Extra, extraSettings)
 
 	// Fill in IdP-related runtime settings
 	settings.EmbeddedIdpEnabled = m.idpConfig.EmbeddedIdpEnabled
@@ -101,17 +98,39 @@ func (m *managerImpl) GetExtraSettings(ctx context.Context, accountID string) (*
 		return nil, fmt.Errorf("get account settings: %w", err)
 	}
 
-	// Once we migrate the peer approval to settings manager this merging is obsolete
 	if settings.Extra == nil {
 		settings.Extra = &types.ExtraSettings{}
 	}
 
-	settings.Extra.FlowEnabled = extraSettings.FlowEnabled
-	settings.Extra.FlowGroups = extraSettings.FlowGroups
+	mergeFlowExtraSettings(settings.Extra, extraSettings)
 
 	return settings.Extra, nil
 }
 
 func (m *managerImpl) UpdateExtraSettings(ctx context.Context, accountID, userID string, extraSettings *types.ExtraSettings) (bool, error) {
 	return m.extraSettingsManager.UpdateExtraSettings(ctx, accountID, userID, extraSettings)
+}
+
+func mergeFlowExtraSettings(target, source *types.ExtraSettings) {
+	if target == nil || source == nil {
+		return
+	}
+
+	// Persisted account settings are the source of truth for the dashboard.
+	// If an external extra settings manager provides explicit flow values, let them enrich runtime config.
+	if source.FlowEnabled {
+		target.FlowEnabled = true
+	}
+	if len(source.FlowGroups) > 0 {
+		target.FlowGroups = source.FlowGroups
+	}
+	if source.FlowPacketCounterEnabled {
+		target.FlowPacketCounterEnabled = true
+	}
+	if source.FlowENCollectionEnabled {
+		target.FlowENCollectionEnabled = true
+	}
+	if source.FlowDnsCollectionEnabled {
+		target.FlowDnsCollectionEnabled = true
+	}
 }

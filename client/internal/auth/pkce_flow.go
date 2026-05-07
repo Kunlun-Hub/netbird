@@ -64,7 +64,7 @@ type PKCEAuthProviderConfig struct {
 
 // validatePKCEConfig validates PKCE provider configuration
 func validatePKCEConfig(config *PKCEAuthProviderConfig) error {
-	errorMsgFormat := "invalid provider configuration received from management: %s value is empty. Contact your NetBird administrator"
+	errorMsgFormat := "invalid provider configuration received from management: %s value is empty. Contact your Cloink administrator"
 
 	if config.ClientID == "" {
 		return fmt.Errorf(errorMsgFormat, "Client ID")

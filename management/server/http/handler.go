@@ -55,6 +55,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/http/handlers/routes"
 	"github.com/netbirdio/netbird/management/server/http/handlers/setup_keys"
 	"github.com/netbirdio/netbird/management/server/http/handlers/users"
+	"github.com/netbirdio/netbird/management/server/http/handlers/version_releases"
 	"github.com/netbirdio/netbird/management/server/http/middleware"
 	"github.com/netbirdio/netbird/management/server/http/middleware/bypass"
 	nbinstance "github.com/netbirdio/netbird/management/server/instance"
@@ -91,6 +92,10 @@ func NewAPIHandler(ctx context.Context, accountManager account.Manager, networks
 	}
 	// OAuth callback for proxy authentication
 	if err := bypass.AddBypassPath(types.ProxyCallbackEndpointFull); err != nil {
+		return nil, fmt.Errorf("failed to add bypass path: %w", err)
+	}
+	// Public version releases endpoint for install script
+	if err := bypass.AddBypassPath("/api/version-releases/public"); err != nil {
 		return nil, fmt.Errorf("failed to add bypass path: %w", err)
 	}
 
@@ -167,6 +172,7 @@ func NewAPIHandler(ctx context.Context, accountManager account.Manager, networks
 	routes.AddEndpoints(accountManager, router)
 	dns.AddEndpoints(accountManager, router)
 	events.AddEndpoints(accountManager, router)
+	version_releases.AddEndpoints(accountManager, router, rootRouter)
 	networks.AddEndpoints(networksManager, resourceManager, routerManager, groupsManager, accountManager, router)
 	zonesManager.RegisterEndpoints(router, zManager)
 	recordsManager.RegisterEndpoints(router, rManager)
@@ -184,6 +190,9 @@ func NewAPIHandler(ctx context.Context, accountManager account.Manager, networks
 
 	// Mount embedded IdP handler at /oauth2 path if configured
 	if embeddedIdpEnabled {
+		rootRouter.Handle("/oauth2/auth", idp.NewLoginPreferenceHandler(accountManager, embeddedIdP))
+		rootRouter.Handle("/oauth2/auth/{connector}", idp.NewLoginPreferenceHandler(accountManager, embeddedIdP))
+		rootRouter.Handle("/oauth2/callback/{connector}", idp.NewWeChatWorkCallbackHandler(embeddedIdP))
 		rootRouter.PathPrefix("/oauth2").Handler(corsMiddleware.Handler(embeddedIdP.Handler()))
 	}
 

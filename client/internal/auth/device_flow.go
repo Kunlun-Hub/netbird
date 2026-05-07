@@ -50,7 +50,7 @@ type DeviceAuthProviderConfig struct {
 
 // validateDeviceAuthConfig validates device authorization provider configuration
 func validateDeviceAuthConfig(config *DeviceAuthProviderConfig) error {
-	errorMsgFormat := "invalid provider configuration received from management: %s value is empty. Contact your NetBird administrator"
+	errorMsgFormat := "invalid provider configuration received from management: %s value is empty. Contact your Cloink administrator"
 
 	if config.Audience == "" {
 		return fmt.Errorf(errorMsgFormat, "Audience")

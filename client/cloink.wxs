@@ -1,7 +1,7 @@
 <Wix
 	xmlns="http://wixtoolset.org/schemas/v4/wxs"
 	xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
-	<Package Name="Cloink" Version="$(env.APPVER)" Manufacturer="Cloink Team" Language="2052" UpgradeCode="6456ec4e-3ad6-4b9b-a2be-98e81cb21ccf"
+	<Package Name="Cloink" Version="$(env.APPVER_MSI)" Manufacturer="Cloink Team" Language="2052" UpgradeCode="6456ec4e-3ad6-4b9b-a2be-98e81cb21ccf"
         InstallerVersion="500" Compressed="yes" Codepage="utf-8">
 
 		<MediaTemplate EmbedCab="yes" />

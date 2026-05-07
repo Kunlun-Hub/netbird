@@ -7,9 +7,11 @@ import (
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/management/internals/modules/networktraffic"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
+	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/http/util"
 )
@@ -23,6 +25,7 @@ func AddEndpoints(accountManager account.Manager, router *mux.Router) {
 	eventsHandler := newHandler(accountManager)
 	router.HandleFunc("/events", eventsHandler.getAllEvents).Methods("GET", "OPTIONS")
 	router.HandleFunc("/events/audit", eventsHandler.getAllEvents).Methods("GET", "OPTIONS")
+	router.HandleFunc("/events/network-traffic", eventsHandler.getAllNetworkTrafficEvents).Methods("GET", "OPTIONS")
 }
 
 // newHandler creates a new events handler
@@ -74,4 +77,46 @@ func toEventResponse(event *activity.Event) *api.Event {
 		Meta:           meta,
 	}
 	return e
+}
+
+func (h *handler) getAllNetworkTrafficEvents(w http.ResponseWriter, r *http.Request) {
+	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	var filter networktraffic.Filter
+	filter.ParseFromRequest(r)
+
+	events, totalCount, err := h.accountManager.GetStore().GetAccountNetworkTrafficEvents(
+		r.Context(),
+		store.LockingStrengthNone,
+		userAuth.AccountId,
+		filter,
+	)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	apiEvents := make([]api.NetworkTrafficEvent, 0, len(events))
+	for _, event := range events {
+		apiEvents = append(apiEvents, *event.ToAPIResponse())
+	}
+
+	util.WriteJSONObject(r.Context(), w, &api.NetworkTrafficEventsResponse{
+		Data:         apiEvents,
+		Page:         filter.Page,
+		PageSize:     filter.PageSize,
+		TotalRecords: int(totalCount),
+		TotalPages:   getTotalPageCount(int(totalCount), filter.PageSize),
+	})
+}
+
+func getTotalPageCount(totalCount, pageSize int) int {
+	if pageSize <= 0 {
+		return 0
+	}
+	return (totalCount + pageSize - 1) / pageSize
 }

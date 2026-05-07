@@ -28,9 +28,9 @@ import (
 )
 
 const (
-	// DefaultDaemonAddr is the default address for the NetBird daemon
-	DefaultDaemonAddr = "unix:///var/run/netbird.sock"
-	// DefaultDaemonAddrWindows is the default address for the NetBird daemon on Windows
+	// DefaultDaemonAddr is the default address for the Cloink daemon
+	DefaultDaemonAddr = "unix:///var/run/cloink.sock"
+	// DefaultDaemonAddrWindows is the default address for the Cloink daemon on Windows
 	DefaultDaemonAddrWindows = "tcp://127.0.0.1:41731"
 )
 
@@ -370,7 +370,7 @@ func dialWithJWT(ctx context.Context, network, addr string, config *ssh.ClientCo
 	return dialSSH(ctx, network, addr, configWithJWT)
 }
 
-// requestJWTToken requests a JWT token from the NetBird daemon
+// requestJWTToken requests a JWT token from the Cloink daemon
 func requestJWTToken(ctx context.Context, daemonAddr string, skipCache, noBrowser bool) (string, error) {
 	hint := profilemanager.GetLoginHint()
 
@@ -390,7 +390,7 @@ func requestJWTToken(ctx context.Context, daemonAddr string, skipCache, noBrowse
 	return nbssh.RequestJWTToken(ctx, client, os.Stdout, os.Stderr, !skipCache, hint, browserOpener)
 }
 
-// verifyHostKeyViaDaemon verifies SSH host key by querying the NetBird daemon
+// verifyHostKeyViaDaemon verifies SSH host key by querying the Cloink daemon
 func verifyHostKeyViaDaemon(hostname string, remote net.Addr, key ssh.PublicKey, daemonAddr string) error {
 	conn, err := connectToDaemon(daemonAddr)
 	if err != nil {
@@ -416,8 +416,8 @@ func connectToDaemon(daemonAddr string) (*grpc.ClientConn, error) {
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
 	if err != nil {
-		log.Debugf("failed to create gRPC client for NetBird daemon at %s: %v", daemonAddr, err)
-		return nil, fmt.Errorf("failed to connect to NetBird daemon: %w", err)
+		log.Debugf("failed to create gRPC client for Cloink daemon at %s: %v", daemonAddr, err)
+		return nil, fmt.Errorf("failed to connect to Cloink daemon: %w", err)
 	}
 
 	return conn, nil
@@ -433,16 +433,16 @@ func getKnownHostsFiles() []string {
 		files = append(files, userKnownHosts)
 	}
 
-	// NetBird managed known_hosts files
+	// Cloink managed known_hosts files
 	if runtime.GOOS == "windows" {
 		programData := os.Getenv("PROGRAMDATA")
 		if programData == "" {
 			programData = `C:\ProgramData`
 		}
-		netbirdKnownHosts := filepath.Join(programData, "ssh", "ssh_known_hosts.d", "99-netbird")
-		files = append(files, netbirdKnownHosts)
+		cloinkKnownHosts := filepath.Join(programData, "ssh", "ssh_known_hosts.d", "99-cloink")
+		files = append(files, cloinkKnownHosts)
 	} else {
-		files = append(files, "/etc/ssh/ssh_known_hosts.d/99-netbird")
+		files = append(files, "/etc/ssh/ssh_known_hosts.d/99-cloink")
 		files = append(files, "/etc/ssh/ssh_known_hosts")
 	}
 

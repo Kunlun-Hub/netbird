@@ -565,7 +565,7 @@ func HandlerFromRoute(params common.HandlerParams) RouteHandler {
 	case handlerTypeDnsInterceptor:
 		return dnsinterceptor.New(params)
 	case handlerTypeDynamic:
-		dns := nbdns.NewServiceViaMemory(params.WgInterface)
+		dns := nbdns.NewServiceViaMemory(params.WgInterface, nil)
 		dnsAddr := net.JoinHostPort(dns.RuntimeIP().String(), strconv.Itoa(dns.RuntimePort()))
 		return dynamic.NewRoute(params, dnsAddr)
 	default:

@@ -337,6 +337,10 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 			updateAccountPeers = true
 		}
 
+		if flowSettingsChanged(oldSettings.Extra, newSettings.Extra) {
+			updateAccountPeers = true
+		}
+
 		if oldSettings.GroupsPropagationEnabled != newSettings.GroupsPropagationEnabled && newSettings.GroupsPropagationEnabled {
 			groupsUpdated, groupChangesAffectPeers, err = propagateUserGroupMemberships(ctx, transaction, accountID)
 			if err != nil {
@@ -346,6 +350,12 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 
 		if newSettings.Extra == nil {
 			newSettings.Extra = oldSettings.Extra
+		}
+		if newSettings.LoginMethod == "" {
+			newSettings.LoginMethod = oldSettings.LoginMethod
+		}
+		if newSettings.LoginMethod == "" {
+			newSettings.LoginMethod = types.LoginMethodAll
 		}
 
 		if err = transaction.SaveAccountSettings(ctx, accountID, newSettings); err != nil {
@@ -406,6 +416,69 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 	return newSettings, nil
 }
 
+func flowSettingsChanged(oldExtra, newExtra *types.ExtraSettings) bool {
+	if oldExtra == nil && newExtra == nil {
+		return false
+	}
+	if oldExtra == nil {
+		oldExtra = &types.ExtraSettings{}
+	}
+	if newExtra == nil {
+		newExtra = &types.ExtraSettings{}
+	}
+
+	if oldExtra.FlowEnabled != newExtra.FlowEnabled {
+		return true
+	}
+	if oldExtra.FlowPacketCounterEnabled != newExtra.FlowPacketCounterEnabled {
+		return true
+	}
+	if oldExtra.FlowENCollectionEnabled != newExtra.FlowENCollectionEnabled {
+		return true
+	}
+	if oldExtra.FlowDnsCollectionEnabled != newExtra.FlowDnsCollectionEnabled {
+		return true
+	}
+	if len(oldExtra.FlowGroups) != len(newExtra.FlowGroups) {
+		return true
+	}
+	for i := range oldExtra.FlowGroups {
+		if oldExtra.FlowGroups[i] != newExtra.FlowGroups[i] {
+			return true
+		}
+	}
+
+	if oldExtra.FlowLocalStorageEnabled != newExtra.FlowLocalStorageEnabled {
+		return true
+	}
+	if oldExtra.FlowLocalStoragePath != newExtra.FlowLocalStoragePath {
+		return true
+	}
+	if oldExtra.FlowLocalStorageMaxSizeMB != newExtra.FlowLocalStorageMaxSizeMB {
+		return true
+	}
+	if oldExtra.FlowLocalStorageMaxFiles != newExtra.FlowLocalStorageMaxFiles {
+		return true
+	}
+	if oldExtra.FlowSyslogEnabled != newExtra.FlowSyslogEnabled {
+		return true
+	}
+	if oldExtra.FlowSyslogServer != newExtra.FlowSyslogServer {
+		return true
+	}
+	if oldExtra.FlowSyslogProtocol != newExtra.FlowSyslogProtocol {
+		return true
+	}
+	if oldExtra.FlowSyslogFacility != newExtra.FlowSyslogFacility {
+		return true
+	}
+	if oldExtra.FlowSyslogTag != newExtra.FlowSyslogTag {
+		return true
+	}
+
+	return false
+}
+
 func (am *DefaultAccountManager) validateSettingsUpdate(ctx context.Context, transaction store.Store, newSettings, oldSettings *types.Settings, userID, accountID string) error {
 	halfYearLimit := 180 * 24 * time.Hour
 	if newSettings.PeerLoginExpiration > halfYearLimit {
@@ -432,7 +505,46 @@ func (am *DefaultAccountManager) validateSettingsUpdate(ctx context.Context, tra
 		}
 	}
 
+	loginMethod := newSettings.LoginMethod
+	if loginMethod == "" {
+		loginMethod = types.LoginMethodAll
+	}
+
+	switch loginMethod {
+	case types.LoginMethodAll:
+	case types.LoginMethodEmail:
+		if IsLocalAuthDisabled(ctx, am.idpManager) {
+			return status.Errorf(status.InvalidArgument, "email login is disabled for this instance")
+		}
+	case types.LoginMethodWeChatWork:
+		if _, err := am.getPreferredWeChatWorkConnectorID(ctx); err != nil {
+			return status.Errorf(status.InvalidArgument, "wechat work login method requires a configured WeChat Work identity provider")
+		}
+	default:
+		return status.Errorf(status.InvalidArgument, "invalid login method %q", loginMethod)
+	}
+
 	return am.integratedPeerValidator.ValidateExtraSettings(ctx, newSettings.Extra, oldSettings.Extra, userID, accountID)
+}
+
+func (am *DefaultAccountManager) getPreferredWeChatWorkConnectorID(ctx context.Context) (string, error) {
+	embeddedIdp, ok := am.idpManager.(*idp.EmbeddedIdPManager)
+	if !ok {
+		return "", fmt.Errorf("embedded idp is not enabled")
+	}
+
+	connectors, err := embeddedIdp.ListConnectors(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	for _, connector := range connectors {
+		if connector != nil && connector.Type == "wechatwork" {
+			return connector.ID, nil
+		}
+	}
+
+	return "", status.Errorf(status.NotFound, "wechat work identity provider not found")
 }
 
 func (am *DefaultAccountManager) handleRoutingPeerDNSResolutionSettings(ctx context.Context, oldSettings, newSettings *types.Settings, userID, accountID string) {
@@ -1672,8 +1784,8 @@ func (am *DefaultAccountManager) getPrivateDomainWithGlobalLock(ctx context.Cont
 		return domainAccountID, nil, nil
 	}
 
-	log.WithContext(ctx).Debugf("no primary account found for domain %s, acquiring global lock", domain)
-	cancel := am.Store.AcquireGlobalLock(ctx)
+	log.WithContext(ctx).Debugf("no primary account found for domain %s, acquiring domain lock", domain)
+	cancel := am.Store.AcquireDomainLock(ctx, domain)
 
 	// check again if the domain has a primary account because of simultaneous requests
 	domainAccountID, err = am.Store.GetAccountIDByPrivateDomain(ctx, store.LockingStrengthNone, domain)
@@ -1946,9 +2058,6 @@ func (am *DefaultAccountManager) GetStore() store.Store {
 }
 
 func (am *DefaultAccountManager) GetOrCreateAccountByPrivateDomain(ctx context.Context, initiatorId, domain string) (*types.Account, bool, error) {
-	cancel := am.Store.AcquireGlobalLock(ctx)
-	defer cancel()
-
 	existingPrimaryAccountID, err := am.Store.GetAccountIDByPrivateDomain(ctx, store.LockingStrengthNone, domain)
 	if handleNotFound(err) != nil {
 		return nil, false, err
@@ -1973,6 +2082,8 @@ func (am *DefaultAccountManager) GetOrCreateAccountByPrivateDomain(ctx context.C
 		if err != nil || exists {
 			continue
 		}
+
+		cancel := am.Store.AcquireAccountLock(ctx, accountId)
 
 		network := types.NewNetwork()
 		peers := make(map[string]*nbpeer.Peer)
@@ -2016,10 +2127,12 @@ func (am *DefaultAccountManager) GetOrCreateAccountByPrivateDomain(ctx context.C
 		}
 
 		if err := newAccount.AddAllGroup(am.disableDefaultPolicy); err != nil {
+			cancel()
 			return nil, false, status.Errorf(status.Internal, "failed to add all group to new account by private domain")
 		}
 
 		if err := am.Store.SaveAccount(ctx, newAccount); err != nil {
+			cancel()
 			log.WithContext(ctx).WithFields(log.Fields{
 				"accountId": newAccount.Id,
 				"domain":    domain,
@@ -2027,6 +2140,7 @@ func (am *DefaultAccountManager) GetOrCreateAccountByPrivateDomain(ctx context.C
 			return nil, false, err
 		}
 
+		cancel()
 		am.StoreEvent(ctx, initiatorId, newAccount.Id, accountId, activity.AccountCreated, nil)
 		return newAccount, true, nil
 	}

@@ -128,7 +128,7 @@ func (s *Server) buildUserLookupErrorMessage(err error) string {
 		return "privileged user access is disabled on this SSH server\n"
 
 	case errors.Is(err, ErrPrivilegeRequired):
-		return "Windows user switching failed - NetBird must run with elevated privileges for user switching\n"
+		return "Windows user switching failed - Cloink must run with elevated privileges for user switching\n"
 
 	case errors.Is(err, ErrPrivilegedUserSwitch):
 		return "Cannot switch to privileged user - current user lacks required privileges\n"

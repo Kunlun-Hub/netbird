@@ -69,6 +69,10 @@ func (m *mockReverseProxyManager) ReloadService(ctx context.Context, accountID, 
 	return nil
 }
 
+func (m *mockReverseProxyManager) ReloadServicesForResource(ctx context.Context, accountID, resourceID string) error {
+	return nil
+}
+
 func (m *mockReverseProxyManager) GetServiceByID(ctx context.Context, accountID, reverseProxyID string) (*service.Service, error) {
 	return &service.Service{}, nil
 }

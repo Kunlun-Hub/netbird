@@ -19,7 +19,7 @@ import (
 
 var serviceCmd = &cobra.Command{
 	Use:   "service",
-	Short: "Manage the NetBird daemon service",
+	Short: "Manage the Cloink daemon service",
 }
 
 var (
@@ -36,17 +36,17 @@ type program struct {
 }
 
 func init() {
-	defaultServiceName := "netbird"
+	defaultServiceName := "cloink"
 	if runtime.GOOS == "windows" {
-		defaultServiceName = "Netbird"
+		defaultServiceName = "Cloink"
 	}
 
 	serviceCmd.AddCommand(runCmd, startCmd, stopCmd, restartCmd, svcStatusCmd, installCmd, uninstallCmd, reconfigureCmd, resetParamsCmd)
-	serviceCmd.PersistentFlags().BoolVar(&profilesDisabled, "disable-profiles", false, "Disables profiles feature. If enabled, the client will not be able to change or edit any profile. To persist this setting, use: netbird service install --disable-profiles")
-	serviceCmd.PersistentFlags().BoolVar(&updateSettingsDisabled, "disable-update-settings", false, "Disables update settings feature. If enabled, the client will not be able to change or edit any settings. To persist this setting, use: netbird service install --disable-update-settings")
-	serviceCmd.PersistentFlags().BoolVar(&networksDisabled, "disable-networks", false, "Disables network selection. If enabled, the client will not allow listing, selecting, or deselecting networks. To persist, use: netbird service install --disable-networks")
+	serviceCmd.PersistentFlags().BoolVar(&profilesDisabled, "disable-profiles", false, "Disables profiles feature. If enabled, the client will not be able to change or edit any profile. To persist this setting, use: cloink service install --disable-profiles")
+	serviceCmd.PersistentFlags().BoolVar(&updateSettingsDisabled, "disable-update-settings", false, "Disables update settings feature. If enabled, the client will not be able to change or edit any settings. To persist this setting, use: cloink service install --disable-update-settings")
+	serviceCmd.PersistentFlags().BoolVar(&networksDisabled, "disable-networks", false, "Disables network selection. If enabled, the client will not allow listing, selecting, or deselecting networks. To persist, use: cloink service install --disable-networks")
 
-	rootCmd.PersistentFlags().StringVarP(&serviceName, "service", "s", defaultServiceName, "Netbird system service name")
+	rootCmd.PersistentFlags().StringVarP(&serviceName, "service", "s", defaultServiceName, "Cloink system service name")
 	serviceEnvDesc := `Sets extra environment variables for the service. ` +
 		`You can specify a comma-separated list of KEY=VALUE pairs. ` +
 		`New keys are merged with previously saved env vars; existing keys are overwritten. ` +
@@ -67,8 +67,8 @@ func newProgram(ctx context.Context, cancel context.CancelFunc) *program {
 func newSVCConfig() (*service.Config, error) {
 	config := &service.Config{
 		Name:        serviceName,
-		DisplayName: "Netbird",
-		Description: "NetBird mesh network client",
+		DisplayName: "Cloink",
+		Description: "Cloink mesh network client",
 		Option:      make(service.KeyValue),
 		EnvVars:     make(map[string]string),
 	}

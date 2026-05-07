@@ -351,6 +351,11 @@ message LocalPeerState {
   repeated string networks = 7;
 }
 
+message FlowState {
+  bool enabled = 1;
+  string url = 2;
+}
+
 // SignalState contains the latest state of a signal connection
 message SignalState {
   string URL = 1;
@@ -408,6 +413,7 @@ message FullStatus {
 
   bool lazyConnectionEnabled = 9;
   SSHServerState sshServerState = 10;
+  FlowState flowState = 11;
 }
 
 // Networks

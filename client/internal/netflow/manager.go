@@ -167,6 +167,32 @@ func (m *Manager) Update(update *nftypes.FlowConfig) error {
 
 	m.logger.UpdateConfig(update.DNSCollection, update.ExitNodeCollection)
 
+	if fl, ok := m.logger.(interface {
+		UpdateFlowStorageConfig(
+			localStorageEnabled bool,
+			localStoragePath string,
+			localStorageMaxSizeMB int,
+			localStorageMaxFiles int,
+			syslogEnabled bool,
+			syslogServer string,
+			syslogProtocol string,
+			syslogFacility string,
+			syslogTag string,
+		)
+	}); ok {
+		fl.UpdateFlowStorageConfig(
+			update.LocalStorageEnabled,
+			update.LocalStoragePath,
+			update.LocalStorageMaxSizeMB,
+			update.LocalStorageMaxFiles,
+			update.SyslogEnabled,
+			update.SyslogServer,
+			update.SyslogProtocol,
+			update.SyslogFacility,
+			update.SyslogTag,
+		)
+	}
+
 	changed := previous != nil && update.Enabled != previous.Enabled
 	if update.Enabled {
 		if changed {
@@ -267,6 +293,15 @@ func toProtoEvent(publicKey []byte, event *nftypes.Event) *proto.FlowEvent {
 			SourceResourceId: event.SourceResourceID,
 			DestResourceId:   event.DestResourceID,
 		},
+	}
+
+	if event.DNSInfo != nil {
+		protoEvent.FlowFields.DnsInfo = &proto.DNSInfo{
+			Domain:    event.DNSInfo.Domain,
+			QueryType: event.DNSInfo.QueryType,
+			Answers:   event.DNSInfo.Answers,
+			Rcode:     event.DNSInfo.RCode,
+		}
 	}
 
 	if event.Protocol == nftypes.ICMP {

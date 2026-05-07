@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	quickActionsTriggerEventName = `Global\NetBirdQuickActionsTriggerEvent`
+	quickActionsTriggerEventName = `Global\CloinkQuickActionsTriggerEvent`
 	waitTimeout                  = 5 * time.Second
 	// SYNCHRONIZE is needed for WaitForSingleObject, EVENT_MODIFY_STATE for ResetEvent.
 	desiredAccesses = windows.SYNCHRONIZE | windows.EVENT_MODIFY_STATE

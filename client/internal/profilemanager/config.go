@@ -32,11 +32,11 @@ const (
 	// It is used for backward compatibility now.
 	managementLegacyPortString = "33073"
 	// DefaultManagementURL points to the NetBird's cloud management endpoint
-	DefaultManagementURL = "https://netbird-zh.4w.ink:443"
+	DefaultManagementURL = "https://dev.cloink.4w.ink:443"
 	// oldDefaultManagementURL points to the NetBird's old cloud management endpoint
-	oldDefaultManagementURL = "https://netbird-zh.4w.ink:443"
+	oldDefaultManagementURL = "https://dev.cloink.4w.ink:443"
 	// DefaultAdminURL points to NetBird's cloud management console
-	DefaultAdminURL = "https://netbird-zh.4w.ink:443"
+	DefaultAdminURL = "https://dev.cloink.4w.ink:443"
 )
 
 // mgmProber is the subset of management client needed for URL migration probes.
@@ -185,11 +185,16 @@ func getConfigDir() (string, error) {
 		return "", err
 	}
 
-	configDir := filepath.Join(base, "netbird")
-	if err := os.MkdirAll(configDir, 0o755); err != nil {
+	configDir := filepath.Join(base, "cloink")
+	if err := os.MkdirAll(configDir, 0o755); err == nil {
+		return configDir, nil
+	}
+
+	legacyDir := filepath.Join(base, "netbird")
+	if err := os.MkdirAll(legacyDir, 0o755); err != nil {
 		return "", err
 	}
-	return configDir, nil
+	return legacyDir, nil
 }
 
 func baseConfigDir() (string, error) {

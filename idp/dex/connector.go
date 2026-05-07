@@ -25,6 +25,8 @@ type ConnectorConfig struct {
 	ClientID string
 	// ClientSecret is the OAuth2 client secret
 	ClientSecret string
+	// AgentID is the WeChat Work application agent id
+	AgentID string
 	// RedirectURI is the OAuth2 redirect URI
 	RedirectURI string
 }
@@ -126,6 +128,9 @@ func mergeConnectorConfig(cfg, oldCfg *ConnectorConfig) {
 	if cfg.ClientID == "" {
 		cfg.ClientID = oldCfg.ClientID
 	}
+	if cfg.AgentID == "" {
+		cfg.AgentID = oldCfg.AgentID
+	}
 	if cfg.Name == "" {
 		cfg.Name = oldCfg.Name
 	}
@@ -171,6 +176,9 @@ func (p *Provider) buildStorageConnector(cfg *ConnectorConfig) (storage.Connecto
 	case "oidc", "zitadel", "entra", "okta", "pocketid", "authentik", "keycloak":
 		dexType = "oidc"
 		configData, err = buildOIDCConnectorConfig(cfg, redirectURI)
+	case "wechatwork":
+		dexType = "authproxy"
+		configData, err = buildWeChatWorkConnectorConfig(cfg)
 	case "google":
 		dexType = "google"
 		configData, err = buildOAuth2ConnectorConfig(cfg, redirectURI)
@@ -224,6 +232,18 @@ func buildOIDCConnectorConfig(cfg *ConnectorConfig, redirectURI string) ([]byte,
 	return encodeConnectorConfig(oidcConfig)
 }
 
+func buildWeChatWorkConnectorConfig(cfg *ConnectorConfig) ([]byte, error) {
+	return encodeConnectorConfig(map[string]interface{}{
+		"userIDHeader":   "X-NetBird-WeChatWork-User-Id",
+		"userHeader":     "X-NetBird-WeChatWork-User",
+		"userNameHeader": "X-NetBird-WeChatWork-User-Name",
+		"emailHeader":    "X-NetBird-WeChatWork-User-Email",
+		"clientID":       cfg.ClientID,
+		"clientSecret":   cfg.ClientSecret,
+		"agentID":        cfg.AgentID,
+	})
+}
+
 // buildOAuth2ConnectorConfig creates config for OAuth2 connectors (google, microsoft)
 func buildOAuth2ConnectorConfig(cfg *ConnectorConfig, redirectURI string) ([]byte, error) {
 	return encodeConnectorConfig(map[string]interface{}{
@@ -258,13 +278,15 @@ func (p *Provider) parseStorageConnector(conn storage.Connector) (*ConnectorConf
 	if v, ok := configMap["clientSecret"].(string); ok {
 		cfg.ClientSecret = v
 	}
+	if v, ok := configMap["agentID"].(string); ok {
+		cfg.AgentID = v
+	}
 	if v, ok := configMap["redirectURI"].(string); ok {
 		cfg.RedirectURI = v
 	}
 	if v, ok := configMap["issuer"].(string); ok {
 		cfg.Issuer = v
 	}
-
 	// Infer the original identity provider type from Dex connector type and ID
 	cfg.Type = inferIdentityProviderType(conn.Type, conn.ID, configMap)
 
@@ -274,6 +296,9 @@ func (p *Provider) parseStorageConnector(conn storage.Connector) (*ConnectorConf
 // inferIdentityProviderType determines the original identity provider type
 // based on the Dex connector type, connector ID, and configuration.
 func inferIdentityProviderType(dexType, connectorID string, _ map[string]interface{}) string {
+	if dexType == "authproxy" && strings.Contains(strings.ToLower(connectorID), "wechatwork") {
+		return "wechatwork"
+	}
 	if dexType != "oidc" {
 		return dexType
 	}

@@ -195,6 +195,8 @@ func mapConnectorToDex(connType string, config map[string]interface{}) (string, 
 	switch connType {
 	case "oidc", "zitadel", "entra", "okta", "pocketid", "authentik", "keycloak":
 		return "oidc", applyOIDCDefaults(connType, config)
+	case "wechatwork":
+		return "authproxy", applyWeChatWorkDefaults(config)
 	default:
 		return connType, config
 	}
@@ -223,6 +225,20 @@ func applyOIDCDefaults(connType string, config map[string]interface{}) map[strin
 	return augmented
 }
 
+func applyWeChatWorkDefaults(config map[string]interface{}) map[string]interface{} {
+	augmented := make(map[string]interface{}, len(config)+4)
+	for k, v := range config {
+		augmented[k] = v
+	}
+
+	setDefault(augmented, "userIDHeader", "X-NetBird-WeChatWork-User-Id")
+	setDefault(augmented, "userHeader", "X-NetBird-WeChatWork-User")
+	setDefault(augmented, "userNameHeader", "X-NetBird-WeChatWork-User-Name")
+	setDefault(augmented, "emailHeader", "X-NetBird-WeChatWork-User-Email")
+
+	return augmented
+}
+
 // setDefault sets a key in the map only if it doesn't already exist.
 func setDefault(m map[string]interface{}, key string, value interface{}) {
 	if _, ok := m[key]; !ok {
@@ -243,7 +259,7 @@ func (s *Storage) OpenStorage(logger *slog.Logger) (storage.Storage, error) {
 		if file == "" {
 			return nil, fmt.Errorf("sqlite3 storage requires 'file' config")
 		}
-		return (&sql.SQLite3{File: file}).Open(logger)
+		return openSQLiteStorage(file, logger)
 	case "postgres":
 		dsn, _ := s.Config["dsn"].(string)
 		if dsn == "" {

@@ -55,6 +55,8 @@ type Config struct {
 
 	ReverseProxy ReverseProxy
 
+	NetworkTraffic NetworkTraffic
+
 	// disable default all-to-all policy
 	DisableDefaultPolicy bool
 
@@ -209,4 +211,16 @@ type ReverseProxy struct {
 	// AccessLogCleanupIntervalHours specifies how often (in hours) to run the cleanup routine.
 	// Defaults to 24 hours if not set or set to 0.
 	AccessLogCleanupIntervalHours int
+}
+
+// NetworkTraffic contains network traffic event configuration.
+type NetworkTraffic struct {
+	// RetentionDays specifies the number of days to retain network traffic events.
+	// Events older than this duration will be automatically deleted during cleanup.
+	// A value of 0 will default to 7 days. Negative means events are kept indefinitely (no cleanup).
+	RetentionDays int
+
+	// CleanupIntervalHours specifies how often (in hours) to run the cleanup routine.
+	// Defaults to 24 hours if not set or set to 0.
+	CleanupIntervalHours int
 }

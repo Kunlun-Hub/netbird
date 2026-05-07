@@ -33,7 +33,7 @@ const (
 	// It is used for backward compatibility now.
 	ManagementLegacyPort = 33073
 	// DefaultSelfHostedDomain is the default domain used for self-hosted fresh installs.
-	DefaultSelfHostedDomain = "netbird.selfhosted"
+	DefaultSelfHostedDomain = "cloink.local"
 )
 
 type Server interface {
@@ -170,6 +170,9 @@ func (s *BaseServer) Start(ctx context.Context) error {
 	// before we iterate them. Lazy creation after the loop would miss hooks
 	// registered during GRPCServer() construction (e.g., SetServiceManager).
 	s.GRPCServer()
+
+	// Start network traffic cleanup routine
+	s.startNetworkTrafficCleanup(srvCtx)
 
 	for _, fn := range s.afterInit {
 		if fn != nil {
@@ -316,7 +319,8 @@ func (s *BaseServer) handlerFunc(_ context.Context, gRPCHandler *grpc.Server, ht
 		case request.ProtoMajor == 2 && (strings.HasPrefix(request.Header.Get("Content-Type"), "application/grpc") ||
 			strings.HasPrefix(request.Header.Get("Content-Type"), "application/grpc+proto")):
 			gRPCHandler.ServeHTTP(writer, request)
-		case request.URL.Path == wsproxy.ProxyPath+wsproxy.ManagementComponent:
+		case request.URL.Path == wsproxy.ProxyPath+wsproxy.ManagementComponent,
+			request.URL.Path == wsproxy.ProxyPath+wsproxy.FlowComponent:
 			wsProxy.Handler().ServeHTTP(writer, request)
 		default:
 			httpHandler.ServeHTTP(writer, request)

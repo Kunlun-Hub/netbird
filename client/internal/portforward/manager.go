@@ -20,7 +20,7 @@ const (
 	defaultMappingTTL   = 2 * time.Hour
 	healthCheckInterval = 1 * time.Minute
 	discoveryTimeout    = 10 * time.Second
-	mappingDescription  = "NetBird"
+	mappingDescription  = "Cloink"
 )
 
 // upnpErrPermanentLeaseOnly matches UPnP error 725 in SOAP fault XML,

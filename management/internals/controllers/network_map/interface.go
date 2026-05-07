@@ -9,6 +9,7 @@ import (
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/route"
 )
 
 const (
@@ -38,4 +39,8 @@ type Controller interface {
 	OnPeerDisconnected(ctx context.Context, accountID string, peerID string)
 
 	TrackEphemeralPeer(ctx context.Context, peer *nbpeer.Peer)
+	
+	OnRouteAddedUpdNetworkMapCache(account *types.Account, r *route.Route) ([]string, error)
+	OnRouteUpdatedUpdNetworkMapCache(account *types.Account, oldRoute, newRoute *route.Route) ([]string, error)
+	OnRouteDeletedUpdNetworkMapCache(account *types.Account, r *route.Route) ([]string, error)
 }

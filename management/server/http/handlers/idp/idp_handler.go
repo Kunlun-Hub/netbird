@@ -175,11 +175,16 @@ func toAPIResponse(idp *types.IdentityProvider) api.IdentityProvider {
 	resp := api.IdentityProvider{
 		Type:     api.IdentityProviderType(idp.Type),
 		Name:     idp.Name,
-		Issuer:   idp.Issuer,
 		ClientId: idp.ClientID,
 	}
 	if idp.ID != "" {
 		resp.Id = &idp.ID
+	}
+	if idp.Issuer != "" {
+		resp.Issuer = &idp.Issuer
+	}
+	if idp.AgentID != "" {
+		resp.AgentId = &idp.AgentID
 	}
 	// Note: ClientSecret is never returned in responses for security
 	return resp
@@ -189,8 +194,16 @@ func fromAPIRequest(req *api.IdentityProviderRequest) *types.IdentityProvider {
 	return &types.IdentityProvider{
 		Type:         types.IdentityProviderType(req.Type),
 		Name:         req.Name,
-		Issuer:       req.Issuer,
+		Issuer:       stringValue(req.Issuer),
 		ClientID:     req.ClientId,
 		ClientSecret: req.ClientSecret,
+		AgentID:      stringValue(req.AgentId),
 	}
+}
+
+func stringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }

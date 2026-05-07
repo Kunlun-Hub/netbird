@@ -957,6 +957,10 @@ func (e *Engine) handleFlowUpdate(config *mgmProto.FlowConfig) error {
 		return nil
 	}
 
+	if e.statusRecorder != nil {
+		e.statusRecorder.UpdateFlow(config.GetEnabled(), config.GetUrl())
+	}
+
 	flowConfig, err := toFlowLoggerConfig(config)
 	if err != nil {
 		return err
@@ -977,6 +981,15 @@ func toFlowLoggerConfig(config *mgmProto.FlowConfig) (*nftypes.FlowConfig, error
 		Interval:           config.GetInterval().AsDuration(),
 		DNSCollection:      config.GetDnsCollection(),
 		ExitNodeCollection: config.GetExitNodeCollection(),
+		LocalStorageEnabled: config.GetFlowLocalStorageEnabled(),
+		LocalStoragePath:    config.GetFlowLocalStoragePath(),
+		LocalStorageMaxSizeMB: int(config.GetFlowLocalStorageMaxSizeMb()),
+		LocalStorageMaxFiles: int(config.GetFlowLocalStorageMaxFiles()),
+		SyslogEnabled:    config.GetFlowSyslogEnabled(),
+		SyslogServer:     config.GetFlowSyslogServer(),
+		SyslogProtocol:   config.GetFlowSyslogProtocol(),
+		SyslogFacility:   config.GetFlowSyslogFacility(),
+		SyslogTag:        config.GetFlowSyslogTag(),
 	}, nil
 }
 
@@ -1807,6 +1820,11 @@ func (e *Engine) newDnsServer(dnsConfig *nbdns.Config) (dns.Server, error) {
 		return e.dnsServer, nil
 	}
 
+	var flowLogger nftypes.FlowLogger
+	if e.flowManager != nil {
+		flowLogger = e.flowManager.GetLogger()
+	}
+
 	switch runtime.GOOS {
 	case "android":
 		dnsServer := dns.NewDefaultServerPermanentUpstream(
@@ -1833,6 +1851,7 @@ func (e *Engine) newDnsServer(dnsConfig *nbdns.Config) (dns.Server, error) {
 			StatusRecorder: e.statusRecorder,
 			StateManager:   e.stateManager,
 			DisableSys:     e.config.DisableDNS,
+			FlowLogger:     flowLogger,
 		})
 		if err != nil {
 			return nil, err

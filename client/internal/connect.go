@@ -135,7 +135,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 				rec.PublishEvent(
 					cProto.SystemEvent_CRITICAL, cProto.SystemEvent_SYSTEM,
 					"panic occurred",
-					"The Netbird service panicked. Please restart the service and submit a bug report with the client logs.",
+					"The Cloink service panicked. Please restart the service and submit a bug report with the client logs.",
 					nil,
 				)
 			}
@@ -151,7 +151,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		}
 	}()
 
-	log.Infof("starting NetBird client version %s on %s/%s", version.NetbirdVersion(), runtime.GOOS, runtime.GOARCH)
+	log.Infof("starting Cloink client version %s on %s/%s", version.NetbirdVersion(), runtime.GOOS, runtime.GOARCH)
 
 	nbnet.Init()
 
@@ -406,7 +406,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 
 		backOff.Reset()
 
-		log.Info("stopped NetBird client")
+		log.Info("stopped Cloink client")
 
 		if _, err := state.Status(); errors.Is(err, ErrResetConnection) {
 			return err
@@ -682,7 +682,7 @@ func closeConnWithLog(conn *net.UDPConn) {
 	startClosing := time.Now()
 	err := conn.Close()
 	if err != nil {
-		log.Warnf("closing probe port %d failed: %v. NetBird will still attempt to use this port for connection.", conn.LocalAddr().(*net.UDPAddr).Port, err)
+		log.Warnf("closing probe port %d failed: %v. Cloink will still attempt to use this port for connection.", conn.LocalAddr().(*net.UDPAddr).Port, err)
 	}
 	if time.Since(startClosing) > time.Second {
 		log.Warnf("closing the testing port %d took %s. Usually it is safe to ignore, but continuous warnings may indicate a problem.", conn.LocalAddr().(*net.UDPAddr).Port, time.Since(startClosing))

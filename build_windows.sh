@@ -1,10 +1,50 @@
 #!/bin/bash
 # NetBird Windows AMD64 GUI 构建脚本
-# 包含 opengl32.dll 和 wintun.dll
 
 set -e
 
+# 添加 Go 到 PATH
+export PATH=/root/cloink/go/bin:$PATH
+
 echo "=== NetBird Windows AMD64 GUI 构建脚本 ==="
+
+normalize_windows_version() {
+    local raw="$1"
+    local cleaned core
+    local -a parts numeric_parts
+
+    cleaned="${raw#v}"
+    core="${cleaned%%[-+]*}"
+
+    IFS='.' read -r -a parts <<< "$core"
+    for part in "${parts[@]}"; do
+        if [[ "$part" =~ ^[0-9]+$ ]]; then
+            numeric_parts+=("$part")
+        else
+            break
+        fi
+    done
+
+    while [[ ${#numeric_parts[@]} -lt 4 ]]; do
+        numeric_parts+=("0")
+    done
+
+    printf "%s.%s.%s.%s" \
+        "${numeric_parts[0]:-0}" \
+        "${numeric_parts[1]:-0}" \
+        "${numeric_parts[2]:-0}" \
+        "${numeric_parts[3]:-0}"
+}
+
+normalize_msi_version() {
+    local normalized="$1"
+    local -a parts
+    IFS='.' read -r -a parts <<< "$normalized"
+    printf "%s.%s.%s" \
+        "${parts[0]:-0}" \
+        "${parts[1]:-0}" \
+        "${parts[2]:-0}"
+}
 
 # 显示帮助信息
 show_help() {
@@ -67,12 +107,26 @@ if [[ -z "$VERSION" ]]; then
 else
     export APPVER="$VERSION"
 fi
+export APPVER_NSI="$(normalize_windows_version "$APPVER")"
+export APPVER_MSI="$(normalize_msi_version "$APPVER_NSI")"
 echo "版本号: $APPVER"
+echo "NSIS 版本号: $APPVER_NSI"
+echo "MSI 版本号: $APPVER_MSI"
 
 # 创建输出目录
 rm -rf dist/netbird_windows_amd64
 mkdir -p dist/netbird_windows_amd64
 echo "清理并创建输出目录: dist/netbird_windows_amd64"
+
+# 复制指定版本的 opengl32.dll
+echo "=== 准备 opengl32.dll ==="
+if [ -f "/root/cloink/netbird/opengl32/opengl32.dll" ]; then
+    cp /root/cloink/netbird/opengl32/opengl32.dll dist/netbird_windows_amd64/opengl32.dll
+    echo "opengl32.dll 已复制到输出目录"
+else
+    echo "错误: 未找到 /root/cloink/netbird/opengl32/opengl32.dll"
+    exit 1
+fi
 
 # 下载 wintun.dll
 echo "=== 下载 wintun.dll ==="
@@ -86,9 +140,6 @@ else
     echo "wintun.dll 已存在，跳过下载"
 fi
 
-# 注意：不再包含 Mesa3D OpenGL DLL，避免冲突
-# Windows 系统自带 OpenGL 支持
-
 # 编译 UI 客户端
 echo "=== 编译 Windows UI 客户端 ==="
 if command -v x86_64-w64-mingw32-gcc &> /dev/null; then
@@ -96,14 +147,14 @@ if command -v x86_64-w64-mingw32-gcc &> /dev/null; then
     rm -f dist/netbird_windows_amd64/cloink-ui.exe
     echo "已删除旧的 cloink-ui.exe"
     
-    # 生成 Windows 资源文件（包含图标）
-    export PATH=$PATH:$(go env GOPATH)/bin
-    if command -v rsrc &> /dev/null; then
-        echo "生成 Windows 资源文件..."
-        rsrc -arch amd64 -ico client/ui/assets/netbird.ico -o client/ui/rsrc_windows_amd64.syso
-        echo "Windows 资源文件生成完成"
+    # 生成 Windows 资源文件（包含图标和提权 manifest）
+    if command -v x86_64-w64-mingw32-windres &> /dev/null; then
+        echo "生成 UI Windows 资源文件..."
+        x86_64-w64-mingw32-windres client/ui/resources.rc -O coff -o client/ui/rsrc_windows_amd64.syso
+        echo "UI Windows 资源文件生成完成"
     else
-        echo "警告: rsrc 工具未找到，图标可能不会显示"
+        echo "错误: x86_64-w64-mingw32-windres 未安装"
+        exit 1
     fi
     
     CC=x86_64-w64-mingw32-gcc CGO_ENABLED=1 GOOS=windows GOARCH=amd64 \
@@ -127,11 +178,22 @@ echo "=== 编译 Windows CLI 客户端 ==="
 rm -f dist/netbird_windows_amd64/cloink.exe
 echo "已删除旧的 cloink.exe"
 
+if command -v x86_64-w64-mingw32-windres &> /dev/null; then
+    echo "生成 CLI Windows 资源文件..."
+    x86_64-w64-mingw32-windres client/resources_cli.rc -O coff -o client/rsrc_windows_amd64.syso
+    echo "CLI Windows 资源文件生成完成"
+else
+    echo "错误: x86_64-w64-mingw32-windres 未安装"
+    exit 1
+fi
+
 CGO_ENABLED=0 GOOS=windows GOARCH=amd64 \
     go build -o dist/netbird_windows_amd64/cloink.exe \
     -ldflags "-s -w -X github.com/netbirdio/netbird/version.version=$APPVER" \
     ./client/
 echo "CLI 客户端编译完成"
+
+rm -f client/rsrc_windows_amd64.syso
 
 # 检查文件
 echo "=== 检查输出文件 ==="
@@ -145,11 +207,12 @@ if [ "$BUILD_NSIS" = true ]; then
     echo "正在构建 NSIS 安装包..."
     if command -v makensis &> /dev/null; then
         # 检查 NSIS 插件
-        if [ -f "/usr/share/nsis/Plugins/amd64-unicode/ShellExecAsUser.dll" ] && [ -f "/usr/share/nsis/Plugins/amd64-unicode/EnVar.dll" ]; then
+        if [ -f "nsis-plugins/amd64-unicode/ShellExecAsUser.dll" ] && [ -f "nsis-plugins/amd64-unicode/EnVar.dll" ]; then
             echo "NSIS 插件已就绪"
-            # 编译安装程序
-            echo "使用版本号: $APPVER"
-            (cd client && makensis -V4 installer.nsis)
+            rm -f cloink-installer.exe dist/cloink-installer.exe
+            # 编译安装程序 - 使用本地插件目录
+            echo "使用版本号: $APPVER (NSIS: $APPVER_NSI)"
+            (cd client && makensis -V4 -X"!addplugindir ../nsis-plugins/x86-unicode" -X"!addplugindir ../nsis-plugins/amd64-unicode" -X"!addplugindir ../nsis-plugins/x86-ansi" installer.nsis)
             
             if [ -f "cloink-installer.exe" ]; then
                 mv -f cloink-installer.exe dist/
@@ -164,9 +227,7 @@ if [ "$BUILD_NSIS" = true ]; then
             echo "1. EnVar 插件"
             echo "2. ShellExecAsUser 插件"
             echo ""
-            echo "安装命令:"
-            echo "cd /tmp && curl -L -o envar.zip https://nsis.sourceforge.io/mediawiki/images/7/7f/EnVar_plugin.zip && sudo unzip -o envar.zip -d /usr/share/nsis/"
-            echo "cd /tmp && curl -L -o shellexec.7z https://nsis.sourceforge.io/mediawiki/images/6/68/ShellExecAsUser_amd64-Unicode.7z && 7z x shellexec.7z -o/tmp/shellexec -y && sudo cp /tmp/shellexec/ShellExecAsUser.dll /usr/share/nsis/Plugins/amd64-unicode/"
+            echo "插件应位于: nsis-plugins/amd64-unicode/"
         fi
     else
         echo "错误: makensis 未安装"
@@ -178,6 +239,7 @@ fi
 if [ "$BUILD_MSI" = true ]; then
     echo "正在构建 MSI 安装包..."
     if command -v wix &> /dev/null || command -v candle &> /dev/null || command -v light &> /dev/null; then
+        rm -f dist/cloink-installer.msi dist/cloink-installer.wixobj
         # 检查 WiX 是否可用
         if command -v wix &> /dev/null; then
             echo "使用 WiX v4 构建..."

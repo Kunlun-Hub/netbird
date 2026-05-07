@@ -3,18 +3,29 @@ package dns
 import (
 	"fmt"
 	"net"
+	"net/netip"
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
+	"github.com/google/uuid"
 	"github.com/miekg/dns"
 	"golang.zx2c4.com/wireguard/tun"
+
+	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 )
 
 type responseWriter struct {
-	local  net.Addr
-	remote net.Addr
-	packet gopacket.Packet
-	device tun.Device
+	local       net.Addr
+	remote      net.Addr
+	packet      gopacket.Packet
+	device      tun.Device
+	flowID      uuid.UUID
+	dnsInfo     *nftypes.DNSInfo
+	flowLogger  nftypes.FlowLogger
+	srcIP       netip.Addr
+	dstIP       netip.Addr
+	srcPort     uint16
+	dstPort     uint16
 }
 
 // LocalAddr returns the net.Addr of the server
@@ -29,6 +40,14 @@ func (r *responseWriter) RemoteAddr() net.Addr {
 
 // WriteMsg writes a reply back to the client.
 func (r *responseWriter) WriteMsg(msg *dns.Msg) error {
+	// 解析响应的 DNS 信息
+	if r.dnsInfo != nil {
+		// 合并响应信息
+		respInfo := nftypes.ParseDNSInfo(r.packMsg(msg))
+		r.dnsInfo = nftypes.MergeDNSInfo(r.dnsInfo, respInfo)
+		r.storeDNSEvent()
+	}
+
 	buff, err := msg.Pack()
 	if err != nil {
 		return fmt.Errorf("pack: %w", err)
@@ -38,6 +57,37 @@ func (r *responseWriter) WriteMsg(msg *dns.Msg) error {
 		return fmt.Errorf("write: %w", err)
 	}
 	return nil
+}
+
+// packMsg 将 dns.Msg 打包成二进制
+func (r *responseWriter) packMsg(msg *dns.Msg) []byte {
+	buff, _ := msg.Pack()
+	return buff
+}
+
+// storeDNSEvent 存储 DNS 事件
+func (r *responseWriter) storeDNSEvent() {
+	if r.flowLogger == nil || r.dnsInfo == nil {
+		return
+	}
+
+	fields := nftypes.EventFields{
+		FlowID:      r.flowID,
+		Type:        nftypes.TypeEnd,
+		Direction:   nftypes.Ingress,
+		Protocol:    nftypes.UDP,
+		SourceIP:    r.srcIP,
+		DestIP:      r.dstIP,
+		SourcePort:  r.srcPort,
+		DestPort:    r.dstPort,
+		RxBytes:     0,
+		TxBytes:     0,
+		RxPackets:   0,
+		TxPackets:   0,
+		DNSInfo:     r.dnsInfo,
+	}
+
+	r.flowLogger.StoreEvent(fields)
 }
 
 // Write writes a raw buffer back to the client.

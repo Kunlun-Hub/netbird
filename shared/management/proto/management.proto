@@ -292,6 +292,19 @@ message FlowConfig {
   bool exitNodeCollection = 7;
   // dnsCollection determines if DNS event collection should be enabled
   bool dnsCollection = 8;
+
+  // Local storage configuration
+  bool flowLocalStorageEnabled = 9;
+  string flowLocalStoragePath = 10;
+  int32 flowLocalStorageMaxSizeMb = 11;
+  int32 flowLocalStorageMaxFiles = 12;
+
+  // Syslog configuration
+  bool flowSyslogEnabled = 13;
+  string flowSyslogServer = 14;
+  string flowSyslogProtocol = 15;
+  string flowSyslogFacility = 16;
+  string flowSyslogTag = 17;
 }
 
 // JWTConfig represents JWT authentication configuration for validating tokens.

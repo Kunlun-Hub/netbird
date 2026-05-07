@@ -145,7 +145,7 @@ func (p *SSHProxy) handleSSHSession(session ssh.Session) {
 
 	sshClient, err := p.getOrCreateBackendClient(session.Context(), session.User())
 	if err != nil {
-		_, _ = fmt.Fprintf(p.stderr, "SSH connection to NetBird server failed: %v\n", err)
+		_, _ = fmt.Fprintf(p.stderr, "SSH connection to Cloink server failed: %v\n", err)
 		return
 	}
 

@@ -31,7 +31,7 @@ print_error() {
 # 默认配置
 IMAGE_NAME="${IMAGE_NAME:-ohoimager/cloink}"
 IMAGE_TAG="${IMAGE_TAG:-latest}"
-VERSION="${VERSION:-0.68.3}"
+VERSION="${VERSION:-0.68.0}"
 REGISTRY="${REGISTRY:-}"
 PUSH="${PUSH:-false}"
 CLEANUP="${CLEANUP:-true}"

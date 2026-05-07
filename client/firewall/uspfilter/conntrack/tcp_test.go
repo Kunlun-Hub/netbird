@@ -1,10 +1,12 @@
 package conntrack
 
 import (
+	"encoding/binary"
 	"net/netip"
 	"testing"
 	"time"
 
+	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -359,6 +361,69 @@ func TestTCPDataTransfer(t *testing.T) {
 		assert.Equal(t, uint64(4), conn.PacketsTx.Load())
 		assert.Equal(t, uint64(3), conn.PacketsRx.Load())
 	})
+}
+
+func TestTCPDNSReassemblyAcrossSegments(t *testing.T) {
+	tracker := NewTCPTracker(DefaultTCPTimeout, logger, flowLogger)
+	defer tracker.Close()
+
+	srcIP := netip.MustParseAddr("100.64.0.1")
+	dstIP := netip.MustParseAddr("100.64.0.2")
+	srcPort := uint16(12345)
+	dstPort := uint16(53)
+
+	establishConnection(t, tracker, srcIP, dstIP, srcPort, dstPort)
+
+	query := new(dns.Msg)
+	query.SetQuestion("split.example.com.", dns.TypeAAAA)
+	queryFrame := mustTCPDNSFrame(t, query)
+	querySplit := 7
+
+	tracker.TrackOutbound(srcIP, dstIP, srcPort, dstPort, TCPPush|TCPAck, len(queryFrame[:querySplit]), queryFrame[:querySplit])
+	conn, exists := tracker.GetConnection(srcIP, srcPort, dstIP, dstPort)
+	require.True(t, exists)
+	require.Nil(t, conn.DNSInfo)
+	require.NotEmpty(t, conn.DNSForwardBuffer)
+
+	tracker.TrackOutbound(srcIP, dstIP, srcPort, dstPort, TCPPush|TCPAck, len(queryFrame[querySplit:]), queryFrame[querySplit:])
+	conn, exists = tracker.GetConnection(srcIP, srcPort, dstIP, dstPort)
+	require.True(t, exists)
+	require.NotNil(t, conn.DNSInfo)
+	assert.Equal(t, "split.example.com", conn.DNSInfo.Domain)
+	assert.Equal(t, "AAAA", conn.DNSInfo.QueryType)
+	assert.Empty(t, conn.DNSForwardBuffer)
+
+	response := new(dns.Msg)
+	response.SetReply(query)
+	response.Answer = append(response.Answer, &dns.AAAA{
+		Hdr:  dns.RR_Header{Name: "split.example.com.", Rrtype: dns.TypeAAAA, Class: dns.ClassINET, Ttl: 60},
+		AAAA: netip.MustParseAddr("2001:db8::10").AsSlice(),
+	})
+	responseFrame := mustTCPDNSFrame(t, response)
+	responseSplit := 9
+
+	valid := tracker.IsValidInbound(dstIP, srcIP, dstPort, srcPort, TCPPush|TCPAck, len(responseFrame[:responseSplit]), responseFrame[:responseSplit])
+	require.True(t, valid)
+	assert.Empty(t, conn.DNSInfo.Answers)
+	assert.NotEmpty(t, conn.DNSReverseBuffer)
+
+	valid = tracker.IsValidInbound(dstIP, srcIP, dstPort, srcPort, TCPPush|TCPAck, len(responseFrame[responseSplit:]), responseFrame[responseSplit:])
+	require.True(t, valid)
+	assert.Contains(t, conn.DNSInfo.Answers, "2001:db8::10")
+	assert.Empty(t, conn.DNSReverseBuffer)
+}
+
+func mustTCPDNSFrame(t *testing.T, msg *dns.Msg) []byte {
+	t.Helper()
+
+	raw, err := msg.Pack()
+	require.NoError(t, err)
+	require.LessOrEqual(t, len(raw), 65535)
+
+	frame := make([]byte, 2+len(raw))
+	binary.BigEndian.PutUint16(frame[:2], uint16(len(raw)))
+	copy(frame[2:], raw)
+	return frame
 }
 
 func TestTCPHalfClosedConnections(t *testing.T) {

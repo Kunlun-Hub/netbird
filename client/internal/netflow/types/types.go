@@ -89,6 +89,14 @@ type EventFields struct {
 	TxPackets        uint64
 	RxBytes          uint64
 	TxBytes          uint64
+	DNSInfo          *DNSInfo
+}
+
+type DNSInfo struct {
+	Domain    string
+	QueryType string
+	Answers   []string
+	RCode     string
 }
 
 type FlowConfig struct {
@@ -100,6 +108,17 @@ type FlowConfig struct {
 	TokenSignature     string
 	DNSCollection      bool
 	ExitNodeCollection bool
+
+	LocalStorageEnabled   bool
+	LocalStoragePath      string
+	LocalStorageMaxSizeMB int
+	LocalStorageMaxFiles  int
+
+	SyslogEnabled  bool
+	SyslogServer   string
+	SyslogProtocol string
+	SyslogFacility string
+	SyslogTag      string
 }
 
 type FlowManager interface {

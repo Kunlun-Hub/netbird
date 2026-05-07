@@ -76,8 +76,9 @@ func validateIdentityProviderConfig(ctx context.Context, idpConfig *types.Identi
 		return status.Errorf(status.InvalidArgument, "%s", err.Error())
 	}
 
-	// Validate the issuer by calling the OIDC discovery endpoint
-	if idpConfig.Issuer != "" {
+	// Validate the issuer by calling the OIDC discovery endpoint.
+	// WeChat Work third-party login does not expose an OIDC issuer.
+	if idpConfig.Type != types.IdentityProviderTypeWeChatWork && idpConfig.Issuer != "" {
 		if err := validateOIDCIssuer(ctx, idpConfig.Issuer); err != nil {
 			return status.Errorf(status.InvalidArgument, "%s", err.Error())
 		}
@@ -258,6 +259,7 @@ func connectorConfigToIdentityProvider(conn *dex.ConnectorConfig, accountID stri
 		Issuer:       conn.Issuer,
 		ClientID:     conn.ClientID,
 		ClientSecret: conn.ClientSecret,
+		AgentID:      conn.AgentID,
 	}
 }
 
@@ -270,12 +272,14 @@ func identityProviderToConnectorConfig(idpConfig *types.IdentityProvider) *dex.C
 		Issuer:       idpConfig.Issuer,
 		ClientID:     idpConfig.ClientID,
 		ClientSecret: idpConfig.ClientSecret,
+		AgentID:      idpConfig.AgentID,
 	}
 }
 
 // generateIdentityProviderID generates a unique ID for an identity provider.
-// For specific provider types (okta, zitadel, entra, google, pocketid, microsoft),
-// the ID is prefixed with the type name. Generic OIDC providers get no prefix.
+// For specific provider types (okta, zitadel, entra, google, pocketid, microsoft,
+// authentik, keycloak, wechatwork), the ID is prefixed with the type name.
+// Generic OIDC providers get no prefix.
 func generateIdentityProviderID(idpType types.IdentityProviderType) string {
 	id := xid.New().String()
 
@@ -296,6 +300,8 @@ func generateIdentityProviderID(idpType types.IdentityProviderType) string {
 		return "authentik-" + id
 	case types.IdentityProviderTypeKeycloak:
 		return "keycloak-" + id
+	case types.IdentityProviderTypeWeChatWork:
+		return "wechatwork-" + id
 	default:
 		// Generic OIDC - no prefix
 		return id
