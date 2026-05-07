@@ -9,7 +9,7 @@ import (
 
 const (
 	DefaultPageSize = 50
-	MaxPageSize     = 500
+	MaxPageSize     = 10000
 	DefaultSortBy   = "timestamp"
 	DefaultSortOrd  = "desc"
 )
