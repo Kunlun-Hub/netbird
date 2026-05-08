@@ -12,7 +12,7 @@ import (
 )
 
 func TestStore(t *testing.T) {
-	logger := logger.New(nil, netip.Prefix{})
+	logger := logger.New(nil, netip.Prefix{}, netip.Prefix{})
 	logger.UpdateFlowStorageConfig(true, t.TempDir(), 1, 10, false, "", "", "", "")
 	logger.Enable()
 
@@ -73,7 +73,7 @@ func TestLocalStorageRestoresPendingEvents(t *testing.T) {
 	wgNet := netip.MustParsePrefix("100.64.0.0/10")
 	flowID := uuid.New()
 
-	first := logger.New(nil, wgNet)
+	first := logger.New(nil, wgNet, netip.Prefix{})
 	first.UpdateFlowStorageConfig(true, dir, 1, 10, false, "", "", "", "")
 	first.Enable()
 	time.Sleep(time.Millisecond)
@@ -89,7 +89,7 @@ func TestLocalStorageRestoresPendingEvents(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 	first.Close()
 
-	second := logger.New(nil, wgNet)
+	second := logger.New(nil, wgNet, netip.Prefix{})
 	second.UpdateFlowStorageConfig(true, dir, 1, 10, false, "", "", "", "")
 
 	allEvents := second.GetEvents()

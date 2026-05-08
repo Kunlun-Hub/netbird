@@ -2,7 +2,6 @@ package system
 
 import (
 	"context"
-	"net"
 	"net/netip"
 	"strings"
 
@@ -70,6 +69,7 @@ type Info struct {
 	DisableFirewall     bool
 	BlockLANAccess      bool
 	BlockInbound        bool
+	DisableIPv6         bool
 
 	LazyConnectionEnabled bool
 
@@ -84,7 +84,7 @@ func (i *Info) SetFlags(
 	rosenpassEnabled, rosenpassPermissive bool,
 	serverSSHAllowed *bool,
 	disableClientRoutes, disableServerRoutes,
-	disableDNS, disableFirewall, blockLANAccess, blockInbound, lazyConnectionEnabled bool,
+	disableDNS, disableFirewall, blockLANAccess, blockInbound, disableIPv6, lazyConnectionEnabled bool,
 	enableSSHRoot, enableSSHSFTP, enableSSHLocalPortForwarding, enableSSHRemotePortForwarding *bool,
 	disableSSHAuth *bool,
 ) {
@@ -100,6 +100,7 @@ func (i *Info) SetFlags(
 	i.DisableFirewall = disableFirewall
 	i.BlockLANAccess = blockLANAccess
 	i.BlockInbound = blockInbound
+	i.DisableIPv6 = disableIPv6
 
 	i.LazyConnectionEnabled = lazyConnectionEnabled
 
@@ -143,59 +144,6 @@ func extractDeviceName(ctx context.Context, defaultName string) string {
 		return defaultName
 	}
 	return v
-}
-
-func networkAddresses() ([]NetworkAddress, error) {
-	interfaces, err := net.Interfaces()
-	if err != nil {
-		return nil, err
-	}
-
-	var netAddresses []NetworkAddress
-	for _, iface := range interfaces {
-		if iface.Flags&net.FlagUp == 0 {
-			continue
-		}
-		if iface.HardwareAddr.String() == "" {
-			continue
-		}
-		addrs, err := iface.Addrs()
-		if err != nil {
-			continue
-		}
-
-		for _, address := range addrs {
-			ipNet, ok := address.(*net.IPNet)
-			if !ok {
-				continue
-			}
-
-			if ipNet.IP.IsLoopback() {
-				continue
-			}
-
-			netAddr := NetworkAddress{
-				NetIP: netip.MustParsePrefix(ipNet.String()),
-				Mac:   iface.HardwareAddr.String(),
-			}
-
-			if isDuplicated(netAddresses, netAddr) {
-				continue
-			}
-
-			netAddresses = append(netAddresses, netAddr)
-		}
-	}
-	return netAddresses, nil
-}
-
-func isDuplicated(addresses []NetworkAddress, addr NetworkAddress) bool {
-	for _, duplicated := range addresses {
-		if duplicated.NetIP == addr.NetIP {
-			return true
-		}
-	}
-	return false
 }
 
 // GetInfoWithChecks retrieves and parses the system information with applied checks.

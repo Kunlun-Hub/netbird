@@ -216,6 +216,7 @@ func newDefaultServer(
 	ctx, stop := context.WithCancel(ctx)
 
 	mgmtCacheResolver := mgmt.NewResolver()
+	mgmtCacheResolver.SetChainResolver(handlerChain, PriorityUpstream)
 
 	defaultServer := &DefaultServer{
 		ctx:               ctx,
@@ -414,7 +415,7 @@ func (s *DefaultServer) Stop() {
 		log.Errorf("failed to disable DNS: %v", err)
 	}
 
-	maps.Clear(s.extraDomains)
+	clear(s.extraDomains)
 }
 
 func (s *DefaultServer) disableDNS() (retErr error) {

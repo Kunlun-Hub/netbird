@@ -42,6 +42,7 @@ import (
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/ui/desktop"
 	"github.com/netbirdio/netbird/client/ui/event"
+	"github.com/netbirdio/netbird/client/ui/notifier"
 	"github.com/netbirdio/netbird/client/ui/process"
 	"github.com/netbirdio/netbird/util"
 
@@ -86,15 +87,15 @@ func main() {
 
 	// Create the service client (this also builds the settings or networks UI if requested).
 	client := newServiceClient(&newServiceClientArgs{
-		addr:              flags.daemonAddr,
-		logFile:           logFile,
-		app:               a,
-		showSettings:      flags.showSettings,
-		showNetworks:      flags.showNetworks,
-		showLoginURL:      flags.showLoginURL,
-		showDebug:         flags.showDebug,
-		showProfiles:      flags.showProfiles,
-		showQuickActions:  flags.showQuickActions,
+		addr:             flags.daemonAddr,
+		logFile:          logFile,
+		app:              a,
+		showSettings:     flags.showSettings,
+		showNetworks:     flags.showNetworks,
+		showLoginURL:     flags.showLoginURL,
+		showDebug:        flags.showDebug,
+		showProfiles:     flags.showProfiles,
+		showQuickActions: flags.showQuickActions,
 	})
 
 	// Watch for theme/settings changes to update the icon.
@@ -174,7 +175,7 @@ func watchSettingsChanges(a fyne.App, client *serviceClient) {
 
 // showErrorMessage displays an error message in a simple window.
 func showErrorMessage(msg string) {
-		a := app.New()
+	a := app.New()
 	w := a.NewWindow("Cloink Error")
 	label := widget.NewLabel(msg)
 	label.Wrapping = fyne.TextWrapWord
@@ -252,6 +253,7 @@ type serviceClient struct {
 
 	// application with main windows.
 	app                  fyne.App
+	notifier             notifier.Notifier
 	wSettings            fyne.Window
 	showAdvancedSettings bool
 	sendNotification     bool
@@ -270,6 +272,7 @@ type serviceClient struct {
 	sDisableDNS                 *widget.Check
 	sDisableClientRoutes        *widget.Check
 	sDisableServerRoutes        *widget.Check
+	sDisableIPv6                *widget.Check
 	sBlockLANAccess             *widget.Check
 	sEnableSSHRoot              *widget.Check
 	sEnableSSHSFTP              *widget.Check
@@ -290,6 +293,7 @@ type serviceClient struct {
 	disableDNS                 bool
 	disableClientRoutes        bool
 	disableServerRoutes        bool
+	disableIPv6                bool
 	blockLANAccess             bool
 	enableSSHRoot              bool
 	enableSSHSFTP              bool
@@ -331,15 +335,15 @@ type menuHandler struct {
 }
 
 type newServiceClientArgs struct {
-	addr              string
-	logFile           string
-	app               fyne.App
-	showSettings      bool
-	showNetworks      bool
-	showDebug         bool
-	showLoginURL      bool
-	showProfiles      bool
-	showQuickActions  bool
+	addr             string
+	logFile          string
+	app              fyne.App
+	showSettings     bool
+	showNetworks     bool
+	showDebug        bool
+	showLoginURL     bool
+	showProfiles     bool
+	showQuickActions bool
 }
 
 // newServiceClient instance constructor
@@ -352,6 +356,7 @@ func newServiceClient(args *newServiceClientArgs) *serviceClient {
 		cancel:           cancel,
 		addr:             args.addr,
 		app:              args.app,
+		notifier:         notifier.New(args.app),
 		logFile:          args.logFile,
 		sendNotification: false,
 
@@ -452,6 +457,7 @@ func (s *serviceClient) showSettingsUI() {
 	s.sDisableDNS = widget.NewCheck("保持系统DNS设置不变", nil)
 	s.sDisableClientRoutes = widget.NewCheck("此节点不会路由流量到其他节点", nil)
 	s.sDisableServerRoutes = widget.NewCheck("此节点不会作为路由服务器工作", nil)
+	s.sDisableIPv6 = widget.NewCheck("禁用 IPv6 覆盖地址", nil)
 	s.sBlockLANAccess = widget.NewCheck("作为出口节点时阻止本地网络访问", nil)
 	s.sEnableSSHRoot = widget.NewCheck("启用SSH根登录", nil)
 	s.sEnableSSHSFTP = widget.NewCheck("启用SSH SFTP", nil)
@@ -569,6 +575,7 @@ func (s *serviceClient) hasSettingsChanged(iMngURL string, port, mtu int64) bool
 		s.disableDNS != s.sDisableDNS.Checked ||
 		s.disableClientRoutes != s.sDisableClientRoutes.Checked ||
 		s.disableServerRoutes != s.sDisableServerRoutes.Checked ||
+		s.disableIPv6 != s.sDisableIPv6.Checked ||
 		s.blockLANAccess != s.sBlockLANAccess.Checked ||
 		s.hasSSHChanges()
 }
@@ -621,6 +628,7 @@ func (s *serviceClient) buildSetConfigRequest(iMngURL string, port, mtu int64) (
 	req.DisableDns = &s.sDisableDNS.Checked
 	req.DisableClientRoutes = &s.sDisableClientRoutes.Checked
 	req.DisableServerRoutes = &s.sDisableServerRoutes.Checked
+	req.DisableIpv6 = &s.sDisableIPv6.Checked
 	req.BlockLanAccess = &s.sBlockLANAccess.Checked
 
 	req.EnableSSHRoot = &s.sEnableSSHRoot.Checked
@@ -660,24 +668,23 @@ func (s *serviceClient) sendConfigUpdate(req *proto.SetConfigRequest) error {
 		return fmt.Errorf("set config: %w", err)
 	}
 
-	// Reconnect if connected to apply the new settings
+	// Reconnect if connected to apply the new settings.
+	// Use a background context so the reconnect outlives the settings window.
 	go func() {
-		status, err := conn.Status(s.ctx, &proto.StatusRequest{})
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		status, err := conn.Status(ctx, &proto.StatusRequest{})
 		if err != nil {
-			log.Errorf("get service status: %v", err)
+			log.Errorf("failed to get service status: %v", err)
 			return
 		}
 		if status.Status == string(internal.StatusConnected) {
-			// run down & up
-			_, err = conn.Down(s.ctx, &proto.DownRequest{})
-			if err != nil {
-				log.Errorf("down service: %v", err)
+			if _, err = conn.Down(ctx, &proto.DownRequest{}); err != nil {
+				log.Errorf("failed to stop service: %v", err)
 			}
-
-			_, err = conn.Up(s.ctx, &proto.UpRequest{})
-			if err != nil {
-				log.Errorf("up service: %v", err)
-				return
+			// TODO: wait for the service to be idle before calling Up, or use a fresh connection
+			if _, err = conn.Up(ctx, &proto.UpRequest{}); err != nil {
+				log.Errorf("failed to start service: %v", err)
 			}
 		}
 	}()
@@ -714,6 +721,7 @@ func (s *serviceClient) getNetworkForm() *widget.Form {
 			{Text: "禁用 DNS", Widget: s.sDisableDNS},
 			{Text: "禁用客户端路由", Widget: s.sDisableClientRoutes},
 			{Text: "禁用服务器路由", Widget: s.sDisableServerRoutes},
+			{Text: "禁用 IPv6", Widget: s.sDisableIPv6},
 			{Text: "禁用局域网访问", Widget: s.sBlockLANAccess},
 		},
 	}
@@ -878,7 +886,7 @@ func (s *serviceClient) updateStatus() error {
 		if err != nil {
 			log.Errorf("get service status: %v", err)
 			if s.connected {
-				s.app.SendNotification(fyne.NewNotification("错误", "连接服务丢失"))
+				s.notifier.Send("错误", "连接服务丢失")
 			}
 			s.setDisconnectedStatus()
 			return err
@@ -1040,14 +1048,11 @@ func (s *serviceClient) onTrayReady() {
 		}
 	}()
 
-	s.eventManager = event.NewManager(s.app, s.addr)
+	s.eventManager = event.NewManager(s.notifier, s.addr)
 	s.eventManager.SetNotificationsEnabled(s.mNotifications.Checked())
 
 	go s.eventManager.Start(s.ctx)
 	go s.eventHandler.listen(s.ctx)
-
-	// Start sleep detection listener
-	go s.startSleepListener()
 }
 
 func (s *serviceClient) attachOutput(cmd *exec.Cmd) *os.File {
@@ -1164,6 +1169,18 @@ func (s *serviceClient) handleSleepEvents(event sleep.EventType) {
 	log.Info("successfully notified daemon about os lifecycle")
 }
 
+// setSettingsEnabled enables or disables the settings menu based on the provided state
+func (s *serviceClient) setSettingsEnabled(enabled bool) {
+	if s.mSettings != nil {
+		if enabled {
+			s.mSettings.Enable()
+		} else {
+			s.mSettings.Hide()
+			s.mSettings.SetTooltip("Settings are disabled by daemon")
+		}
+	}
+}
+
 // checkAndUpdateFeatures checks the current features and updates the UI accordingly
 func (s *serviceClient) checkAndUpdateFeatures() {
 	features, err := s.getFeatures()
@@ -1255,6 +1272,7 @@ func (s *serviceClient) getSrvConfig() {
 	s.disableDNS = cfg.DisableDNS
 	s.disableClientRoutes = cfg.DisableClientRoutes
 	s.disableServerRoutes = cfg.DisableServerRoutes
+	s.disableIPv6 = cfg.DisableIPv6
 	s.blockLANAccess = cfg.BlockLANAccess
 
 	if cfg.EnableSSHRoot != nil {
@@ -1295,6 +1313,7 @@ func (s *serviceClient) getSrvConfig() {
 		s.sDisableDNS.SetChecked(cfg.DisableDNS)
 		s.sDisableClientRoutes.SetChecked(cfg.DisableClientRoutes)
 		s.sDisableServerRoutes.SetChecked(cfg.DisableServerRoutes)
+		s.sDisableIPv6.SetChecked(cfg.DisableIPv6)
 		s.sBlockLANAccess.SetChecked(cfg.BlockLANAccess)
 		if cfg.EnableSSHRoot != nil {
 			s.sEnableSSHRoot.SetChecked(*cfg.EnableSSHRoot)
@@ -1382,6 +1401,7 @@ func protoConfigToConfig(cfg *proto.GetConfigResponse) *profilemanager.Config {
 	config.DisableDNS = cfg.DisableDns
 	config.DisableClientRoutes = cfg.DisableClientRoutes
 	config.DisableServerRoutes = cfg.DisableServerRoutes
+	config.DisableIPv6 = cfg.DisableIpv6
 	config.BlockLANAccess = cfg.BlockLanAccess
 
 	config.EnableSSHRoot = &cfg.EnableSSHRoot
@@ -1394,6 +1414,33 @@ func protoConfigToConfig(cfg *proto.GetConfigResponse) *profilemanager.Config {
 	config.SSHJWTCacheTTL = &ttl
 
 	return &config
+}
+
+func (s *serviceClient) onUpdateAvailable(newVersion string, enforced bool) {
+	s.updateIndicationLock.Lock()
+	defer s.updateIndicationLock.Unlock()
+
+	s.isEnforcedUpdate = enforced
+	if enforced {
+		s.mUpdate.SetTitle("安装版本 " + newVersion)
+	} else {
+		s.lastNotifiedVersion = ""
+		s.mUpdate.SetTitle("下载最新版本")
+	}
+
+	s.mUpdate.Show()
+	s.isUpdateIconActive = true
+
+	if s.connected {
+		systray.SetTemplateIcon(iconUpdateConnectedMacOS, s.icUpdateConnected)
+	} else {
+		systray.SetTemplateIcon(iconUpdateDisconnectedMacOS, s.icUpdateDisconnected)
+	}
+
+	if enforced && s.lastNotifiedVersion != newVersion {
+		s.lastNotifiedVersion = newVersion
+		s.notifier.Send("发现新版本", "新版本 "+newVersion+" 已可安装")
+	}
 }
 
 // onSessionExpire sends a notification to the user when the session expires.

@@ -903,7 +903,9 @@ func (b *NetworkMapBuilder) getRouteFirewallRules(
 
 			rulePeers := b.getRulePeers(rule, policy.SourcePostureChecks, peerID, distributionPeers, validatedPeersMap, account)
 
-			rules := generateRouteFirewallRules(ctx, route, rule, rulePeers, FirewallRuleDirectionIN)
+			peer := b.cache.globalPeers[peerID]
+			includeIPv6 := peer != nil && peer.IPv6.IsValid() && peer.SupportsIPv6()
+			rules := generateRouteFirewallRules(ctx, route, rule, rulePeers, FirewallRuleDirectionIN, includeIPv6)
 			fwRules = append(fwRules, rules...)
 		}
 	}

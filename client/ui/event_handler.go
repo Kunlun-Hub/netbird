@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 
-	"fyne.io/fyne/v2"
 	"fyne.io/systray"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
@@ -80,7 +79,7 @@ func (h *eventHandler) handleConnectClick() {
 			if errors.Is(err, context.Canceled) || (ok && st.Code() == codes.Canceled) {
 				log.Debugf("connect operation cancelled by user")
 			} else {
-				h.client.app.SendNotification(fyne.NewNotification("错误", "连接失败"))
+				h.client.notifier.Send("错误", "连接失败")
 				log.Errorf("connect failed: %v", err)
 			}
 		}
@@ -105,7 +104,7 @@ func (h *eventHandler) handleDisconnectClick() {
 		if err := h.client.menuDownClick(); err != nil {
 			st, ok := status.FromError(err)
 			if !errors.Is(err, context.Canceled) && !(ok && st.Code() == codes.Canceled) {
-				h.client.app.SendNotification(fyne.NewNotification("错误", "断开连接失败"))
+				h.client.notifier.Send("错误", "断开连接失败")
 				log.Errorf("disconnect failed: %v", err)
 			} else {
 				log.Debugf("disconnect cancelled or already disconnecting")
@@ -135,7 +134,7 @@ func (h *eventHandler) handleAllowSSHClick() {
 	if err := h.updateConfigWithErr(); err != nil {
 		h.toggleCheckbox(h.client.mAllowSSH)
 		log.Errorf("failed to update config: %v", err)
-		h.client.app.SendNotification(fyne.NewNotification("错误", "更新 SSH 设置失败"))
+		h.client.notifier.Send("错误", "更新 SSH 设置失败")
 	}
 }
 
@@ -144,7 +143,7 @@ func (h *eventHandler) handleAutoConnectClick() {
 	if err := h.updateConfigWithErr(); err != nil {
 		h.toggleCheckbox(h.client.mAutoConnect)
 		log.Errorf("failed to update config: %v", err)
-		h.client.app.SendNotification(fyne.NewNotification("错误", "更新自动连接设置失败"))
+		h.client.notifier.Send("错误", "更新自动连接设置失败")
 	}
 }
 
@@ -153,7 +152,7 @@ func (h *eventHandler) handleRosenpassClick() {
 	if err := h.updateConfigWithErr(); err != nil {
 		h.toggleCheckbox(h.client.mEnableRosenpass)
 		log.Errorf("failed to update config: %v", err)
-		h.client.app.SendNotification(fyne.NewNotification("错误", "更新量子抗性设置失败"))
+		h.client.notifier.Send("错误", "更新量子抗性设置失败")
 	}
 }
 
@@ -162,7 +161,7 @@ func (h *eventHandler) handleLazyConnectionClick() {
 	if err := h.updateConfigWithErr(); err != nil {
 		h.toggleCheckbox(h.client.mLazyConnEnabled)
 		log.Errorf("failed to update config: %v", err)
-		h.client.app.SendNotification(fyne.NewNotification("错误", "更新懒连接设置失败"))
+		h.client.notifier.Send("错误", "更新懒连接设置失败")
 	}
 }
 
@@ -171,7 +170,7 @@ func (h *eventHandler) handleBlockInboundClick() {
 	if err := h.updateConfigWithErr(); err != nil {
 		h.toggleCheckbox(h.client.mBlockInbound)
 		log.Errorf("failed to update config: %v", err)
-		h.client.app.SendNotification(fyne.NewNotification("错误", "更新阻止入站连接设置失败"))
+		h.client.notifier.Send("错误", "更新阻止入站连接设置失败")
 	}
 }
 
@@ -180,7 +179,7 @@ func (h *eventHandler) handleNotificationsClick() {
 	if err := h.updateConfigWithErr(); err != nil {
 		h.toggleCheckbox(h.client.mNotifications)
 		log.Errorf("failed to update config: %v", err)
-		h.client.app.SendNotification(fyne.NewNotification("错误", "更新通知设置失败"))
+		h.client.notifier.Send("错误", "更新通知设置失败")
 	} else if h.client.eventManager != nil {
 		h.client.eventManager.SetNotificationsEnabled(h.client.mNotifications.Checked())
 	}

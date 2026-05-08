@@ -278,8 +278,8 @@ func identityProviderToConnectorConfig(idpConfig *types.IdentityProvider) *dex.C
 
 // generateIdentityProviderID generates a unique ID for an identity provider.
 // For specific provider types (okta, zitadel, entra, google, pocketid, microsoft,
-// authentik, keycloak, wechatwork), the ID is prefixed with the type name.
-// Generic OIDC providers get no prefix.
+// authentik, keycloak, wechatwork, adfs), the ID is prefixed with the type name.
+// the ID is prefixed with the type name. Generic OIDC providers get no prefix.
 func generateIdentityProviderID(idpType types.IdentityProviderType) string {
 	id := xid.New().String()
 
@@ -302,6 +302,8 @@ func generateIdentityProviderID(idpType types.IdentityProviderType) string {
 		return "keycloak-" + id
 	case types.IdentityProviderTypeWeChatWork:
 		return "wechatwork-" + id
+	case types.IdentityProviderTypeADFS:
+		return "adfs-" + id
 	default:
 		// Generic OIDC - no prefix
 		return id

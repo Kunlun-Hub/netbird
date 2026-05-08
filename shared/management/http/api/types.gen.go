@@ -533,6 +533,7 @@ func (e GroupMinimumIssued) Valid() bool {
 // Defines values for IdentityProviderType.
 const (
 	IdentityProviderTypeAuthentik  IdentityProviderType = "authentik"
+	IdentityProviderTypeAdfs       IdentityProviderType = "adfs"
 	IdentityProviderTypeEntra      IdentityProviderType = "entra"
 	IdentityProviderTypeGoogle     IdentityProviderType = "google"
 	IdentityProviderTypeKeycloak   IdentityProviderType = "keycloak"
@@ -566,6 +567,8 @@ func (e IdentityProviderType) Valid() bool {
 	case IdentityProviderTypeWechatwork:
 		return true
 	case IdentityProviderTypeZitadel:
+		return true
+	case IdentityProviderTypeAdfs:
 		return true
 	default:
 		return false
@@ -1408,6 +1411,9 @@ type AccessiblePeer struct {
 	// Ip Peer's IP address
 	Ip string `json:"ip"`
 
+	// Ipv6 Peer's IPv6 overlay address
+	Ipv6 *string `json:"ipv6,omitempty"`
+
 	// LastSeen Last time peer connected to Netbird's management service
 	LastSeen time.Time `json:"last_seen"`
 
@@ -1528,6 +1534,9 @@ type AccountSettings struct {
 	// GroupsPropagationEnabled Allows propagate the new user auto groups to peers that belongs to the user
 	GroupsPropagationEnabled *bool `json:"groups_propagation_enabled,omitempty"`
 
+	// Ipv6EnabledGroups List of group IDs whose peers receive IPv6 overlay addresses. Peers not in any of these groups will not be allocated an IPv6 address. New accounts default to the All group.
+	Ipv6EnabledGroups *[]string `json:"ipv6_enabled_groups,omitempty"`
+
 	// JwtAllowGroups List of groups to which users are allowed access
 	JwtAllowGroups *[]string `json:"jwt_allow_groups,omitempty"`
 
@@ -1548,6 +1557,9 @@ type AccountSettings struct {
 
 	// NetworkRange Allows to define a custom network range for the account in CIDR format
 	NetworkRange *string `json:"network_range,omitempty"`
+
+	// NetworkRangeV6 Allows to define a custom IPv6 network range for the account in CIDR format.
+	NetworkRangeV6 *string `json:"network_range_v6,omitempty"`
 
 	// PeerExposeEnabled Enables or disables peer expose. If enabled, peers can expose local services through the reverse proxy using the CLI.
 	PeerExposeEnabled bool `json:"peer_expose_enabled"`
@@ -1695,7 +1707,7 @@ type Checks struct {
 	// OsVersionCheck Posture check for the version of operating system
 	OsVersionCheck *OSVersionCheck `json:"os_version_check,omitempty"`
 
-	// PeerNetworkRangeCheck Posture check for allow or deny access based on peer local network addresses
+	// PeerNetworkRangeCheck Posture check for allow or deny access based on the peer's IP addresses. A range matches when it contains any of the peer's local network interface IPs or its public connection (NAT egress) IP, so ranges may target private subnets, public CIDRs, or single hosts via a /32 or /128.
 	PeerNetworkRangeCheck *PeerNetworkRangeCheck `json:"peer_network_range_check,omitempty"`
 
 	// ProcessCheck Posture Check for binaries exist and are running in the peer’s system
@@ -3244,6 +3256,9 @@ type Peer struct {
 	// Ip Peer's IP address
 	Ip string `json:"ip"`
 
+	// Ipv6 Peer's IPv6 overlay address
+	Ipv6 *string `json:"ipv6,omitempty"`
+
 	// KernelVersion Peer's operating system kernel version
 	KernelVersion string `json:"kernel_version"`
 
@@ -3335,6 +3350,9 @@ type PeerBatch struct {
 	// Ip Peer's IP address
 	Ip string `json:"ip"`
 
+	// Ipv6 Peer's IPv6 overlay address
+	Ipv6 *string `json:"ipv6,omitempty"`
+
 	// KernelVersion Peer's operating system kernel version
 	KernelVersion string `json:"kernel_version"`
 
@@ -3415,12 +3433,12 @@ type PeerMinimum struct {
 	Name string `json:"name"`
 }
 
-// PeerNetworkRangeCheck Posture check for allow or deny access based on peer local network addresses
+// PeerNetworkRangeCheck Posture check for allow or deny access based on the peer's IP addresses. A range matches when it contains any of the peer's local network interface IPs or its public connection (NAT egress) IP, so ranges may target private subnets, public CIDRs, or single hosts via a /32 or /128.
 type PeerNetworkRangeCheck struct {
 	// Action Action to take upon policy match
 	Action PeerNetworkRangeCheckAction `json:"action"`
 
-	// Ranges List of peer network ranges in CIDR notation
+	// Ranges List of network ranges in CIDR notation, matched against the peer's local interface IPs and its public connection IP
 	Ranges []string `json:"ranges"`
 }
 
@@ -3434,7 +3452,10 @@ type PeerRequest struct {
 	InactivityExpirationEnabled bool  `json:"inactivity_expiration_enabled"`
 
 	// Ip Peer's IP address
-	Ip                     *string `json:"ip,omitempty"`
+	Ip *string `json:"ip,omitempty"`
+
+	// Ipv6 Peer's IPv6 overlay address. Omitted if IPv6 is not enabled for the account.
+	Ipv6                   *string `json:"ipv6,omitempty"`
 	LoginExpirationEnabled bool    `json:"login_expiration_enabled"`
 	Name                   string  `json:"name"`
 	SshEnabled             bool    `json:"ssh_enabled"`
@@ -4400,6 +4421,9 @@ type SetupKeyRequest struct {
 
 // SetupRequest Request to set up the initial admin user
 type SetupRequest struct {
+	// CreatePat If true and the server has setup-time PAT issuance enabled (NB_SETUP_PAT_ENABLED=true), create a Personal Access Token for the new owner user and return it in the response. Ignored when the server feature is disabled.
+	CreatePat *bool `json:"create_pat,omitempty"`
+
 	// Email Email address for the admin user
 	Email string `json:"email"`
 
@@ -4408,12 +4432,18 @@ type SetupRequest struct {
 
 	// Password Password for the admin user (minimum 8 characters)
 	Password string `json:"password"`
+
+	// PatExpireIn Expiration of the Personal Access Token in days. Applies only when create_pat is true and the server feature is enabled. Defaults to 1 day when omitted.
+	PatExpireIn *int `json:"pat_expire_in,omitempty"`
 }
 
 // SetupResponse Response after successful instance setup
 type SetupResponse struct {
 	// Email Email address of the created user
 	Email string `json:"email"`
+
+	// PersonalAccessToken Plain text Personal Access Token created during setup. Present only when create_pat was requested and the NB_SETUP_PAT_ENABLED feature was enabled on the server.
+	PersonalAccessToken *string `json:"personal_access_token,omitempty"`
 
 	// UserId The ID of the created user
 	UserId string `json:"user_id"`

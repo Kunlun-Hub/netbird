@@ -195,10 +195,10 @@ func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID stri
 		affectedPeers, err := am.OnRouteAdded(ctx, accountID, newRoute)
 		if err != nil {
 			log.WithContext(ctx).Debugf("incremental route add failed, falling back to full update: %v", err)
-			am.UpdateAccountPeers(ctx, accountID)
+			am.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceRoute, Operation: types.UpdateOperationCreate})
 		} else if affectedPeers == nil {
 			log.WithContext(ctx).Debugf("incremental network map not enabled, falling back to full update")
-			am.UpdateAccountPeers(ctx, accountID)
+			am.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceRoute, Operation: types.UpdateOperationCreate})
 		} else {
 			log.WithContext(ctx).Debugf("incremental route update for %d affected peers", len(affectedPeers))
 			for _, peerID := range affectedPeers {
@@ -261,10 +261,10 @@ func (am *DefaultAccountManager) SaveRoute(ctx context.Context, accountID, userI
 		affectedPeers, err := am.OnRouteUpdated(ctx, accountID, oldRoute, routeToSave)
 		if err != nil {
 			log.WithContext(ctx).Debugf("incremental route update failed, falling back to full update: %v", err)
-			am.UpdateAccountPeers(ctx, accountID)
+			am.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceRoute, Operation: types.UpdateOperationUpdate})
 		} else if affectedPeers == nil {
 			log.WithContext(ctx).Debugf("incremental network map not enabled, falling back to full update")
-			am.UpdateAccountPeers(ctx, accountID)
+			am.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceRoute, Operation: types.UpdateOperationUpdate})
 		} else {
 			log.WithContext(ctx).Debugf("incremental route update for %d affected peers", len(affectedPeers))
 			for _, peerID := range affectedPeers {
@@ -316,10 +316,10 @@ func (am *DefaultAccountManager) DeleteRoute(ctx context.Context, accountID stri
 		affectedPeers, err := am.OnRouteDeleted(ctx, accountID, r)
 		if err != nil {
 			log.WithContext(ctx).Debugf("incremental route delete failed, falling back to full update: %v", err)
-			am.UpdateAccountPeers(ctx, accountID)
+			am.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceRoute, Operation: types.UpdateOperationDelete})
 		} else if affectedPeers == nil {
 			log.WithContext(ctx).Debugf("incremental network map not enabled, falling back to full update")
-			am.UpdateAccountPeers(ctx, accountID)
+			am.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceRoute, Operation: types.UpdateOperationDelete})
 		} else {
 			log.WithContext(ctx).Debugf("incremental route update for %d affected peers", len(affectedPeers))
 			for _, peerID := range affectedPeers {

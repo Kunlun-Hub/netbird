@@ -201,7 +201,18 @@ Pop $0
 
 Function .onInit
 StrCpy $INSTDIR "${INSTALL_DIR}"
+; Default autostart to enabled so silent installs (/S) match the interactive default
+StrCpy $AutostartEnabled "1"
+
+; Pre-0.70.1 installers ran without SetRegView, so their uninstall keys live
+; in the 32-bit view. Fall back to it so upgrades still find them.
+SetRegView 64
 ReadRegStr $R0 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\$(^NAME)" "UninstallString"
+${If} $R0 == ""
+    SetRegView 32
+    ReadRegStr $R0 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\$(^NAME)" "UninstallString"
+    SetRegView 64
+${EndIf}
 ${If} $R0 != ""
     # if silent install jump to uninstall step
     IfSilent uninstall
@@ -214,16 +225,25 @@ ${If} $R0 != ""
 
 ${EndIf}
 FunctionEnd
+
+Function un.onInit
+SetRegView 64
+FunctionEnd
 ######################################################################
 Section -MainProgram
     ${INSTALL_TYPE}
     SetOutPath "$INSTDIR"
 
-    # 显式复制必要的文件
-    File "..\\dist\\netbird_windows_amd64\\cloink-ui.exe"
-    File "..\\dist\\netbird_windows_amd64\\cloink.exe"
-    File "..\\dist\\netbird_windows_amd64\\wintun.dll"
-    File "..\\dist\\netbird_windows_amd64\\opengl32.dll"
+    !if ${ARCH} == "arm64"
+        File /r "..\\dist\\netbird_windows_arm64\\"
+    !else
+        # 显式复制必要的文件
+        File "..\\dist\\netbird_windows_amd64\\cloink-ui.exe"
+        File "..\\dist\\netbird_windows_amd64\\cloink.exe"
+        File "..\\dist\\netbird_windows_amd64\\wintun.dll"
+        File "..\\dist\\netbird_windows_amd64\\opengl32.dll"
+    !endif
+    File "..\\client\\ui\\assets\\netbird.png"
 SectionEnd
 ######################################################################
 
@@ -243,9 +263,11 @@ WriteRegStr ${REG_ROOT} "${UI_REG_APP_PATH}" "" "$INSTDIR\${UI_APP_EXE}"
 ; Create autostart registry entry based on checkbox
 DetailPrint "自动启动已启用: $AutostartEnabled"
 ${If} $AutostartEnabled == "1"
-    WriteRegStr HKCU "${AUTOSTART_REG_KEY}" "${APP_NAME}" "$INSTDIR\${UI_APP_EXE}.exe"
+    WriteRegStr HKLM "${AUTOSTART_REG_KEY}" "${APP_NAME}" '"$INSTDIR\${UI_APP_EXE}.exe"'
     DetailPrint "已添加自动启动注册表项: $INSTDIR\${UI_APP_EXE}.exe"
 ${Else}
+    DeleteRegValue HKLM "${AUTOSTART_REG_KEY}" "${APP_NAME}"
+    ; Legacy: pre-HKLM installs wrote to HKCU; clean that up too.
     DeleteRegValue HKCU "${AUTOSTART_REG_KEY}" "${APP_NAME}"
     DetailPrint "用户未启用自动启动"
 ${EndIf}
@@ -279,6 +301,8 @@ ExecWait `taskkill /im ${UI_APP_EXE}.exe /f`
 
 ; Remove autostart registry entry
 DetailPrint "正在移除自动启动注册表项（如果存在）..."
+DeleteRegValue HKLM "${AUTOSTART_REG_KEY}" "${APP_NAME}"
+; Legacy: pre-HKLM installs wrote to HKCU; clean that up too.
 DeleteRegValue HKCU "${AUTOSTART_REG_KEY}" "${APP_NAME}"
 
 ; Handle data deletion based on checkbox
@@ -315,6 +339,7 @@ DetailPrint "正在移除注册表项..."
 DeleteRegKey ${REG_ROOT} "${REG_APP_PATH}"
 DeleteRegKey ${REG_ROOT} "${UNINSTALL_PATH}"
 DeleteRegKey ${REG_ROOT} "${UI_REG_APP_PATH}"
+DeleteRegKey HKCU "Software\Classes\AppUserModelId\${APP_NAME}"
 
 DetailPrint "正在从 PATH 中移除应用程序目录..."
 EnVar::SetHKLM

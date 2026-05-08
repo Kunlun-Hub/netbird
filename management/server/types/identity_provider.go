@@ -42,6 +42,8 @@ const (
 	IdentityProviderTypeKeycloak IdentityProviderType = "keycloak"
 	// IdentityProviderTypeWeChatWork is the WeChat Work / WeCom identity provider
 	IdentityProviderTypeWeChatWork IdentityProviderType = "wechatwork"
+	// IdentityProviderTypeADFS is the Microsoft AD FS identity provider
+	IdentityProviderTypeADFS IdentityProviderType = "adfs"
 )
 
 // IdentityProvider represents an identity provider configuration
@@ -124,7 +126,7 @@ func (t IdentityProviderType) IsValid() bool {
 	case IdentityProviderTypeOIDC, IdentityProviderTypeZitadel, IdentityProviderTypeEntra,
 		IdentityProviderTypeGoogle, IdentityProviderTypeOkta, IdentityProviderTypePocketID,
 		IdentityProviderTypeMicrosoft, IdentityProviderTypeAuthentik, IdentityProviderTypeKeycloak,
-		IdentityProviderTypeWeChatWork:
+		IdentityProviderTypeWeChatWork, IdentityProviderTypeADFS:
 		return true
 	}
 	return false

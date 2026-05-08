@@ -20,6 +20,7 @@ ENV \
     CL_ENTRYPOINT_SERVICE_TIMEOUT="30" \
     NB_LOG_FILE="console,/var/log/cloink/client.log" \
     NB_DAEMON_ADDR="unix:///var/run/cloink.sock" \
+    NB_ENABLE_CAPTURE="false" \
     NB_ENTRYPOINT_SERVICE_TIMEOUT="30"
 
 ENTRYPOINT [ "/usr/local/bin/cloink-entrypoint.sh" ]

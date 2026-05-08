@@ -25,6 +25,7 @@ type Logger struct {
 	cancel             context.CancelFunc
 	statusRecorder     *peer.Status
 	wgIfaceNet         netip.Prefix
+	wgIfaceNetV6       netip.Prefix
 	dnsCollection      atomic.Bool
 	exitNodeCollection atomic.Bool
 	Store              types.Store
@@ -42,11 +43,12 @@ type Logger struct {
 	syslogTag      string
 }
 
-func New(statusRecorder *peer.Status, wgIfaceIPNet netip.Prefix) *Logger {
+func New(statusRecorder *peer.Status, wgIfaceIPNet, wgIfaceIPNetV6 netip.Prefix) *Logger {
 	return &Logger{
 		statusRecorder: statusRecorder,
 		wgIfaceNet:     wgIfaceIPNet,
 		Store:          store.NewFileStore("", 100, 10),
+		wgIfaceNetV6:   wgIfaceIPNetV6,
 	}
 }
 
@@ -174,11 +176,11 @@ func (l *Logger) startReceiver() {
 			var isSrcExitNode bool
 			var isDestExitNode bool
 
-			if !l.wgIfaceNet.Contains(event.SourceIP) {
+			if !l.isOverlayIP(event.SourceIP) {
 				event.SourceResourceID, isSrcExitNode = l.statusRecorder.CheckRoutes(event.SourceIP)
 			}
 
-			if !l.wgIfaceNet.Contains(event.DestIP) {
+			if !l.isOverlayIP(event.DestIP) {
 				event.DestResourceID, isDestExitNode = l.statusRecorder.CheckRoutes(event.DestIP)
 			}
 
@@ -229,6 +231,10 @@ func (l *Logger) DeleteEvents(ids []uuid.UUID) {
 func (l *Logger) UpdateConfig(dnsCollection, exitNodeCollection bool) {
 	l.dnsCollection.Store(dnsCollection)
 	l.exitNodeCollection.Store(exitNodeCollection)
+}
+
+func (l *Logger) isOverlayIP(ip netip.Addr) bool {
+	return l.wgIfaceNet.Contains(ip) || (l.wgIfaceNetV6.IsValid() && l.wgIfaceNetV6.Contains(ip))
 }
 
 func (l *Logger) shouldStore(event *types.EventFields, isExitNode bool) bool {

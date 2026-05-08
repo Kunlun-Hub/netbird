@@ -14,6 +14,9 @@ func (a *Account) initNetworkMapBuilder(validatedPeers map[string]struct{}) {
 	if a.NetworkMapCache != nil {
 		return
 	}
+	if a.nmapInitOnce == nil {
+		a.InitOnce()
+	}
 	a.nmapInitOnce.Do(func() {
 		a.NetworkMapCache = NewNetworkMapBuilder(a, validatedPeers)
 	})

@@ -383,12 +383,12 @@ type subItem struct {
 }
 
 type profileMenu struct {
-	mu                    sync.Mutex
-	ctx                   context.Context
-	profileManager        *profilemanager.ProfileManager
-	profileMenuItem       *systray.MenuItem
-	emailMenuItem         *systray.MenuItem
-	getSrvClientCallback  func(timeout time.Duration) (proto.DaemonServiceClient, error)
+	mu                   sync.Mutex
+	ctx                  context.Context
+	profileManager       *profilemanager.ProfileManager
+	profileMenuItem      *systray.MenuItem
+	emailMenuItem        *systray.MenuItem
+	getSrvClientCallback func(timeout time.Duration) (proto.DaemonServiceClient, error)
 }
 
 type newProfileMenuArgs struct {
@@ -480,6 +480,131 @@ func (p *profileMenu) refresh() {
 	} else {
 		p.emailMenuItem.Hide()
 	}
+
+	for _, profile := range profiles {
+		item := p.profileMenuItem.AddSubMenuItem(profile.Name, "")
+		if profile.IsActive {
+			item.Check()
+		}
+
+		ctx, cancel := context.WithCancel(context.Background())
+		p.profileSubItems = append(p.profileSubItems, &subItem{item, ctx, cancel})
+
+		go func() {
+			for {
+				select {
+				case <-ctx.Done():
+					return // context cancelled
+				case _, ok := <-item.ClickedCh:
+					if !ok {
+						return // channel closed
+					}
+
+					// Handle profile selection
+					if profile.IsActive {
+						log.Infof("Profile '%s' is already active", profile.Name)
+						return
+					}
+					conn, err := p.getSrvClientCallback(defaultFailTimeout)
+					if err != nil {
+						log.Errorf("failed to get daemon client: %v", err)
+						return
+					}
+
+					_, err = conn.SwitchProfile(ctx, &proto.SwitchProfileRequest{
+						ProfileName: &profile.Name,
+						Username:    &currUser.Username,
+					})
+					if err != nil {
+						log.Errorf("failed to switch profile: %v", err)
+						// show  notification dialog
+						p.serviceClient.notifier.Send("Error", "Failed to switch profile")
+						return
+					}
+
+					err = p.profileManager.SwitchProfile(profile.Name)
+					if err != nil {
+						log.Errorf("failed to switch profile '%s': %v", profile.Name, err)
+						return
+					}
+
+					log.Infof("Switched to profile '%s'", profile.Name)
+
+					status, err := conn.Status(ctx, &proto.StatusRequest{})
+					if err != nil {
+						log.Errorf("failed to get status after switching profile: %v", err)
+						return
+					}
+
+					if status.Status == string(internal.StatusConnected) {
+						if err := p.downClickCallback(); err != nil {
+							log.Errorf("failed to handle down click after switching profile: %v", err)
+						}
+					}
+
+					if p.serviceClient.connectCancel != nil {
+						p.serviceClient.connectCancel()
+					}
+
+					connectCtx, connectCancel := context.WithCancel(p.ctx)
+					p.serviceClient.connectCancel = connectCancel
+
+					if err := p.upClickCallback(connectCtx); err != nil {
+						log.Errorf("failed to handle up click after switching profile: %v", err)
+					}
+
+					connectCancel()
+
+					p.refresh()
+					p.loadSettingsCallback()
+				}
+			}
+		}()
+
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	manageItem := p.profileMenuItem.AddSubMenuItem("Manage Profiles", "")
+	p.manageProfilesSubItem = &subItem{manageItem, ctx, cancel}
+
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case _, ok := <-manageItem.ClickedCh:
+				if !ok {
+					return
+				}
+				p.eventHandler.runSelfCommand(p.ctx, "profiles", "true")
+				p.refresh()
+				p.loadSettingsCallback()
+			}
+		}
+	}()
+
+	// Add Logout menu item
+	ctx2, cancel2 := context.WithCancel(context.Background())
+	logoutItem := p.profileMenuItem.AddSubMenuItem("Deregister", "")
+	p.logoutSubItem = &subItem{logoutItem, ctx2, cancel2}
+
+	go func() {
+		for {
+			select {
+			case <-ctx2.Done():
+				return
+			case _, ok := <-logoutItem.ClickedCh:
+				if !ok {
+					return
+				}
+				if err := p.eventHandler.logout(p.ctx); err != nil {
+					log.Errorf("logout failed: %v", err)
+					p.serviceClient.notifier.Send("Error", "Failed to deregister")
+				} else {
+					p.serviceClient.notifier.Send("Success", "Deregistered successfully")
+				}
+			}
+		}
+	}()
 
 	if activeProf.ProfileName == "default" || activeProf.Username == currUser.Username {
 		p.profileMenuItem.SetTitle(activeProf.ProfileName)
