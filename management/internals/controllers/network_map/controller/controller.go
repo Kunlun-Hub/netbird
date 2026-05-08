@@ -439,136 +439,16 @@ func (c *Controller) GetValidatedPeerWithMap(ctx context.Context, isRequiresAppr
 	return peer, networkMap, postureChecks, dnsFwdPort, nil
 }
 
-func (c *Controller) initNetworkMapBuilderIfNeeded(account *types.Account, validatedPeers map[string]struct{}) {
-	c.enrichAccountFromHolder(account)
-	account.InitNetworkMapBuilderIfNeeded(validatedPeers)
-}
-
-func (c *Controller) getPeerNetworkMapExp(
-	ctx context.Context,
-	accountId string,
-	peerId string,
-	validatedPeers map[string]struct{},
-	peersCustomZone nbdns.CustomZone,
-	accountZones []*zones.Zone,
-	metrics *telemetry.AccountManagerMetrics,
-) *types.NetworkMap {
-	account := c.getAccountFromHolderOrInit(ctx, accountId)
-	if account == nil {
-		log.WithContext(ctx).Warnf("account %s not found in holder when getting peer network map", accountId)
-		return &types.NetworkMap{
-			Network: &types.Network{},
-		}
-	}
-
-	return account.GetPeerNetworkMapExp(ctx, peerId, peersCustomZone, accountZones, validatedPeers, metrics)
-}
-
-func (c *Controller) onPeersAddedUpdNetworkMapCache(account *types.Account, peerIds ...string) {
-	c.enrichAccountFromHolder(account)
-	account.OnPeersAddedUpdNetworkMapCache(peerIds...)
-}
-
-func (c *Controller) onPeerDeletedUpdNetworkMapCache(account *types.Account, peerId string) error {
-	c.enrichAccountFromHolder(account)
-	return account.OnPeerDeletedUpdNetworkMapCache(peerId)
-}
-
-func (c *Controller) UpdatePeerInNetworkMapCache(accountId string, peer *nbpeer.Peer) {
-	account := c.getAccountFromHolder(accountId)
-	if account == nil {
-		return
-	}
-	account.UpdatePeerInNetworkMapCache(peer)
-}
-
 func (c *Controller) OnRouteAddedUpdNetworkMapCache(account *types.Account, r *route.Route) ([]string, error) {
-	c.enrichAccountFromHolder(account)
-	affectedPeers, err := account.OnRouteAddedUpdNetworkMapCache(r)
-	if err != nil {
-		return nil, err
-	}
-	c.updateAccountInHolder(account)
-	return affectedPeers, nil
+	return account.OnRouteAddedUpdNetworkMapCache(r)
 }
 
 func (c *Controller) OnRouteUpdatedUpdNetworkMapCache(account *types.Account, oldRoute, newRoute *route.Route) ([]string, error) {
-	c.enrichAccountFromHolder(account)
-	affectedPeers, err := account.OnRouteUpdatedUpdNetworkMapCache(oldRoute, newRoute)
-	if err != nil {
-		return nil, err
-	}
-	c.updateAccountInHolder(account)
-	return affectedPeers, nil
+	return account.OnRouteUpdatedUpdNetworkMapCache(oldRoute, newRoute)
 }
 
 func (c *Controller) OnRouteDeletedUpdNetworkMapCache(account *types.Account, r *route.Route) ([]string, error) {
-	c.enrichAccountFromHolder(account)
-	affectedPeers, err := account.OnRouteDeletedUpdNetworkMapCache(r)
-	if err != nil {
-		return nil, err
-	}
-	c.updateAccountInHolder(account)
-	return affectedPeers, nil
-}
-
-func (c *Controller) recalculateNetworkMapCache(account *types.Account, validatedPeers map[string]struct{}) {
-	account.RecalculateNetworkMapCache(validatedPeers)
-	c.updateAccountInHolder(account)
-}
-
-func (c *Controller) RecalculateNetworkMapCache(ctx context.Context, accountId string) error {
-	if c.experimentalNetworkMap(accountId) {
-		account, err := c.requestBuffer.GetAccountWithBackpressure(ctx, accountId)
-		if err != nil {
-			return err
-		}
-		validatedPeers, err := c.integratedPeerValidator.GetValidatedPeers(ctx, account.Id, maps.Values(account.Groups), maps.Values(account.Peers), account.Settings.Extra)
-		if err != nil {
-			log.WithContext(ctx).Errorf("failed to get validate peers: %v", err)
-			return err
-		}
-		c.recalculateNetworkMapCache(account, validatedPeers)
-	}
-	return nil
-}
-
-func (c *Controller) experimentalNetworkMap(accountId string) bool {
-	_, ok := c.expNewNetworkMapAIDs[accountId]
-	return c.expNewNetworkMap || ok
-}
-
-func (c *Controller) enrichAccountFromHolder(account *types.Account) {
-	a := c.holder.GetAccount(account.Id)
-	if a == nil {
-		c.holder.AddAccount(account)
-		return
-	}
-	account.NetworkMapCache = a.NetworkMapCache
-	if account.NetworkMapCache == nil {
-		return
-	}
-	c.holder.AddAccount(account)
-}
-
-func (c *Controller) getAccountFromHolder(accountID string) *types.Account {
-	return c.holder.GetAccount(accountID)
-}
-
-func (c *Controller) getAccountFromHolderOrInit(ctx context.Context, accountID string) *types.Account {
-	a := c.holder.GetAccount(accountID)
-	if a != nil {
-		return a
-	}
-	account, err := c.holder.LoadOrStoreFunc(ctx, accountID, c.requestBuffer.GetAccountWithBackpressure)
-	if err != nil {
-		return nil
-	}
-	return account
-}
-
-func (c *Controller) updateAccountInHolder(account *types.Account) {
-	c.holder.AddAccount(account)
+	return account.OnRouteDeletedUpdNetworkMapCache(r)
 }
 
 // GetDNSDomain returns the configured dnsDomain

@@ -2138,6 +2138,21 @@ func (mr *MockStoreMockRecorder) GetServices(ctx, lockStrength interface{}) *gom
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetServices", reflect.TypeOf((*MockStore)(nil).GetServices), ctx, lockStrength)
 }
 
+// GetServicesByTargetID mocks base method.
+func (m *MockStore) GetServicesByTargetID(ctx context.Context, lockStrength LockingStrength, accountID, targetID string) ([]*service.Service, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetServicesByTargetID", ctx, lockStrength, accountID, targetID)
+	ret0, _ := ret[0].([]*service.Service)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetServicesByTargetID indicates an expected call of GetServicesByTargetID.
+func (mr *MockStoreMockRecorder) GetServicesByTargetID(ctx, lockStrength, accountID, targetID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetServicesByTargetID", reflect.TypeOf((*MockStore)(nil).GetServicesByTargetID), ctx, lockStrength, accountID, targetID)
+}
+
 // GetServicesByCluster mocks base method.
 func (m *MockStore) GetServicesByCluster(ctx context.Context, lockStrength LockingStrength, proxyCluster string) ([]*service.Service, error) {
 	m.ctrl.T.Helper()

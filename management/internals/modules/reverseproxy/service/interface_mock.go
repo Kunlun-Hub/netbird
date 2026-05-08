@@ -226,6 +226,20 @@ func (mr *MockManagerMockRecorder) ReloadService(ctx, accountID, serviceID inter
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReloadService", reflect.TypeOf((*MockManager)(nil).ReloadService), ctx, accountID, serviceID)
 }
 
+// ReloadServicesForResource mocks base method.
+func (m *MockManager) ReloadServicesForResource(ctx context.Context, accountID, resourceID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReloadServicesForResource", ctx, accountID, resourceID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ReloadServicesForResource indicates an expected call of ReloadServicesForResource.
+func (mr *MockManagerMockRecorder) ReloadServicesForResource(ctx, accountID, resourceID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReloadServicesForResource", reflect.TypeOf((*MockManager)(nil).ReloadServicesForResource), ctx, accountID, resourceID)
+}
+
 // RenewServiceFromPeer mocks base method.
 func (m *MockManager) RenewServiceFromPeer(ctx context.Context, accountID, peerID, serviceID string) error {
 	m.ctrl.T.Helper()

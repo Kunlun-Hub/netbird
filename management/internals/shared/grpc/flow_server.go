@@ -210,8 +210,7 @@ func (s *FlowServer) resolveEndpoint(ctx context.Context, accountID string, ip n
 
 	addr, ok := netip.AddrFromSlice(ip)
 	for _, peer := range peers {
-		peerIP, peerOK := netip.AddrFromSlice(peer.IP)
-		if ok && peerOK && peerIP == addr {
+		if ok && peer.IP.IsValid() && peer.IP == addr {
 			return fromPeer(peer, address), nil
 		}
 	}

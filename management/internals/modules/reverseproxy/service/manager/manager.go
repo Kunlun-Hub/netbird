@@ -942,7 +942,7 @@ func (m *Manager) ReloadServicesForResource(ctx context.Context, accountID, reso
 		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, s.ToProtoMapping(service.Update, "", m.proxyController.GetOIDCValidationConfig()), s.ProxyCluster)
 	}
 
-	m.accountManager.UpdateAccountPeers(ctx, accountID)
+	m.accountManager.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceService, Operation: types.UpdateOperationUpdate})
 
 	return nil
 }
