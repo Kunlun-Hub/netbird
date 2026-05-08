@@ -1,0 +1,130 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="820" viewBox="0 0 1440 820" role="img" aria-labelledby="title desc">
+  <title id="title">Cloink 当前远程访问架构图</title>
+  <desc id="desc">展示 Cloink 控制面统一管理下，办公室、家庭、云环境和数据中心之间通过 WireGuard 建立点对点与站点到站点加密隧道。</desc>
+  <defs>
+    <radialGradient id="warmGlow" cx="50%" cy="50%" r="68%">
+      <stop offset="0%" stop-color="#111111"/>
+      <stop offset="52%" stop-color="#060707"/>
+      <stop offset="100%" stop-color="#1b0f09"/>
+    </radialGradient>
+    <filter id="orangeGlow" x="-40%" y="-40%" width="180%" height="180%">
+      <feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#ff8a3d" flood-opacity="0.7"/>
+    </filter>
+    <filter id="lineGlow" x="-20%" y="-80%" width="140%" height="260%">
+      <feDropShadow dx="0" dy="0" stdDeviation="3" flood-color="#ff8a3d" flood-opacity="0.9"/>
+    </filter>
+    <filter id="blueGlow" x="-40%" y="-40%" width="180%" height="180%">
+      <feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#08a8f9" flood-opacity="0.45"/>
+    </filter>
+    <marker id="arrowOrange" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#ff8a3d"/>
+    </marker>
+    <style>
+      .bg { fill: url(#warmGlow); }
+      .label { font: 700 23px Arial, "Noto Sans CJK SC", sans-serif; fill: #efe7de; }
+      .title { font: 700 26px Arial, "Noto Sans CJK SC", sans-serif; fill: #f4eee8; }
+      .sub { font: 400 14px Arial, "Noto Sans CJK SC", sans-serif; fill: #a3acb8; }
+      .text { font: 700 18px Arial, "Noto Sans CJK SC", sans-serif; fill: #f3f4f6; }
+      .muted { font: 400 13px Arial, "Noto Sans CJK SC", sans-serif; fill: #aab1bd; }
+      .tunnel { font: 700 16px Arial, "Noto Sans CJK SC", sans-serif; fill: #e9edf3; }
+      .panel { fill: #030404; stroke: #de793c; stroke-width: 1.4; rx: 6; filter: url(#orangeGlow); }
+      .control { fill: #030404; stroke: #ff8a3d; stroke-width: 2.4; rx: 10; filter: url(#orangeGlow); }
+      .wire { fill: none; stroke: #ff8a3d; stroke-width: 2.2; marker-end: url(#arrowOrange); filter: url(#lineGlow); }
+      .wireBoth { fill: none; stroke: #ff8a3d; stroke-width: 2.2; marker-start: url(#arrowOrange); marker-end: url(#arrowOrange); filter: url(#lineGlow); }
+      .controlLine { fill: none; stroke: #d7773f; stroke-width: 1.5; stroke-dasharray: 3 5; opacity: 0.8; }
+      .orange { fill: none; stroke: #ff8a3d; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+      .blueMark { fill: #08a8f9; filter: url(#blueGlow); }
+      .white { fill: #f5f8fb; }
+      .pin { fill: #ff8a3d; }
+      .divider { stroke: #9c5b36; stroke-width: 1.2; }
+    </style>
+  </defs>
+
+  <rect class="bg" width="1440" height="820"/>
+  <text class="title" x="510" y="48">Cloink 现代安全组网架构</text>
+  <text class="sub" x="472" y="76">控制面统一下发身份、策略和网络地图，业务流量通过 WireGuard 加密隧道直接访问目标资源</text>
+
+  <g transform="translate(90 72)">
+    <path class="pin" d="M9 0c-5 0-9 4-9 9 0 7 9 17 9 17s9-10 9-17c0-5-4-9-9-9zm0 12.2a3.6 3.6 0 1 1 0-7.2 3.6 3.6 0 0 1 0 7.2z"/>
+    <text class="label" x="26" y="20">OFFICE</text>
+  </g>
+  <g transform="translate(90 706)">
+    <path class="pin" d="M9 0c-5 0-9 4-9 9 0 7 9 17 9 17s9-10 9-17c0-5-4-9-9-9zm0 12.2a3.6 3.6 0 1 1 0-7.2 3.6 3.6 0 0 1 0 7.2z"/>
+    <text class="label" x="26" y="20">HOME</text>
+  </g>
+  <g transform="translate(1092 72)">
+    <path class="pin" d="M9 0c-5 0-9 4-9 9 0 7 9 17 9 17s9-10 9-17c0-5-4-9-9-9zm0 12.2a3.6 3.6 0 1 1 0-7.2 3.6 3.6 0 0 1 0 7.2z"/>
+    <text class="label" x="26" y="20">CLOUD</text>
+  </g>
+  <g transform="translate(1062 706)">
+    <path class="pin" d="M9 0c-5 0-9 4-9 9 0 7 9 17 9 17s9-10 9-17c0-5-4-9-9-9zm0 12.2a3.6 3.6 0 1 1 0-7.2 3.6 3.6 0 0 1 0 7.2z"/>
+    <text class="label" x="26" y="20">DATACENTER</text>
+  </g>
+
+  <rect class="panel" x="28" y="112" width="226" height="180"/>
+  <g transform="translate(141 166)">
+    <circle class="orange" cx="0" cy="0" r="9"/>
+    <path class="orange" d="M-20 45c1-25 39-25 40 0"/>
+    <text class="text" text-anchor="middle" x="0" y="70">John</text>
+    <text class="muted" text-anchor="middle" x="0" y="92">Software Engineer</text>
+  </g>
+
+  <rect class="panel" x="28" y="540" width="226" height="180"/>
+  <g transform="translate(141 594)">
+    <circle class="orange" cx="0" cy="0" r="9"/>
+    <path class="orange" d="M-20 45c1-25 39-25 40 0"/>
+    <text class="text" text-anchor="middle" x="0" y="70">Marta</text>
+    <text class="muted" text-anchor="middle" x="0" y="92">Account Manager</text>
+  </g>
+
+  <rect class="panel" x="972" y="112" width="320" height="180"/>
+  <line class="divider" x1="1132" y1="132" x2="1132" y2="272"/>
+  <g transform="translate(1052 170)">
+    <path class="orange" d="M-20 0 0-11 20 0 0 11z M-20 13 0 24 20 13 M-20 26 0 37 20 26"/>
+    <text class="text" text-anchor="middle" x="0" y="72">Web Server</text>
+  </g>
+  <g transform="translate(1212 168)">
+    <ellipse class="orange" cx="0" cy="0" rx="17" ry="8"/>
+    <path class="orange" d="M-17 0v39c0 4 8 8 17 8s17-4 17-8V0 M-17 14c0 4 8 8 17 8s17-4 17-8 M-17 28c0 4 8 8 17 8s17-4 17-8"/>
+    <text class="text" text-anchor="middle" x="0" y="74">Database</text>
+  </g>
+
+  <rect class="panel" x="972" y="540" width="320" height="180"/>
+  <line class="divider" x1="1132" y1="560" x2="1132" y2="700"/>
+  <g transform="translate(1052 599)">
+    <rect class="orange" x="-18" y="-18" width="36" height="36" rx="3"/>
+    <path class="orange" d="M-10 -9h20 M-10 -1h20"/>
+    <text class="text" text-anchor="middle" x="0" y="68">CRM</text>
+  </g>
+  <g transform="translate(1212 598)">
+    <path class="orange" d="M-20 0 0-11 20 0 0 11z M-20 13 0 24 20 13 M-20 26 0 37 20 26"/>
+    <text class="text" text-anchor="middle" x="0" y="69">Web Server</text>
+  </g>
+
+  <path class="wireBoth" d="M254 202 H972"/>
+  <path class="wireBoth" d="M254 630 H972"/>
+  <path class="wireBoth" d="M1132 292 V540"/>
+  <text class="tunnel" text-anchor="middle" x="613" y="174">peer-to-peer</text>
+  <text class="tunnel" text-anchor="middle" x="613" y="195">WireGuard<tspan baseline-shift="super" font-size="10">®</tspan> tunnel</text>
+  <text class="tunnel" text-anchor="middle" x="613" y="664">peer-to-peer</text>
+  <text class="tunnel" text-anchor="middle" x="613" y="685">WireGuard<tspan baseline-shift="super" font-size="10">®</tspan> tunnel</text>
+  <text class="tunnel" x="1154" y="410">site-to-site</text>
+  <text class="tunnel" x="1154" y="431">WireGuard<tspan baseline-shift="super" font-size="10">®</tspan> tunnel</text>
+
+  <rect class="control" x="434" y="332" width="360" height="132"/>
+  <g transform="translate(517 361) scale(1.28)">
+    <rect class="blueMark" x="0" y="0" width="43" height="43" rx="8"/>
+    <path class="white" d="M31.5 12.5c-3.6 7.8-8.3 14.2-14.2 19.4-4.2-3.1-7.8-6.9-10.8-11.4 2.2-.2 4.3-.7 6.3-1.5 1.7 1.8 3.4 3.3 5.1 4.6 3.2-3.2 5.9-6.9 8.1-11.1h5.5z"/>
+    <path class="white" d="M9.5 12.5h14.6c-1.1 1.8-2.3 3.6-3.7 5.3H9.5z" opacity="0.9"/>
+  </g>
+  <text class="title" x="590" y="405">cloink</text>
+  <text class="text" text-anchor="middle" x="614" y="427">Control Plane</text>
+  <text class="muted" text-anchor="middle" x="614" y="448">Identity / Policy / Network Map</text>
+
+  <path class="controlLine" d="M254 270 H472 V332"/>
+  <path class="controlLine" d="M254 562 H472 V464"/>
+  <path class="controlLine" d="M756 332 V270 H972"/>
+  <path class="controlLine" d="M756 464 V562 H972"/>
+
+  <text class="sub" x="410" y="786">Cloink 模式：控制面负责统一身份、策略与配置分发，业务链路直接加密互联，减少传统 VPN 网关、证书、路由和安全组的重复维护。</text>
+</svg>

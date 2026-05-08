@@ -1,0 +1,188 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900" role="img" aria-labelledby="title desc">
+  <title id="title">Cloink / NetBird 项目架构图</title>
+  <desc id="desc">展示 Dashboard、Management、Signal、Relay、STUN、Client Agent、外部依赖与持久化之间的主要关系。</desc>
+  <defs>
+    <style>
+      .bg { fill: #f6f8fb; }
+      .title { font: 700 28px Arial, "Noto Sans CJK SC", sans-serif; fill: #1d2530; }
+      .subtitle { font: 400 15px Arial, "Noto Sans CJK SC", sans-serif; fill: #5e6b7a; }
+      .laneTitle { font: 700 18px Arial, "Noto Sans CJK SC", sans-serif; fill: #253142; }
+      .boxTitle { font: 700 15px Arial, "Noto Sans CJK SC", sans-serif; fill: #273245; }
+      .boxText { font: 400 13px Arial, "Noto Sans CJK SC", sans-serif; fill: #48566a; }
+      .small { font: 400 12px Arial, "Noto Sans CJK SC", sans-serif; fill: #657386; }
+      .pill { font: 700 12px Arial, "Noto Sans CJK SC", sans-serif; fill: #31415a; }
+      .lane { stroke-width: 2; rx: 12; }
+      .box { fill: #ffffff; stroke-width: 1.4; rx: 8; }
+      .soft { fill: #ffffffcc; stroke-width: 1.2; rx: 7; }
+      .blueLane { fill: #eaf1ff; stroke: #77a1ee; }
+      .greenLane { fill: #eaf8ef; stroke: #6fba86; }
+      .purpleLane { fill: #f2ecff; stroke: #a98cf2; }
+      .grayLane { fill: #eef1f4; stroke: #aeb8c4; }
+      .blueBox { stroke: #5c88df; }
+      .greenBox { stroke: #58a970; }
+      .purpleBox { stroke: #9574dc; }
+      .grayBox { stroke: #9da8b5; }
+      .arrow { fill: none; stroke: #59697c; stroke-width: 2; marker-end: url(#arrow); }
+      .arrowBlue { fill: none; stroke: #477bd2; stroke-width: 2; marker-end: url(#arrowBlue); }
+      .arrowGreen { fill: none; stroke: #39935c; stroke-width: 2; marker-end: url(#arrowGreen); }
+      .arrowDash { fill: none; stroke: #7b8795; stroke-width: 2; stroke-dasharray: 7 6; marker-end: url(#arrow); }
+    </style>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#59697c"/>
+    </marker>
+    <marker id="arrowBlue" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#477bd2"/>
+    </marker>
+    <marker id="arrowGreen" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#39935c"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" width="1440" height="900"/>
+  <text class="title" x="54" y="56">Cloink / NetBird 项目架构图</text>
+  <text class="subtitle" x="54" y="84">基于当前代码结构：dashboard、netbird/management、netbird/client、signal、relay、stun 与 docker-compose 自托管部署</text>
+
+  <rect class="lane grayLane" x="38" y="120" width="170" height="650"/>
+  <text class="laneTitle" x="72" y="166">访问入口</text>
+  <rect class="box grayBox" x="62" y="204" width="122" height="70"/>
+  <text class="boxTitle" x="91" y="233">管理员</text>
+  <text class="boxText" x="82" y="255">浏览器访问</text>
+  <rect class="box grayBox" x="62" y="324" width="122" height="70"/>
+  <text class="boxTitle" x="82" y="353">终端用户</text>
+  <text class="boxText" x="78" y="375">Agent / CLI</text>
+  <rect class="soft grayBox" x="62" y="652" width="122" height="52"/>
+  <text class="pill" x="78" y="682">自托管端口</text>
+  <text class="small" x="67" y="726">8080 / 8081 / 3478 UDP</text>
+
+  <rect class="lane blueLane" x="244" y="120" width="276" height="650"/>
+  <text class="laneTitle" x="316" y="166">Dashboard 前端</text>
+  <rect class="box blueBox" x="270" y="194" width="224" height="76"/>
+  <text class="boxTitle" x="332" y="224">Next.js / React</text>
+  <text class="boxText" x="304" y="247">dashboard/src/app</text>
+  <rect class="soft blueBox" x="270" y="306" width="98" height="58"/>
+  <text class="boxText" x="292" y="333">Overview</text>
+  <text class="small" x="298" y="350">总览</text>
+  <rect class="soft blueBox" x="396" y="306" width="98" height="58"/>
+  <text class="boxText" x="426" y="333">Peers</text>
+  <text class="small" x="419" y="350">设备节点</text>
+  <rect class="soft blueBox" x="270" y="390" width="98" height="58"/>
+  <text class="boxText" x="291" y="417">Networks</text>
+  <text class="small" x="292" y="434">网络资源</text>
+  <rect class="soft blueBox" x="396" y="390" width="98" height="58"/>
+  <text class="boxText" x="425" y="417">Routes</text>
+  <text class="small" x="419" y="434">路由管理</text>
+  <rect class="soft blueBox" x="270" y="474" width="98" height="58"/>
+  <text class="boxText" x="288" y="501">Policies</text>
+  <text class="small" x="292" y="518">访问控制</text>
+  <rect class="soft blueBox" x="396" y="474" width="98" height="58"/>
+  <text class="boxText" x="431" y="501">DNS</text>
+  <text class="small" x="419" y="518">域名配置</text>
+  <rect class="soft blueBox" x="270" y="558" width="98" height="58"/>
+  <text class="boxText" x="291" y="585">Settings</text>
+  <text class="small" x="298" y="602">设置</text>
+  <rect class="soft blueBox" x="396" y="558" width="98" height="58"/>
+  <text class="boxText" x="413" y="585">Releases</text>
+  <text class="small" x="414" y="602">版本发布</text>
+  <rect class="soft blueBox" x="270" y="660" width="224" height="60"/>
+  <text class="boxTitle" x="322" y="688">Management REST API</text>
+  <text class="small" x="311" y="707">OAuth 回调 / Token / JSON</text>
+
+  <rect class="lane greenLane" x="554" y="120" width="360" height="650"/>
+  <text class="laneTitle" x="652" y="166">控制面 Management</text>
+  <rect class="box greenBox" x="584" y="194" width="300" height="76"/>
+  <text class="boxTitle" x="663" y="224">HTTP + gRPC Server</text>
+  <text class="boxText" x="641" y="247">netbird/management</text>
+  <rect class="soft greenBox" x="584" y="306" width="132" height="58"/>
+  <text class="boxText" x="617" y="333">Account</text>
+  <text class="small" x="613" y="350">账号 / 用户 / 组</text>
+  <rect class="soft greenBox" x="752" y="306" width="132" height="58"/>
+  <text class="boxText" x="782" y="333">Network Map</text>
+  <text class="small" x="784" y="350">拓扑与同步</text>
+  <rect class="soft greenBox" x="584" y="390" width="132" height="58"/>
+  <text class="boxText" x="618" y="417">Policies</text>
+  <text class="small" x="607" y="434">ACL / 权限角色</text>
+  <rect class="soft greenBox" x="752" y="390" width="132" height="58"/>
+  <text class="boxText" x="791" y="417">Routes</text>
+  <text class="small" x="782" y="434">路由 / Exit Node</text>
+  <rect class="soft greenBox" x="584" y="474" width="132" height="58"/>
+  <text class="boxText" x="626" y="501">DNS</text>
+  <text class="small" x="608" y="518">Nameserver / Zones</text>
+  <rect class="soft greenBox" x="752" y="474" width="132" height="58"/>
+  <text class="boxText" x="782" y="501">Posture</text>
+  <text class="small" x="786" y="518">设备姿态检查</text>
+  <rect class="soft greenBox" x="584" y="558" width="132" height="58"/>
+  <text class="boxText" x="607" y="585">Setup Keys</text>
+  <text class="small" x="607" y="602">批量注册凭据</text>
+  <rect class="soft greenBox" x="752" y="558" width="132" height="58"/>
+  <text class="boxText" x="770" y="585">Version Releases</text>
+  <text class="small" x="780" y="602">安装包与更新</text>
+  <rect class="soft greenBox" x="584" y="660" width="300" height="60"/>
+  <text class="boxTitle" x="663" y="688">Store / Migration / Jobs</text>
+  <text class="small" x="641" y="707">/var/lib/netbird、活动日志、任务队列</text>
+
+  <rect class="lane purpleLane" x="948" y="120" width="214" height="650"/>
+  <text class="laneTitle" x="994" y="166">连接服务</text>
+  <rect class="box purpleBox" x="974" y="198" width="162" height="72"/>
+  <text class="boxTitle" x="1014" y="227">Signal</text>
+  <text class="boxText" x="996" y="249">gRPC 信令协商</text>
+  <rect class="box purpleBox" x="974" y="318" width="162" height="72"/>
+  <text class="boxTitle" x="1019" y="347">STUN</text>
+  <text class="boxText" x="996" y="369">ICE / NAT 探测</text>
+  <rect class="box purpleBox" x="974" y="438" width="162" height="72"/>
+  <text class="boxTitle" x="1023" y="467">Relay</text>
+  <text class="boxText" x="998" y="489">QUIC / WebSocket</text>
+  <rect class="soft purpleBox" x="974" y="586" width="162" height="72"/>
+  <text class="boxTitle" x="1004" y="615">共享协议</text>
+  <text class="boxText" x="999" y="637">shared/signal</text>
+  <text class="boxText" x="1002" y="653">shared/relay</text>
+
+  <rect class="lane blueLane" x="1196" y="120" width="206" height="650"/>
+  <text class="laneTitle" x="1236" y="166">端侧 Agent</text>
+  <rect class="box blueBox" x="1220" y="198" width="158" height="72"/>
+  <text class="boxTitle" x="1258" y="227">Client UI</text>
+  <text class="boxText" x="1240" y="249">CLI / Daemon</text>
+  <rect class="box blueBox" x="1220" y="306" width="158" height="72"/>
+  <text class="boxTitle" x="1250" y="335">Peer Engine</text>
+  <text class="boxText" x="1242" y="357">ICE / Worker</text>
+  <rect class="box blueBox" x="1220" y="414" width="158" height="72"/>
+  <text class="boxTitle" x="1250" y="443">WireGuard</text>
+  <text class="boxText" x="1236" y="465">iface / wgproxy</text>
+  <rect class="box blueBox" x="1220" y="522" width="158" height="72"/>
+  <text class="boxTitle" x="1254" y="551">Local Net</text>
+  <text class="boxText" x="1236" y="573">ACL / DNS / Routes</text>
+  <rect class="soft blueBox" x="1220" y="638" width="158" height="66"/>
+  <text class="boxTitle" x="1257" y="666">Updater</text>
+  <text class="boxText" x="1236" y="688">安装包下载 / 安装</text>
+
+  <rect class="lane grayLane" x="244" y="795" width="1158" height="66"/>
+  <text class="laneTitle" x="274" y="835">外部依赖：</text>
+  <text class="boxText" x="380" y="835">Identity Provider（OIDC/SSO/JWT）</text>
+  <text class="boxText" x="650" y="835">其他 NetBird Peers</text>
+  <text class="boxText" x="840" y="835">config.yaml / volume / version_releases/files</text>
+  <text class="boxText" x="1168" y="835">WireGuard 加密业务流量</text>
+
+  <path class="arrowBlue" d="M184 239 C210 239, 228 232, 266 232"/>
+  <path class="arrowBlue" d="M494 690 C526 690, 540 238, 580 238"/>
+  <path class="arrowGreen" d="M884 690 C918 690, 936 238, 970 238"/>
+  <path class="arrowGreen" d="M884 238 C1010 170, 1120 172, 1216 234"/>
+  <path class="arrowBlue" d="M1378 234 C1406 234, 1408 342, 1382 342"/>
+  <path class="arrowBlue" d="M1299 270 L1299 302"/>
+  <path class="arrowBlue" d="M1299 378 L1299 410"/>
+  <path class="arrowBlue" d="M1299 486 L1299 518"/>
+  <path class="arrowDash" d="M1220 342 C1186 342, 1174 238, 1140 238"/>
+  <path class="arrowDash" d="M1220 342 C1186 342, 1174 354, 1140 354"/>
+  <path class="arrowDash" d="M1220 342 C1186 342, 1174 474, 1140 474"/>
+  <path class="arrowGreen" d="M1299 486 C1299 758, 696 758, 696 794"/>
+  <path class="arrowDash" d="M734 720 C734 758, 1000 758, 1000 794"/>
+  <path class="arrowDash" d="M650 720 C650 760, 504 760, 504 794"/>
+  <path class="arrowBlue" d="M184 359 C740 360, 744 235, 1220 234"/>
+
+  <text class="small" x="220" y="220">HTTP</text>
+  <text class="small" x="512" y="674">REST API</text>
+  <text class="small" x="916" y="220">Network Map / Policy</text>
+  <text class="small" x="1156" y="224">注册 / 同步</text>
+  <text class="small" x="1156" y="322">信令</text>
+  <text class="small" x="1150" y="366">NAT 探测</text>
+  <text class="small" x="1150" y="486">中继回退</text>
+  <text class="small" x="816" y="754">持久化与安装包</text>
+</svg>

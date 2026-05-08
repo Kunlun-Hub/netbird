@@ -1,0 +1,170 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="820" viewBox="0 0 1440 820" role="img" aria-labelledby="title desc">
+  <title id="title">传统远程访问架构图</title>
+  <desc id="desc">展示传统 VPN 架构中办公室、家庭、云环境、数据中心以及中间复杂网络配置之间的关系。</desc>
+  <defs>
+    <radialGradient id="warmGlow" cx="50%" cy="50%" r="68%">
+      <stop offset="0%" stop-color="#111111"/>
+      <stop offset="52%" stop-color="#060707"/>
+      <stop offset="100%" stop-color="#1b0f09"/>
+    </radialGradient>
+    <filter id="orangeGlow" x="-40%" y="-40%" width="180%" height="180%">
+      <feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#ff8a3d" flood-opacity="0.65"/>
+    </filter>
+    <filter id="softGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="0" stdDeviation="3" flood-color="#a7b1c2" flood-opacity="0.35"/>
+    </filter>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#6f7887"/>
+    </marker>
+    <style>
+      .bg { fill: url(#warmGlow); }
+      .label { font: 700 23px Arial, "Noto Sans CJK SC", sans-serif; fill: #efe7de; }
+      .title { font: 700 26px Arial, "Noto Sans CJK SC", sans-serif; fill: #f4eee8; }
+      .sub { font: 400 14px Arial, "Noto Sans CJK SC", sans-serif; fill: #9ca5b2; }
+      .text { font: 700 18px Arial, "Noto Sans CJK SC", sans-serif; fill: #f3f4f6; }
+      .muted { font: 400 13px Arial, "Noto Sans CJK SC", sans-serif; fill: #aab1bd; }
+      .chipText { font: 700 17px Arial, "Noto Sans CJK SC", sans-serif; fill: #e9edf3; }
+      .panel { fill: #030404; stroke: #de793c; stroke-width: 1.4; rx: 6; filter: url(#orangeGlow); }
+      .chip { fill: #090a0d; stroke: #6f7887; stroke-width: 1.3; rx: 5; filter: url(#softGlow); }
+      .line { fill: none; stroke: #6f7887; stroke-width: 1.8; marker-end: url(#arrow); }
+      .thin { fill: none; stroke: #596270; stroke-width: 1.4; }
+      .orange { fill: none; stroke: #ff8a3d; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+      .pin { fill: #ff8a3d; }
+      .divider { stroke: #9c5b36; stroke-width: 1.2; }
+      .complex { stroke: #6f7887; stroke-width: 1.2; fill: none; }
+    </style>
+  </defs>
+
+  <rect class="bg" width="1440" height="820"/>
+  <text class="title" x="502" y="48">传统 VPN / 专线式远程访问架构</text>
+  <text class="sub" x="514" y="76">每个入口、环境和应用都需要重复维护证书、网段、网关、路由、防火墙、DNS 与身份集成</text>
+
+  <g transform="translate(110 83)">
+    <path class="pin" d="M9 0c-5 0-9 4-9 9 0 7 9 17 9 17s9-10 9-17c0-5-4-9-9-9zm0 12.2a3.6 3.6 0 1 1 0-7.2 3.6 3.6 0 0 1 0 7.2z"/>
+    <text class="label" x="26" y="20">OFFICE</text>
+  </g>
+  <g transform="translate(110 706)">
+    <path class="pin" d="M9 0c-5 0-9 4-9 9 0 7 9 17 9 17s9-10 9-17c0-5-4-9-9-9zm0 12.2a3.6 3.6 0 1 1 0-7.2 3.6 3.6 0 0 1 0 7.2z"/>
+    <text class="label" x="26" y="20">HOME</text>
+  </g>
+  <g transform="translate(1124 83)">
+    <path class="pin" d="M9 0c-5 0-9 4-9 9 0 7 9 17 9 17s9-10 9-17c0-5-4-9-9-9zm0 12.2a3.6 3.6 0 1 1 0-7.2 3.6 3.6 0 0 1 0 7.2z"/>
+    <text class="label" x="26" y="20">CLOUD</text>
+  </g>
+  <g transform="translate(1095 706)">
+    <path class="pin" d="M9 0c-5 0-9 4-9 9 0 7 9 17 9 17s9-10 9-17c0-5-4-9-9-9zm0 12.2a3.6 3.6 0 1 1 0-7.2 3.6 3.6 0 0 1 0 7.2z"/>
+    <text class="label" x="26" y="20">DATACENTER</text>
+  </g>
+
+  <rect class="panel" x="62" y="120" width="226" height="180"/>
+  <g transform="translate(177 174)">
+    <circle class="orange" cx="0" cy="0" r="9"/>
+    <path class="orange" d="M-20 45c1-25 39-25 40 0"/>
+    <text class="text" text-anchor="middle" x="0" y="70">John</text>
+    <text class="muted" text-anchor="middle" x="0" y="92">Software Engineer</text>
+  </g>
+
+  <rect class="panel" x="62" y="558" width="226" height="180"/>
+  <g transform="translate(177 612)">
+    <circle class="orange" cx="0" cy="0" r="9"/>
+    <path class="orange" d="M-20 45c1-25 39-25 40 0"/>
+    <text class="text" text-anchor="middle" x="0" y="70">Marta</text>
+    <text class="muted" text-anchor="middle" x="0" y="92">Account Manager</text>
+  </g>
+
+  <rect class="panel" x="1010" y="120" width="320" height="180"/>
+  <line class="divider" x1="1170" y1="140" x2="1170" y2="280"/>
+  <g transform="translate(1090 178)">
+    <path class="orange" d="M-20 0 0-11 20 0 0 11z M-20 13 0 24 20 13 M-20 26 0 37 20 26"/>
+    <text class="text" text-anchor="middle" x="0" y="72">Web Server</text>
+  </g>
+  <g transform="translate(1250 176)">
+    <ellipse class="orange" cx="0" cy="0" rx="17" ry="8"/>
+    <path class="orange" d="M-17 0v39c0 4 8 8 17 8s17-4 17-8V0 M-17 14c0 4 8 8 17 8s17-4 17-8 M-17 28c0 4 8 8 17 8s17-4 17-8"/>
+    <text class="text" text-anchor="middle" x="0" y="74">Database</text>
+  </g>
+
+  <rect class="panel" x="1010" y="558" width="320" height="180"/>
+  <line class="divider" x1="1170" y1="578" x2="1170" y2="718"/>
+  <g transform="translate(1090 617)">
+    <rect class="orange" x="-18" y="-18" width="36" height="36" rx="3"/>
+    <path class="orange" d="M-10 -9h20 M-10 -1h20"/>
+    <text class="text" text-anchor="middle" x="0" y="68">CRM</text>
+  </g>
+  <g transform="translate(1250 616)">
+    <path class="orange" d="M-20 0 0-11 20 0 0 11z M-20 13 0 24 20 13 M-20 26 0 37 20 26"/>
+    <text class="text" text-anchor="middle" x="0" y="69">Web Server</text>
+  </g>
+
+  <path class="line" d="M288 210 H442"/>
+  <path class="line" d="M870 210 H1010"/>
+  <path class="line" d="M288 646 H436"/>
+  <path class="line" d="M870 646 H1010"/>
+
+  <path class="thin" d="M1170 300 V342"/>
+  <path class="thin" d="M1170 438 V558"/>
+  <path class="line" d="M1170 300 V338"/>
+  <path class="line" d="M1170 514 V554"/>
+  <path class="thin" d="M1108 410 H1232"/>
+  <path class="thin" d="M1170 386 V450"/>
+
+  <g>
+    <path class="complex" d="M440 84 H610 V98 M610 84 H885 V98"/>
+    <text class="muted" x="616" y="89">Complexity</text>
+    <rect class="chip" x="514" y="120" width="160" height="48"/>
+    <text class="chipText" x="530" y="151">VPN Certificates</text>
+    <rect class="chip" x="696" y="120" width="104" height="48"/>
+    <text class="chipText" x="714" y="151">IP ranges</text>
+
+    <rect class="chip" x="442" y="184" width="96" height="48"/>
+    <text class="chipText" x="459" y="215">Firewall</text>
+    <rect class="chip" x="560" y="184" width="66" height="48"/>
+    <text class="chipText" x="577" y="215">NAT</text>
+    <rect class="chip" x="648" y="184" width="66" height="48"/>
+    <text class="chipText" x="664" y="215">DNS</text>
+    <rect class="chip" x="738" y="184" width="140" height="48"/>
+    <text class="chipText" x="756" y="215">VPN Gateway</text>
+    <rect class="chip" x="472" y="250" width="78" height="48"/>
+    <text class="chipText" x="491" y="281">SAML</text>
+    <rect class="chip" x="574" y="250" width="86" height="48"/>
+    <text class="chipText" x="592" y="281">Routes</text>
+    <rect class="chip" x="682" y="250" width="162" height="48"/>
+    <text class="chipText" x="700" y="281">Security Groups</text>
+  </g>
+
+  <g>
+    <rect class="chip" x="466" y="560" width="78" height="48"/>
+    <text class="chipText" x="485" y="591">SAML</text>
+    <rect class="chip" x="568" y="560" width="86" height="48"/>
+    <text class="chipText" x="586" y="591">Routes</text>
+    <rect class="chip" x="680" y="560" width="162" height="48"/>
+    <text class="chipText" x="698" y="591">Security Groups</text>
+    <rect class="chip" x="436" y="624" width="96" height="48"/>
+    <text class="chipText" x="453" y="655">Firewall</text>
+    <rect class="chip" x="556" y="624" width="66" height="48"/>
+    <text class="chipText" x="573" y="655">NAT</text>
+    <rect class="chip" x="644" y="624" width="66" height="48"/>
+    <text class="chipText" x="660" y="655">DNS</text>
+    <rect class="chip" x="732" y="624" width="140" height="48"/>
+    <text class="chipText" x="750" y="655">VPN Gateway</text>
+    <rect class="chip" x="508" y="690" width="160" height="48"/>
+    <text class="chipText" x="524" y="721">VPN Certificates</text>
+    <rect class="chip" x="692" y="690" width="104" height="48"/>
+    <text class="chipText" x="710" y="721">IP ranges</text>
+  </g>
+
+  <g>
+    <rect class="chip" x="1108" y="338" width="140" height="48"/>
+    <text class="chipText" x="1126" y="369">VPN Gateway</text>
+    <rect class="chip" x="1046" y="404" width="64" height="48"/>
+    <text class="chipText" x="1060" y="435">DNS</text>
+    <rect class="chip" x="1132" y="404" width="88" height="48"/>
+    <text class="chipText" x="1148" y="435">Firewall</text>
+    <rect class="chip" x="1244" y="404" width="78" height="48"/>
+    <text class="chipText" x="1259" y="435">IPSEC</text>
+    <rect class="chip" x="1108" y="470" width="140" height="48"/>
+    <text class="chipText" x="1126" y="501">VPN Gateway</text>
+  </g>
+
+  <text class="sub" x="434" y="786">传统模式的问题：配置项分散、证书和网段重复维护、跨环境策略不一致、排障链路长、扩展新用户或新应用成本高。</text>
+</svg>
