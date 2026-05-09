@@ -383,12 +383,20 @@ type subItem struct {
 }
 
 type profileMenu struct {
-	mu                   sync.Mutex
-	ctx                  context.Context
-	profileManager       *profilemanager.ProfileManager
-	profileMenuItem      *systray.MenuItem
-	emailMenuItem        *systray.MenuItem
-	getSrvClientCallback func(timeout time.Duration) (proto.DaemonServiceClient, error)
+	mu                    sync.Mutex
+	ctx                   context.Context
+	profileManager        *profilemanager.ProfileManager
+	profileMenuItem       *systray.MenuItem
+	emailMenuItem         *systray.MenuItem
+	getSrvClientCallback  func(timeout time.Duration) (proto.DaemonServiceClient, error)
+	eventHandler          *eventHandler
+	serviceClient         *serviceClient
+	upClickCallback       func(context.Context) error
+	downClickCallback     func() error
+	loadSettingsCallback  func()
+	profileSubItems       []*subItem
+	manageProfilesSubItem *subItem
+	logoutSubItem         *subItem
 }
 
 type newProfileMenuArgs struct {
@@ -397,6 +405,11 @@ type newProfileMenuArgs struct {
 	profileMenuItem      *systray.MenuItem
 	emailMenuItem        *systray.MenuItem
 	getSrvClientCallback func(timeout time.Duration) (proto.DaemonServiceClient, error)
+	eventHandler         *eventHandler
+	serviceClient        *serviceClient
+	upClickCallback      func(context.Context) error
+	downClickCallback    func() error
+	loadSettingsCallback func()
 }
 
 func newProfileMenu(args newProfileMenuArgs) *profileMenu {
@@ -406,6 +419,11 @@ func newProfileMenu(args newProfileMenuArgs) *profileMenu {
 		profileMenuItem:      args.profileMenuItem,
 		emailMenuItem:        args.emailMenuItem,
 		getSrvClientCallback: args.getSrvClientCallback,
+		eventHandler:         args.eventHandler,
+		serviceClient:        args.serviceClient,
+		upClickCallback:      args.upClickCallback,
+		downClickCallback:    args.downClickCallback,
+		loadSettingsCallback: args.loadSettingsCallback,
 	}
 
 	p.profileMenuItem.Disable()
@@ -449,6 +467,12 @@ func (p *profileMenu) getProfiles() ([]Profile, error) {
 func (p *profileMenu) refresh() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+
+	profiles, err := p.getProfiles()
+	if err != nil {
+		log.Errorf("failed to get profiles: %v", err)
+		return
+	}
 
 	currUser, err := user.Current()
 	if err != nil {

@@ -23,6 +23,7 @@
 !define UI_UNINSTALL_PATH "Software\Microsoft\Windows\CurrentVersion\Uninstall\${UI_APP_NAME}"
 
 !define AUTOSTART_REG_KEY "Software\Microsoft\Windows\CurrentVersion\Run"
+!define ENV_REG_KEY "SYSTEM\CurrentControlSet\Control\Session Manager\Environment"
 
 !define NETBIRD_DATA_DIR "$COMMONPROGRAMDATA\Cloink"
 
@@ -54,6 +55,9 @@ ShowInstDetails Show
 !include "MUI2.nsh"
 !include LogicLib.nsh
 !include "nsDialogs.nsh"
+!include "WinMessages.nsh"
+!include "StrFunc.nsh"
+${Using:StrFunc} StrStr
 
 !define MUI_ICON "${ICON}"
 !define MUI_UNICON "${ICON}"
@@ -199,6 +203,24 @@ Pop $1
 Pop $0
 !macroend
 
+Function AddInstallDirToSystemPath
+    SetRegView 64
+    ReadRegStr $1 HKLM "${ENV_REG_KEY}" "Path"
+    StrCpy $2 ";$1;"
+    StrCpy $3 ";$INSTDIR;"
+    ${StrStr} $4 "$2" "$3"
+    ${If} $4 == ""
+        ${If} $1 == ""
+            WriteRegExpandStr HKLM "${ENV_REG_KEY}" "Path" "$INSTDIR"
+        ${Else}
+            WriteRegExpandStr HKLM "${ENV_REG_KEY}" "Path" "$1;$INSTDIR"
+        ${EndIf}
+        DetailPrint "已写入系统 PATH 注册表: $INSTDIR"
+    ${Else}
+        DetailPrint "系统 PATH 已包含: $INSTDIR"
+    ${EndIf}
+FunctionEnd
+
 Function .onInit
 StrCpy $INSTDIR "${INSTALL_DIR}"
 ; Default autostart to enabled so silent installs (/S) match the interactive default
@@ -272,8 +294,18 @@ ${Else}
     DetailPrint "用户未启用自动启动"
 ${EndIf}
 
+DetailPrint "正在将 $INSTDIR 添加到系统 PATH..."
 EnVar::SetHKLM
-EnVar::AddValueEx "path" "$INSTDIR"
+EnVar::AddValueEx "Path" "$INSTDIR"
+Pop $0
+${If} $0 != 0
+    DetailPrint "警告: 添加系统 PATH 失败，错误码: $0"
+${Else}
+    DetailPrint "已添加系统 PATH: $INSTDIR"
+${EndIf}
+Call AddInstallDirToSystemPath
+SendMessage ${HWND_BROADCAST} ${WM_WININICHANGE} 0 "STR:Environment" /TIMEOUT=5000
+DetailPrint "已广播环境变量变更"
 
 SetShellVarContext all
 CreateShortCut "$SMPROGRAMS\${APP_NAME}.lnk" "$INSTDIR\${UI_APP_EXE}"
@@ -343,7 +375,14 @@ DeleteRegKey HKCU "Software\Classes\AppUserModelId\${APP_NAME}"
 
 DetailPrint "正在从 PATH 中移除应用程序目录..."
 EnVar::SetHKLM
-EnVar::DeleteValue "path" "$INSTDIR"
+EnVar::DeleteValue "Path" "$INSTDIR"
+Pop $0
+${If} $0 != 0
+    DetailPrint "警告: 从系统 PATH 移除失败，错误码: $0"
+${Else}
+    DetailPrint "已从系统 PATH 移除: $INSTDIR"
+${EndIf}
+SendMessage ${HWND_BROADCAST} ${WM_WININICHANGE} 0 "STR:Environment" /TIMEOUT=5000
 
 DetailPrint "卸载完成。"
 SectionEnd

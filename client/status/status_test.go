@@ -541,8 +541,8 @@ func TestParsingToDetail(t *testing.T) {
 	expectedDetail := fmt.Sprintf(
 		`Peers detail:
  peer-1.awesome-domain.com:
-  NetBird IP: 192.168.178.101
-  NetBird IPv6: fd00::1
+  Cloink IP: 192.168.178.101
+  Cloink IPv6: fd00::1
   Public key: Pubkey1
   Status: Connected
   -- detail --
@@ -558,7 +558,7 @@ func TestParsingToDetail(t *testing.T) {
   Latency: 10ms
 
  peer-2.awesome-domain.com:
-  NetBird IP: 192.168.178.102
+  Cloink IP: 192.168.178.102
   Public key: Pubkey2
   Status: Connected
   -- detail --
@@ -587,8 +587,8 @@ Nameservers:
   [8.8.8.8:53] for [.] is Available
   [1.1.1.1:53, 2.2.2.2:53] for [example.com, example.net] is Unavailable, reason: timeout
 FQDN: some-localhost.awesome-domain.com
-NetBird IP: 192.168.178.100/16
-NetBird IPv6: fd00::100
+Cloink IP: 192.168.178.100/16
+Cloink IPv6: fd00::100
 Interface type: Kernel
 Quantum resistance: false
 Lazy connection: false
@@ -614,8 +614,8 @@ Signal: Connected
 Relays: 1/2 Available
 Nameservers: 1/2 Available
 FQDN: some-localhost.awesome-domain.com
-NetBird IP: 192.168.178.100/16
-NetBird IPv6: fd00::100
+Cloink IP: 192.168.178.100/16
+Cloink IPv6: fd00::100
 Interface type: Kernel
 Quantum resistance: false
 Lazy connection: false

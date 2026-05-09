@@ -433,7 +433,7 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 
 	ipv6Line := ""
 	if o.IPv6 != "" {
-		ipv6Line = fmt.Sprintf("NetBird IPv6: %s\n", o.IPv6)
+		ipv6Line = fmt.Sprintf("Cloink IPv6: %s\n", o.IPv6)
 	}
 
 	var relaysString string
@@ -776,7 +776,7 @@ func parsePeers(peers PeersStateOutput, rosenpassEnabled, rosenpassPermissive bo
 
 		ipv6Line := ""
 		if peerState.IPv6 != "" {
-			ipv6Line = fmt.Sprintf("  NetBird IPv6: %s\n", peerState.IPv6)
+			ipv6Line = fmt.Sprintf("  Cloink IPv6: %s\n", peerState.IPv6)
 		}
 
 		peerString := fmt.Sprintf(

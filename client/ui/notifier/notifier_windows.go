@@ -16,10 +16,10 @@ const (
 	// must match the System.AppUserModel.ID property set on the Start Menu
 	// shortcut by the MSI (see client/netbird.wxs); otherwise Windows
 	// groups toasts under a separate, unbranded entry.
-	appID = "NetBird"
+	appID = "Cloink"
 
 	// appGUID identifies the COM activation callback class. Generated once
-	// for NetBird; do not change without coordinating an installer bump,
+	// for Cloink; do not change without coordinating an installer bump,
 	// since old registry entries pointing at the previous GUID would orphan.
 	appGUID = "{0E1B4DE7-E148-432B-9814-544F941826EC}"
 )
