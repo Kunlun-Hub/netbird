@@ -5444,7 +5444,7 @@ func (s *SqlStore) CreateAccessLog(ctx context.Context, logEntry *accesslogs.Acc
 }
 
 func (s *SqlStore) CreateNetworkTrafficEvent(ctx context.Context, event *networktraffic.Event) error {
-	result := s.db.Create(event)
+	result := s.db.Clauses(clause.OnConflict{DoNothing: true}).Create(event)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to create network traffic event in store: %v", result.Error)
 		return status.Errorf(status.Internal, "failed to create network traffic event in store")

@@ -141,8 +141,8 @@ func scanResolvConfHeader() (osManagerType, string, []string, error) {
 // matchResolvConfHeader inspects a single comment line. Returns either a
 // definitive (manager, reason) or a non-empty rejected diagnostic.
 func matchResolvConfHeader(text string) (osManagerType, string, string) {
-	if strings.Contains(text, fileGeneratedResolvConfContentHeader) {
-		return netbirdManager, "netbird-managed resolv.conf header detected", ""
+	if strings.Contains(text, fileGeneratedResolvConfContentHeader) || strings.Contains(text, fileLegacyGeneratedResolvConfContentHeader) {
+		return netbirdManager, "cloink-managed resolv.conf header detected", ""
 	}
 	if strings.Contains(text, "NetworkManager") {
 		if isDbusListenerRunning(networkManagerDest, networkManagerDbusObjectNode) && isNetworkManagerSupported() {

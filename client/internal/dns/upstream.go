@@ -735,5 +735,5 @@ func (u *upstreamResolverBase) debugUpstreamTimeout(upstream netip.AddrPort) str
 		return ""
 	}
 
-	return fmt.Sprintf("(routes through NetBird peer %s)", FormatPeerStatus(peerInfo))
+	return fmt.Sprintf("(routes through Cloink peer %s)", FormatPeerStatus(peerInfo))
 }
