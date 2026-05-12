@@ -2383,17 +2383,17 @@ func (s *SqlStore) getNetworks(ctx context.Context, accountID string) ([]*networ
 }
 
 func (s *SqlStore) getNetworkRouters(ctx context.Context, accountID string) ([]*routerTypes.NetworkRouter, error) {
-	const query = `SELECT id, network_id, account_id, peer, peer_groups, masquerade, metric, enabled FROM network_routers WHERE account_id = $1`
+	const query = `SELECT id, network_id, account_id, peer, peer_groups, advertised_routes, excluded_routes, masquerade, metric, enabled FROM network_routers WHERE account_id = $1`
 	rows, err := s.pool.Query(ctx, query, accountID)
 	if err != nil {
 		return nil, err
 	}
 	routers, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (routerTypes.NetworkRouter, error) {
 		var r routerTypes.NetworkRouter
-		var peerGroups []byte
+		var peerGroups, advertisedRoutes, excludedRoutes []byte
 		var masquerade, enabled sql.NullBool
 		var metric sql.NullInt64
-		err := row.Scan(&r.ID, &r.NetworkID, &r.AccountID, &r.Peer, &peerGroups, &masquerade, &metric, &enabled)
+		err := row.Scan(&r.ID, &r.NetworkID, &r.AccountID, &r.Peer, &peerGroups, &advertisedRoutes, &excludedRoutes, &masquerade, &metric, &enabled)
 		if err == nil {
 			if masquerade.Valid {
 				r.Masquerade = masquerade.Bool
@@ -2406,6 +2406,12 @@ func (s *SqlStore) getNetworkRouters(ctx context.Context, accountID string) ([]*
 			}
 			if peerGroups != nil {
 				_ = json.Unmarshal(peerGroups, &r.PeerGroups)
+			}
+			if advertisedRoutes != nil {
+				_ = json.Unmarshal(advertisedRoutes, &r.AdvertisedRoutes)
+			}
+			if excludedRoutes != nil {
+				_ = json.Unmarshal(excludedRoutes, &r.ExcludedRoutes)
 			}
 		}
 		return r, err

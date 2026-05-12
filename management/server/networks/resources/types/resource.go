@@ -108,6 +108,14 @@ func (n *NetworkResource) Copy() *NetworkResource {
 }
 
 func (n *NetworkResource) ToRoute(peer *nbpeer.Peer, router *routerTypes.NetworkRouter) *route.Route {
+	routes := n.ToRoutes(peer, router)
+	if len(routes) == 0 {
+		return nil
+	}
+	return routes[0]
+}
+
+func (n *NetworkResource) ToRoutes(peer *nbpeer.Peer, router *routerTypes.NetworkRouter) []*route.Route {
 	r := &route.Route{
 		ID:                  route.ID(fmt.Sprintf("%s:%s", n.ID, peer.ID)),
 		AccountID:           n.AccountID,
@@ -125,12 +133,19 @@ func (n *NetworkResource) ToRoute(peer *nbpeer.Peer, router *routerTypes.Network
 	}
 
 	if n.Type == Host || n.Type == Subnet {
-		r.Network = n.Prefix
-
-		r.NetworkType = route.IPv4Network
-		if n.Prefix.Addr().Is6() {
-			r.NetworkType = route.IPv6Network
+		prefixes := router.RoutePrefixes(n.Prefix)
+		routes := make([]*route.Route, 0, len(prefixes))
+		for _, prefix := range prefixes {
+			routeCopy := r.Copy()
+			routeCopy.ID = route.ID(fmt.Sprintf("%s:%s:%s", n.ID, prefix.String(), peer.ID))
+			routeCopy.Network = prefix
+			routeCopy.NetworkType = route.IPv4Network
+			if prefix.Addr().Is6() {
+				routeCopy.NetworkType = route.IPv6Network
+			}
+			routes = append(routes, routeCopy)
 		}
+		return routes
 	}
 
 	if n.Type == Domain {
@@ -145,7 +160,7 @@ func (n *NetworkResource) ToRoute(peer *nbpeer.Peer, router *routerTypes.Network
 		r.Network = netip.PrefixFrom(netip.AddrFrom4([4]byte{192, 0, 2, 0}), 32)
 	}
 
-	return r
+	return []*route.Route{r}
 }
 
 func (n *NetworkResource) EventMeta(network *networkTypes.Network) map[string]any {

@@ -1,6 +1,11 @@
 package types
 
-import "testing"
+import (
+	"net/netip"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 func TestNewNetworkRouter(t *testing.T) {
 	tests := []struct {
@@ -117,4 +122,37 @@ func TestNewNetworkRouter(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestNetworkRouterRoutePrefixesExcludesHost(t *testing.T) {
+	router := &NetworkRouter{
+		Peer:             "peer-1",
+		AdvertisedRoutes: []netip.Prefix{netip.MustParsePrefix("10.202.10.0/24")},
+		ExcludedRoutes:   []netip.Prefix{netip.MustParsePrefix("10.202.10.65/32")},
+	}
+
+	prefixes := router.RoutePrefixes(netip.MustParsePrefix("10.202.10.0/24"))
+
+	require.Equal(t, []netip.Prefix{
+		netip.MustParsePrefix("10.202.10.0/26"),
+		netip.MustParsePrefix("10.202.10.64/32"),
+		netip.MustParsePrefix("10.202.10.66/31"),
+		netip.MustParsePrefix("10.202.10.68/30"),
+		netip.MustParsePrefix("10.202.10.72/29"),
+		netip.MustParsePrefix("10.202.10.80/28"),
+		netip.MustParsePrefix("10.202.10.96/27"),
+		netip.MustParsePrefix("10.202.10.128/25"),
+	}, prefixes)
+}
+
+func TestNetworkRouterRoutePrefixesUsesResourcePrefixByDefault(t *testing.T) {
+	router := &NetworkRouter{
+		Peer:           "peer-1",
+		ExcludedRoutes: []netip.Prefix{netip.MustParsePrefix("10.202.10.65/32")},
+	}
+
+	prefixes := router.RoutePrefixes(netip.MustParsePrefix("10.202.10.0/24"))
+
+	require.NotContains(t, prefixes, netip.MustParsePrefix("10.202.10.65/32"))
+	require.Len(t, prefixes, 8)
 }

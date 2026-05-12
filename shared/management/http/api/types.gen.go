@@ -2899,6 +2899,12 @@ type NetworkRouter struct {
 	// Metric Route metric number. Lowest number has higher priority
 	Metric int `json:"metric"`
 
+	// AdvertisedRoutes CIDR prefixes announced through this network router.
+	AdvertisedRoutes *[]string `json:"advertised_routes,omitempty"`
+
+	// ExcludedRoutes CIDR prefixes excluded from the announced network router routes.
+	ExcludedRoutes *[]string `json:"excluded_routes,omitempty"`
+
 	// Peer Peer Identifier associated with route. This property can not be set together with `peer_groups`
 	Peer *string `json:"peer,omitempty"`
 
@@ -2916,6 +2922,12 @@ type NetworkRouterRequest struct {
 
 	// Metric Route metric number. Lowest number has higher priority
 	Metric int `json:"metric"`
+
+	// AdvertisedRoutes CIDR prefixes announced through this network router.
+	AdvertisedRoutes *[]string `json:"advertised_routes,omitempty"`
+
+	// ExcludedRoutes CIDR prefixes excluded from the announced network router routes.
+	ExcludedRoutes *[]string `json:"excluded_routes,omitempty"`
 
 	// Peer Peer Identifier associated with route. This property can not be set together with `peer_groups`
 	Peer *string `json:"peer,omitempty"`

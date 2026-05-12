@@ -2141,6 +2141,18 @@ components:
           maximum: 9999
           minimum: 1
           example: 9999
+        advertised_routes:
+          description: CIDR prefixes announced through this network router.
+          type: array
+          items:
+            type: string
+            example: 10.202.10.0/24
+        excluded_routes:
+          description: CIDR prefixes excluded from the announced network router routes.
+          type: array
+          items:
+            type: string
+            example: 10.202.10.65/32
         masquerade:
           description: Indicate if peer should masquerade traffic to this route's prefix
           type: boolean

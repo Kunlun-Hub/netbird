@@ -556,9 +556,7 @@ func (b *NetworkMapBuilder) getNetworkResourcesForPeer(account *Account, peer *n
 			if router, ok := networkRoutingPeers[peerID]; ok && router.Enabled {
 				isRoutingPeer = true
 				isRouterForThisResource = true
-				if rt := b.createNetworkResourceRoutes(resource, peerID, router, resourcePolicies); rt != nil {
-					routes = append(routes, rt)
-				}
+				routes = append(routes, b.createNetworkResourceRoutes(resource, peerID, router, resourcePolicies)...)
 			}
 		}
 
@@ -577,9 +575,7 @@ func (b *NetworkMapBuilder) getNetworkResourcesForPeer(account *Account, peer *n
 		if hasAccessAsClient && networkRoutingPeers != nil {
 			for routerPeerID, router := range networkRoutingPeers {
 				if router.Enabled {
-					if rt := b.createNetworkResourceRoutes(resource, routerPeerID, router, resourcePolicies); rt != nil {
-						routes = append(routes, rt)
-					}
+					routes = append(routes, b.createNetworkResourceRoutes(resource, routerPeerID, router, resourcePolicies)...)
 				}
 			}
 		}
@@ -605,11 +601,11 @@ func (b *NetworkMapBuilder) getNetworkResourcesForPeer(account *Account, peer *n
 func (b *NetworkMapBuilder) createNetworkResourceRoutes(
 	resource *resourceTypes.NetworkResource, routerPeerID string,
 	router *routerTypes.NetworkRouter, resourcePolicies []*Policy,
-) *route.Route {
+) []*route.Route {
 	if len(resourcePolicies) > 0 {
 		peer := b.cache.globalPeers[routerPeerID]
 		if peer != nil {
-			return resource.ToRoute(peer, router)
+			return resource.ToRoutes(peer, router)
 		}
 	}
 	return nil

@@ -794,7 +794,7 @@ func (c *NetworkMapComponents) getNetworkResourcesRoutes(resource *resourceTypes
 	if len(resourceAppliedPolicies) > 0 {
 		peerInfo := c.GetPeerInfo(peerID)
 		if peerInfo != nil {
-			routes = append(routes, c.networkResourceToRoute(resource, peerInfo, router))
+			routes = append(routes, c.networkResourceToRoutes(resource, peerInfo, router)...)
 		}
 	}
 
@@ -802,6 +802,14 @@ func (c *NetworkMapComponents) getNetworkResourcesRoutes(resource *resourceTypes
 }
 
 func (c *NetworkMapComponents) networkResourceToRoute(resource *resourceTypes.NetworkResource, peer *nbpeer.Peer, router *routerTypes.NetworkRouter) *route.Route {
+	routes := c.networkResourceToRoutes(resource, peer, router)
+	if len(routes) == 0 {
+		return nil
+	}
+	return routes[0]
+}
+
+func (c *NetworkMapComponents) networkResourceToRoutes(resource *resourceTypes.NetworkResource, peer *nbpeer.Peer, router *routerTypes.NetworkRouter) []*route.Route {
 	r := &route.Route{
 		ID:          route.ID(resource.ID + ":" + peer.ID),
 		AccountID:   resource.AccountID,
@@ -816,12 +824,19 @@ func (c *NetworkMapComponents) networkResourceToRoute(resource *resourceTypes.Ne
 	}
 
 	if resource.Type == resourceTypes.Host || resource.Type == resourceTypes.Subnet {
-		r.Network = resource.Prefix
-
-		r.NetworkType = route.IPv4Network
-		if resource.Prefix.Addr().Is6() {
-			r.NetworkType = route.IPv6Network
+		prefixes := router.RoutePrefixes(resource.Prefix)
+		routes := make([]*route.Route, 0, len(prefixes))
+		for _, prefix := range prefixes {
+			routeCopy := r.Copy()
+			routeCopy.ID = route.ID(resource.ID + ":" + prefix.String() + ":" + peer.ID)
+			routeCopy.Network = prefix
+			routeCopy.NetworkType = route.IPv4Network
+			if prefix.Addr().Is6() {
+				routeCopy.NetworkType = route.IPv6Network
+			}
+			routes = append(routes, routeCopy)
 		}
+		return routes
 	}
 
 	if resource.Type == resourceTypes.Domain {
@@ -833,7 +848,7 @@ func (c *NetworkMapComponents) networkResourceToRoute(resource *resourceTypes.Ne
 		}
 	}
 
-	return r
+	return []*route.Route{r}
 }
 
 func (c *NetworkMapComponents) getPostureValidPeers(inputPeers []string, postureChecksIDs []string) []string {
