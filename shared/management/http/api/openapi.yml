@@ -2176,8 +2176,13 @@ components:
               description: Network Router Id
               type: string
               example: chacdk86lnnboviihd7g
+            network_id:
+              description: Network ID this router belongs to
+              type: string
+              example: chacdk86lnnboviihd70
           required:
             - id
+            - network_id
         - $ref: '#/components/schemas/NetworkRouterRequest'
     Nameserver:
       type: object

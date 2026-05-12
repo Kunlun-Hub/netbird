@@ -2893,6 +2893,9 @@ type NetworkRouter struct {
 	// Id Network Router Id
 	Id string `json:"id"`
 
+	// NetworkId Network ID this router belongs to
+	NetworkId string `json:"network_id"`
+
 	// Masquerade Indicate if peer should masquerade traffic to this route's prefix
 	Masquerade bool `json:"masquerade"`
 

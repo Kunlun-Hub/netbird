@@ -79,6 +79,7 @@ func (n *NetworkRouter) ToAPIResponse() *api.NetworkRouter {
 
 	return &api.NetworkRouter{
 		Id:               n.ID,
+		NetworkId:        n.NetworkID,
 		Peer:             &n.Peer,
 		PeerGroups:       &n.PeerGroups,
 		AdvertisedRoutes: &advertisedRoutes,
