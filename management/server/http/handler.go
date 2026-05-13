@@ -158,10 +158,19 @@ func NewAPIHandler(ctx context.Context, accountManager account.Manager, networks
 
 	// Mount embedded IdP handler at /oauth2 path if configured
 	if embeddedIdpEnabled {
-		rootRouter.Handle("/oauth2/auth", idp.NewLoginPreferenceHandler(accountManager, embeddedIdP))
-		rootRouter.Handle("/oauth2/auth/{connector}", idp.NewLoginPreferenceHandler(accountManager, embeddedIdP))
+		log.Infof("Registering login preference handlers with CORS")
+		loginPreferenceHandler := idp.NewLoginPreferenceHandler(accountManager, embeddedIdP)
+		wrappedHandler := corsMiddleware.Handler(loginPreferenceHandler)
+		
+		log.Infof("Registering route /oauth2/auth with login preference handler")
+		rootRouter.Handle("/oauth2/auth", wrappedHandler)
+		log.Infof("Registering route /oauth2/auth/{connector} with login preference handler")
+		rootRouter.Handle("/oauth2/auth/{connector}", wrappedHandler)
 		rootRouter.Handle("/oauth2/callback/{connector}", idp.NewWeChatWorkCallbackHandler(embeddedIdP))
+		log.Infof("Registering catch-all route /oauth2 with dex handler")
 		rootRouter.PathPrefix("/oauth2").Handler(corsMiddleware.Handler(embeddedIdP.Handler()))
+	} else {
+		log.Infof("Embedded IdP is not enabled, skipping login preference handlers")
 	}
 
 	return rootRouter, nil

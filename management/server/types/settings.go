@@ -3,16 +3,43 @@ package types
 import (
 	"net/netip"
 	"slices"
+	"strings"
 	"time"
 )
 
-type LoginMethod string
+// LoginOption represents a single login option that can be enabled
+type LoginOption string
 
 const (
-	LoginMethodAll        LoginMethod = "all"
-	LoginMethodEmail      LoginMethod = "email"
-	LoginMethodWeChatWork LoginMethod = "wechatwork"
+	// LoginMethodAll (Deprecated) - kept for backward compatibility
+	LoginMethodAll = "all"
+	// LoginMethodEmail (Deprecated) - kept for backward compatibility
+	LoginMethodEmail = "email"
+	// LoginMethodWeChatWork (Deprecated) - kept for backward compatibility
+	LoginMethodWeChatWork = "wechatwork"
+	// LoginOptionEmail represents email/password login
+	LoginOptionEmail LoginOption = "email"
+	// LoginOptionPrefix is the prefix for provider-specific login options
+	LoginOptionPrefix LoginOption = "provider:"
 )
+
+// IsProviderLoginOption checks if a login option is a provider-specific option
+func (l LoginOption) IsProviderLoginOption() bool {
+	return strings.HasPrefix(string(l), string(LoginOptionPrefix))
+}
+
+// GetProviderIDFromLoginOption extracts the provider ID from a provider login option
+func (l LoginOption) GetProviderIDFromLoginOption() string {
+	if !l.IsProviderLoginOption() {
+		return ""
+	}
+	return string(l[len(LoginOptionPrefix):])
+}
+
+// CreateProviderLoginOption creates a provider-specific login option
+func CreateProviderLoginOption(providerID string) LoginOption {
+	return LoginOption(string(LoginOptionPrefix) + providerID)
+}
 
 // Settings represents Account settings structure that can be modified via API and Dashboard
 type Settings struct {
@@ -89,16 +116,19 @@ type Settings struct {
 	// This is a runtime-only field, not stored in the database.
 	LocalAuthDisabled bool `gorm:"-"`
 
-	// LoginMethod controls which login option is presented on the embedded IdP sign-in screen.
-	// "all" shows the login chooser, while provider-specific values can automatically redirect.
-	LoginMethod LoginMethod `gorm:"default:'all'"`
+	// LoginMethod (deprecated) - kept for backward compatibility
+	LoginMethod string `gorm:"default:'all'"`
+
+	// EnabledLoginOptions is the list of enabled login options
+	// Empty list means all options are enabled
+	EnabledLoginOptions []LoginOption `gorm:"serializer:json;default:null"`
 }
 
 // Copy copies the Settings struct
 func (s *Settings) Copy() *Settings {
 	loginMethod := s.LoginMethod
 	if loginMethod == "" {
-		loginMethod = LoginMethodAll
+		loginMethod = "all"
 	}
 
 	settings := &Settings{
@@ -126,6 +156,7 @@ func (s *Settings) Copy() *Settings {
 		EmbeddedIdpEnabled:              s.EmbeddedIdpEnabled,
 		LocalAuthDisabled:               s.LocalAuthDisabled,
 		LoginMethod:                     loginMethod,
+		EnabledLoginOptions:             slices.Clone(s.EnabledLoginOptions),
 	}
 	if s.Extra != nil {
 		settings.Extra = s.Extra.Copy()

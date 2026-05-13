@@ -378,7 +378,14 @@ func (h *handler) updateAccountRequestSettings(req api.PutApiAccountsAccountIdJS
 		returnSettings.AutoUpdateAlways = *req.Settings.AutoUpdateAlways
 	}
 	if req.Settings.LoginMethod != nil {
-		returnSettings.LoginMethod = types.LoginMethod(*req.Settings.LoginMethod)
+		returnSettings.LoginMethod = string(*req.Settings.LoginMethod)
+	}
+	if req.Settings.EnabledLoginOptions != nil {
+		enabledLoginOptions := make([]types.LoginOption, len(*req.Settings.EnabledLoginOptions))
+		for i, opt := range *req.Settings.EnabledLoginOptions {
+			enabledLoginOptions[i] = types.LoginOption(opt)
+		}
+		returnSettings.EnabledLoginOptions = enabledLoginOptions
 	}
 	if req.Settings.Ipv6EnabledGroups != nil {
 		returnSettings.IPv6EnabledGroups = *req.Settings.Ipv6EnabledGroups
@@ -578,6 +585,15 @@ func toAccountResponse(accountID string, settings *types.Settings, meta *types.A
 		loginMethod = api.AccountSettingsLoginMethodAll
 	}
 
+	var enabledLoginOptions *[]string
+	if len(settings.EnabledLoginOptions) > 0 {
+		options := make([]string, len(settings.EnabledLoginOptions))
+		for i, opt := range settings.EnabledLoginOptions {
+			options[i] = string(opt)
+		}
+		enabledLoginOptions = &options
+	}
+
 	apiSettings := api.AccountSettings{
 		PeerLoginExpiration:             int(settings.PeerLoginExpiration.Seconds()),
 		PeerLoginExpirationEnabled:      settings.PeerLoginExpirationEnabled,
@@ -599,6 +615,7 @@ func toAccountResponse(accountID string, settings *types.Settings, meta *types.A
 		EmbeddedIdpEnabled:              &settings.EmbeddedIdpEnabled,
 		LocalAuthDisabled:               &settings.LocalAuthDisabled,
 		LoginMethod:                     &loginMethod,
+		EnabledLoginOptions:             enabledLoginOptions,
 	}
 
 	if settings.NetworkRange.IsValid() {

@@ -382,13 +382,19 @@ components:
           readOnly: true
           example: false
         login_method:
-          description: Controls which login method is presented on the embedded identity provider login screen.
+          description: (Deprecated) Controls which login method is presented on the embedded identity provider login screen. Use enabled_login_options instead.
           type: string
           enum:
             - all
             - email
             - wechatwork
           example: all
+        enabled_login_options:
+          description: List of enabled login options. Supports email and identity providers. Empty list means all options are enabled.
+          type: array
+          items:
+            type: string
+          example: ["email", "provider:wechatwork-d81hkf8evt4s738g176g"]
         ipv6_enabled_groups:
           description: List of group IDs whose peers receive IPv6 overlay addresses. Peers not in any of these groups will not be allocated an IPv6 address. New accounts default to the All group.
           type: array

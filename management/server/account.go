@@ -364,6 +364,10 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		if newSettings.LoginMethod == "" {
 			newSettings.LoginMethod = types.LoginMethodAll
 		}
+		// If newSettings doesn't have enabled_login_options, keep old ones
+		if len(newSettings.EnabledLoginOptions) == 0 && oldSettings.EnabledLoginOptions != nil {
+			newSettings.EnabledLoginOptions = oldSettings.EnabledLoginOptions
+		}
 
 		if err = transaction.SaveAccountSettings(ctx, accountID, newSettings); err != nil {
 			return err
@@ -562,7 +566,60 @@ func (am *DefaultAccountManager) validateSettingsUpdate(ctx context.Context, tra
 		return err
 	}
 
+	if len(newSettings.EnabledLoginOptions) > 0 {
+		if err := am.validateEnabledLoginOptions(ctx, newSettings.EnabledLoginOptions); err != nil {
+			return err
+		}
+	}
+
 	return am.integratedPeerValidator.ValidateExtraSettings(ctx, newSettings.Extra, oldSettings.Extra, userID, accountID)
+}
+
+func (am *DefaultAccountManager) validateEnabledLoginOptions(ctx context.Context, options []types.LoginOption) error {
+	embeddedIdp, ok := am.idpManager.(*idp.EmbeddedIdPManager)
+	if !ok {
+		// If it's not an embedded IdP, we can't validate connectors
+		// Just check basic format
+		for _, opt := range options {
+			if opt != types.LoginOptionEmail && !opt.IsProviderLoginOption() {
+				return status.Errorf(status.InvalidArgument, "invalid login option %q", opt)
+			}
+		}
+		return nil
+	}
+
+	connectors, err := embeddedIdp.ListConnectors(ctx)
+	if err != nil {
+		return err
+	}
+
+	validProviderIDs := make(map[string]bool)
+	for _, connector := range connectors {
+		if connector != nil {
+			validProviderIDs[connector.ID] = true
+		}
+	}
+
+	for _, opt := range options {
+		if opt == types.LoginOptionEmail {
+			if IsLocalAuthDisabled(ctx, am.idpManager) {
+				return status.Errorf(status.InvalidArgument, "email login is disabled for this instance")
+			}
+			continue
+		}
+
+		if opt.IsProviderLoginOption() {
+			providerID := opt.GetProviderIDFromLoginOption()
+			if !validProviderIDs[providerID] {
+				return status.Errorf(status.InvalidArgument, "invalid provider ID %q", providerID)
+			}
+			continue
+		}
+
+		return status.Errorf(status.InvalidArgument, "invalid login option %q", opt)
+	}
+
+	return nil
 }
 
 func (am *DefaultAccountManager) getPreferredWeChatWorkConnectorID(ctx context.Context) (string, error) {

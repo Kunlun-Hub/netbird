@@ -1555,6 +1555,9 @@ type AccountSettings struct {
 	// LoginMethod Controls which login method is presented on the embedded identity provider login screen.
 	LoginMethod *AccountSettingsLoginMethod `json:"login_method,omitempty"`
 
+	// EnabledLoginOptions List of enabled login options. Supports email and identity providers. Empty list means all options are enabled.
+	EnabledLoginOptions *[]string `json:"enabled_login_options,omitempty"`
+
 	// NetworkRange Allows to define a custom network range for the account in CIDR format
 	NetworkRange *string `json:"network_range,omitempty"`
 
