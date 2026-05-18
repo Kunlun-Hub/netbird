@@ -67,6 +67,13 @@
 					<RegistryValue Name="InstalledByMSI" Type="integer" Value="1" KeyPath="yes" />
 				</RegistryKey>
 			</Component>
+			<!-- Drop the HKCU Run\Netbird value written by legacy NSIS installers. -->
+			<Component Id="NetbirdLegacyHKCUCleanup" Guid="*">
+				<RegistryValue Root="HKCU" Key="Software\NetBird GmbH\Installer"
+					Name="LegacyHKCUCleanup" Type="integer" Value="1" KeyPath="yes" />
+				<RemoveRegistryValue Root="HKCU"
+					Key="Software\Microsoft\Windows\CurrentVersion\Run" Name="Netbird" />
+			</Component>
 		</StandardDirectory>
 
 		<StandardDirectory Id="CommonAppDataFolder">
@@ -79,10 +86,28 @@
 			</Directory>
 		</StandardDirectory>
 
+		<!-- Drop Run, App Paths and Uninstall entries written by legacy NSIS
+		     installers into the 32-bit registry view (HKLM\Software\Wow6432Node). -->
+		<Component Id="CloinkLegacyWow6432Cleanup" Directory="CloinkInstallDir"
+			Guid="bda5d628-16bd-4086-b2c1-5099d8d51763" Bitness="always32">
+			<RegistryValue Root="HKLM" Key="Software\Cloink\Installer"
+				Name="LegacyWow6432Cleanup" Type="integer" Value="1" KeyPath="yes" />
+			<RemoveRegistryValue Root="HKLM"
+				Key="Software\Microsoft\Windows\CurrentVersion\Run" Name="Cloink" />
+			<RemoveRegistryKey Action="removeOnInstall" Root="HKLM"
+				Key="Software\Microsoft\Windows\CurrentVersion\App Paths\Cloink" />
+			<RemoveRegistryKey Action="removeOnInstall" Root="HKLM"
+				Key="Software\Microsoft\Windows\CurrentVersion\App Paths\Cloink-ui" />
+			<RemoveRegistryKey Action="removeOnInstall" Root="HKLM"
+				Key="Software\Microsoft\Windows\CurrentVersion\Uninstall\Cloink" />
+		</Component>
+
 		<ComponentGroup Id="CloinkFilesComponent">
 			<ComponentRef Id="CloinkFiles" />
 			<ComponentRef Id="CloinkAumidRegistry" />
 			<ComponentRef Id="CloinkAutoStart" />
+			<ComponentRef Id="NetbirdLegacyHKCUCleanup" />
+			<ComponentRef Id="CloinkLegacyWow6432Cleanup" />
 		</ComponentGroup>
 
 		<util:CloseApplication Id="CloseCloink" CloseMessage="no" Target="cloink.exe" RebootPrompt="no" />

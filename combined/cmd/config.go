@@ -135,13 +135,18 @@ type ManagementConfig struct {
 
 // AuthConfig contains authentication/identity provider settings
 type AuthConfig struct {
-	Issuer                string            `yaml:"issuer"`
-	LocalAuthDisabled     bool              `yaml:"localAuthDisabled"`
-	SignKeyRefreshEnabled bool              `yaml:"signKeyRefreshEnabled"`
-	Storage               AuthStorageConfig `yaml:"storage"`
-	DashboardRedirectURIs []string          `yaml:"dashboardRedirectURIs"`
-	CLIRedirectURIs       []string          `yaml:"cliRedirectURIs"`
-	Owner                 *AuthOwnerConfig  `yaml:"owner,omitempty"`
+	Issuer                          string            `yaml:"issuer"`
+	LocalAuthDisabled               bool              `yaml:"localAuthDisabled"`
+	SignKeyRefreshEnabled           bool              `yaml:"signKeyRefreshEnabled"`
+	MfaSessionMaxLifetime           string            `yaml:"mfaSessionMaxLifetime"`
+	MfaSessionIdleTimeout           string            `yaml:"mfaSessionIdleTimeout"`
+	MfaSessionRememberMe            bool              `yaml:"mfaSessionRememberMe"`
+	SessionCookieEncryptionKey      string            `yaml:"sessionCookieEncryptionKey"`
+	Storage                         AuthStorageConfig `yaml:"storage"`
+	DashboardRedirectURIs           []string          `yaml:"dashboardRedirectURIs"`
+	CLIRedirectURIs                 []string          `yaml:"cliRedirectURIs"`
+	Owner                           *AuthOwnerConfig  `yaml:"owner,omitempty"`
+	DashboardPostLogoutRedirectURIs []string          `yaml:"dashboardPostLogoutRedirectURIs"`
 }
 
 // AuthStorageConfig contains auth storage settings
@@ -601,10 +606,14 @@ func (c *CombinedConfig) buildEmbeddedIdPConfig(mgmt ManagementConfig) (*idp.Emb
 	}
 
 	cfg := &idp.EmbeddedIdPConfig{
-		Enabled:               true,
-		Issuer:                mgmt.Auth.Issuer,
-		LocalAuthDisabled:     mgmt.Auth.LocalAuthDisabled,
-		SignKeyRefreshEnabled: mgmt.Auth.SignKeyRefreshEnabled,
+		Enabled:                    true,
+		Issuer:                     mgmt.Auth.Issuer,
+		LocalAuthDisabled:          mgmt.Auth.LocalAuthDisabled,
+		SignKeyRefreshEnabled:      mgmt.Auth.SignKeyRefreshEnabled,
+		MfaSessionMaxLifetime:      mgmt.Auth.MfaSessionMaxLifetime,
+		MfaSessionIdleTimeout:      mgmt.Auth.MfaSessionIdleTimeout,
+		MfaSessionRememberMe:       mgmt.Auth.MfaSessionRememberMe,
+		SessionCookieEncryptionKey: mgmt.Auth.SessionCookieEncryptionKey,
 		Storage: idp.EmbeddedStorageConfig{
 			Type: authStorageType,
 			Config: idp.EmbeddedStorageTypeConfig{
@@ -612,8 +621,9 @@ func (c *CombinedConfig) buildEmbeddedIdPConfig(mgmt ManagementConfig) (*idp.Emb
 				DSN:  authStorageDSN,
 			},
 		},
-		DashboardRedirectURIs: mgmt.Auth.DashboardRedirectURIs,
-		CLIRedirectURIs:       mgmt.Auth.CLIRedirectURIs,
+		DashboardRedirectURIs:           mgmt.Auth.DashboardRedirectURIs,
+		CLIRedirectURIs:                 mgmt.Auth.CLIRedirectURIs,
+		DashboardPostLogoutRedirectURIs: mgmt.Auth.DashboardPostLogoutRedirectURIs,
 	}
 
 	if mgmt.Auth.Owner != nil && mgmt.Auth.Owner.Email != "" {

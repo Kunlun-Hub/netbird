@@ -115,6 +115,9 @@ type Store interface {
 
 	GetProxyAccessTokenByHashedToken(ctx context.Context, lockStrength LockingStrength, hashedToken types.HashedProxyToken) (*types.ProxyAccessToken, error)
 	GetAllProxyAccessTokens(ctx context.Context, lockStrength LockingStrength) ([]*types.ProxyAccessToken, error)
+	GetProxyAccessTokensByAccountID(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.ProxyAccessToken, error)
+	GetProxyAccessTokenByID(ctx context.Context, lockStrength LockingStrength, tokenID string) (*types.ProxyAccessToken, error)
+	IsProxyAccessTokenValid(ctx context.Context, tokenID string) (bool, error)
 	SaveProxyAccessToken(ctx context.Context, token *types.ProxyAccessToken) error
 	RevokeProxyAccessToken(ctx context.Context, tokenID string) error
 	MarkProxyAccessTokenUsed(ctx context.Context, tokenID string) error
@@ -299,11 +302,16 @@ type Store interface {
 	DisconnectProxy(ctx context.Context, proxyID, sessionID string) error
 	UpdateProxyHeartbeat(ctx context.Context, p *proxy.Proxy) error
 	GetActiveProxyClusterAddresses(ctx context.Context) ([]string, error)
-	GetActiveProxyClusters(ctx context.Context) ([]proxy.Cluster, error)
+	GetActiveProxyClusterAddressesForAccount(ctx context.Context, accountID string) ([]string, error)
+	GetActiveProxyClusters(ctx context.Context, accountID string) ([]proxy.Cluster, error)
 	GetClusterSupportsCustomPorts(ctx context.Context, clusterAddr string) *bool
 	GetClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool
 	GetClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool
 	CleanupStaleProxies(ctx context.Context, inactivityDuration time.Duration) error
+	GetProxyByAccountID(ctx context.Context, accountID string) (*proxy.Proxy, error)
+	CountProxiesByAccountID(ctx context.Context, accountID string) (int64, error)
+	IsClusterAddressConflicting(ctx context.Context, clusterAddress, accountID string) (bool, error)
+	DeleteAccountCluster(ctx context.Context, clusterAddress, accountID string) error
 
 	GetCustomDomainsCounts(ctx context.Context) (total int64, validated int64, err error)
 
@@ -518,6 +526,9 @@ func getMigrationsPostAuto(ctx context.Context) []migrationFunc {
 		},
 		func(db *gorm.DB) error {
 			return migration.MigrateNewField[types.Account](ctx, db, "settings_extra_flow_dns_collection_enabled", false)
+		},
+		func(db *gorm.DB) error {
+			return migration.DropIndex[proxy.Proxy](ctx, db, "idx_proxy_account_id_unique")
 		},
 	}
 }

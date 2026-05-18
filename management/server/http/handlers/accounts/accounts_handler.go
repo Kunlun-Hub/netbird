@@ -387,6 +387,9 @@ func (h *handler) updateAccountRequestSettings(req api.PutApiAccountsAccountIdJS
 		}
 		returnSettings.EnabledLoginOptions = enabledLoginOptions
 	}
+	if req.Settings.LocalMfaEnabled != nil {
+		returnSettings.LocalMfaEnabled = *req.Settings.LocalMfaEnabled
+	}
 	if req.Settings.Ipv6EnabledGroups != nil {
 		returnSettings.IPv6EnabledGroups = *req.Settings.Ipv6EnabledGroups
 	}
@@ -616,6 +619,7 @@ func toAccountResponse(accountID string, settings *types.Settings, meta *types.A
 		LocalAuthDisabled:               &settings.LocalAuthDisabled,
 		LoginMethod:                     &loginMethod,
 		EnabledLoginOptions:             enabledLoginOptions,
+		LocalMfaEnabled:                 &settings.LocalMfaEnabled,
 	}
 
 	if settings.NetworkRange.IsValid() {

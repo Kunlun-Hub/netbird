@@ -14,6 +14,7 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/transport/tcp"
 	"gvisor.dev/gvisor/pkg/waiter"
 
+	nblog "github.com/netbirdio/netbird/client/firewall/uspfilter/log"
 	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 )
 
@@ -36,7 +37,9 @@ func (f *Forwarder) handleTCP(r *tcp.ForwarderRequest) {
 	outConn, err := (&net.Dialer{}).DialContext(f.ctx, "tcp", dialAddr)
 	if err != nil {
 		r.Complete(true)
-		f.logger.Trace2("forwarder: dial error for %v: %v", epID(id), err)
+		if f.logger.Enabled(nblog.LevelTrace) {
+			f.logger.Trace2("forwarder: dial error for %v: %v", epID(id), err)
+		}
 		return
 	}
 
@@ -59,13 +62,14 @@ func (f *Forwarder) handleTCP(r *tcp.ForwarderRequest) {
 	inConn := gonet.NewTCPConn(&wq, ep)
 
 	success = true
-	f.logger.Trace1("forwarder: established TCP connection %v", epID(id))
+	if f.logger.Enabled(nblog.LevelTrace) {
+		f.logger.Trace1("forwarder: established TCP connection %v", epID(id))
+	}
 
 	go f.proxyTCP(id, inConn, outConn, ep, flowID)
 }
 
 func (f *Forwarder) proxyTCP(id stack.TransportEndpointID, inConn *gonet.TCPConn, outConn net.Conn, ep tcpip.Endpoint, flowID uuid.UUID) {
-
 	ctx, cancel := context.WithCancel(f.ctx)
 	defer cancel()
 
@@ -186,7 +190,9 @@ func (f *Forwarder) proxyTCP(id stack.TransportEndpointID, inConn *gonet.TCPConn
 		txPackets = tcpStats.SegmentsReceived.Value()
 	}
 
-	f.logger.Trace5("forwarder: Removed TCP connection %s [in: %d Pkts/%d B, out: %d Pkts/%d B]", epID(id), rxPackets, bytesFromOutToIn, txPackets, bytesFromInToOut)
+	if f.logger.Enabled(nblog.LevelTrace) {
+		f.logger.Trace5("forwarder: Removed TCP connection %s [in: %d Pkts/%d B, out: %d Pkts/%d B]", epID(id), rxPackets, bytesFromOutToIn, txPackets, bytesFromInToOut)
+	}
 
 	f.sendTCPEvent(nftypes.TypeEnd, flowID, id, uint64(bytesFromOutToIn), uint64(bytesFromInToOut), rxPackets, txPackets, dnsInfo)
 }

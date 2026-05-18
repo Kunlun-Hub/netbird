@@ -282,6 +282,17 @@ WriteRegStr ${REG_ROOT} "${UNINSTALL_PATH}"  "Publisher" "${COMP_NAME}"
 
 WriteRegStr ${REG_ROOT} "${UI_REG_APP_PATH}" "" "$INSTDIR\${UI_APP_EXE}"
 
+; Drop Run, App Paths and Uninstall entries left in the 32-bit registry view
+; or HKCU by legacy installers.
+DetailPrint "正在清理旧版 32-bit / HKCU 注册表项..."
+DeleteRegValue HKCU "${AUTOSTART_REG_KEY}" "${APP_NAME}"
+SetRegView 32
+DeleteRegValue HKLM "${AUTOSTART_REG_KEY}" "${APP_NAME}"
+DeleteRegKey HKLM "${REG_APP_PATH}"
+DeleteRegKey HKLM "${UI_REG_APP_PATH}"
+DeleteRegKey HKLM "${UNINSTALL_PATH}"
+SetRegView 64
+
 ; Create autostart registry entry based on checkbox
 DetailPrint "自动启动已启用: $AutostartEnabled"
 ${If} $AutostartEnabled == "1"
@@ -331,11 +342,16 @@ ExecWait '"$INSTDIR\${MAIN_APP_EXE}" service uninstall --service cloink'
 DetailPrint "正在终止云链 UI 进程..."
 ExecWait `taskkill /im ${UI_APP_EXE}.exe /f`
 
-; Remove autostart registry entry
+; Remove autostart entries from every view a previous installer may have used.
 DetailPrint "正在移除自动启动注册表项（如果存在）..."
 DeleteRegValue HKLM "${AUTOSTART_REG_KEY}" "${APP_NAME}"
-; Legacy: pre-HKLM installs wrote to HKCU; clean that up too.
 DeleteRegValue HKCU "${AUTOSTART_REG_KEY}" "${APP_NAME}"
+SetRegView 32
+DeleteRegValue HKLM "${AUTOSTART_REG_KEY}" "${APP_NAME}"
+DeleteRegKey HKLM "${REG_APP_PATH}"
+DeleteRegKey HKLM "${UI_REG_APP_PATH}"
+DeleteRegKey HKLM "${UNINSTALL_PATH}"
+SetRegView 64
 
 ; Handle data deletion based on checkbox
 DetailPrint "正在检查用户是否请求删除数据..."

@@ -1558,6 +1558,9 @@ type AccountSettings struct {
 	// EnabledLoginOptions List of enabled login options. Supports email and identity providers. Empty list means all options are enabled.
 	EnabledLoginOptions *[]string `json:"enabled_login_options,omitempty"`
 
+	// LocalMfaEnabled Enables or disables TOTP multi-factor authentication for local users. Only applicable when the embedded identity provider is enabled.
+	LocalMfaEnabled *bool `json:"local_mfa_enabled,omitempty"`
+
 	// NetworkRange Allows to define a custom network range for the account in CIDR format
 	NetworkRange *string `json:"network_range,omitempty"`
 
@@ -3906,11 +3909,49 @@ type ProxyAccessLogsResponse struct {
 
 // ProxyCluster A proxy cluster represents a group of proxy nodes serving the same address
 type ProxyCluster struct {
+	// Id Unique identifier of a proxy in this cluster
+	Id string `json:"id"`
+
 	// Address Cluster address used for CNAME targets
 	Address string `json:"address"`
 
 	// ConnectedProxies Number of proxy nodes connected in this cluster
 	ConnectedProxies int `json:"connected_proxies"`
+
+	// SelfHosted Whether this cluster is a self-hosted (BYOP) proxy managed by the account owner
+	SelfHosted bool `json:"self_hosted"`
+}
+
+// ProxyToken defines model for ProxyToken.
+type ProxyToken struct {
+	CreatedAt time.Time  `json:"created_at"`
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+	Id        string     `json:"id"`
+	LastUsed  *time.Time `json:"last_used,omitempty"`
+	Name      string     `json:"name"`
+	Revoked   bool       `json:"revoked"`
+}
+
+// ProxyTokenCreated defines model for ProxyTokenCreated.
+type ProxyTokenCreated struct {
+	CreatedAt time.Time  `json:"created_at"`
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+	Id        string     `json:"id"`
+	LastUsed  *time.Time `json:"last_used,omitempty"`
+	Name      string     `json:"name"`
+
+	// PlainToken The plain text token (shown only once)
+	PlainToken string `json:"plain_token"`
+	Revoked    bool   `json:"revoked"`
+}
+
+// ProxyTokenRequest defines model for ProxyTokenRequest.
+type ProxyTokenRequest struct {
+	// ExpiresIn Token expiration in seconds (0 = never expires)
+	ExpiresIn *int `json:"expires_in,omitempty"`
+
+	// Name Human-readable token name
+	Name string `json:"name"`
 }
 
 // Resource defines model for Resource.
@@ -5289,6 +5330,9 @@ type PutApiPostureChecksPostureCheckIdJSONRequestBody = PostureCheckUpdate
 
 // PostApiReverseProxiesDomainsJSONRequestBody defines body for PostApiReverseProxiesDomains for application/json ContentType.
 type PostApiReverseProxiesDomainsJSONRequestBody = ReverseProxyDomainRequest
+
+// PostApiReverseProxiesProxyTokensJSONRequestBody defines body for PostApiReverseProxiesProxyTokens for application/json ContentType.
+type PostApiReverseProxiesProxyTokensJSONRequestBody = ProxyTokenRequest
 
 // PostApiReverseProxiesServicesJSONRequestBody defines body for PostApiReverseProxiesServices for application/json ContentType.
 type PostApiReverseProxiesServicesJSONRequestBody = ServiceRequest

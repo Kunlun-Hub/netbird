@@ -122,6 +122,10 @@ type Settings struct {
 	// EnabledLoginOptions is the list of enabled login options
 	// Empty list means all options are enabled
 	EnabledLoginOptions []LoginOption `gorm:"serializer:json;default:null"`
+
+	// LocalMfaEnabled indicates if TOTP MFA is enabled for local users.
+	// Only applicable when the embedded IDP is enabled.
+	LocalMfaEnabled bool
 }
 
 // Copy copies the Settings struct
@@ -157,6 +161,7 @@ func (s *Settings) Copy() *Settings {
 		LocalAuthDisabled:               s.LocalAuthDisabled,
 		LoginMethod:                     loginMethod,
 		EnabledLoginOptions:             slices.Clone(s.EnabledLoginOptions),
+		LocalMfaEnabled:                 s.LocalMfaEnabled,
 	}
 	if s.Extra != nil {
 		settings.Extra = s.Extra.Copy()

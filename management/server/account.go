@@ -291,10 +291,15 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		return nil, status.NewPermissionDeniedError()
 	}
 
+	// Canonicalize the incoming range so a caller-supplied prefix with host bits
+	// (e.g. 100.64.1.1/16) compares equal to the masked form stored on network.Net.
+	newSettings.NetworkRange = newSettings.NetworkRange.Masked()
+
 	var oldSettings *types.Settings
 	var updateAccountPeers bool
 	var groupChangesAffectPeers bool
 	var reloadReverseProxy bool
+	var effectiveOldNetworkRange netip.Prefix
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		var groupsUpdated bool
@@ -307,6 +312,16 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		if err = am.validateSettingsUpdate(ctx, transaction, newSettings, oldSettings, userID, accountID); err != nil {
 			return err
 		}
+
+		// No lock: the transaction already holds Settings(Update), and network.Net is
+		// only mutated by reallocateAccountPeerIPs, which is reachable only through
+		// this same code path. A Share lock here would extend an unnecessary row lock
+		// and complicate ordering against updatePeerIPv6InTransaction.
+		network, err := transaction.GetAccountNetwork(ctx, store.LockingStrengthNone, accountID)
+		if err != nil {
+			return fmt.Errorf("get account network: %w", err)
+		}
+		effectiveOldNetworkRange = prefixFromIPNet(network.Net)
 
 		if oldSettings.Extra != nil && newSettings.Extra != nil &&
 			oldSettings.Extra.PeerApprovalEnabled && !newSettings.Extra.PeerApprovalEnabled {
@@ -321,7 +336,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 			}
 		}
 
-		if oldSettings.NetworkRange != newSettings.NetworkRange {
+		if newSettings.NetworkRange.IsValid() && newSettings.NetworkRange != effectiveOldNetworkRange {
 			if err = am.reallocateAccountPeerIPs(ctx, transaction, accountID, newSettings.NetworkRange); err != nil {
 				return err
 			}
@@ -400,6 +415,9 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 	if err = am.handleInactivityExpirationSettings(ctx, oldSettings, newSettings, userID, accountID); err != nil {
 		return nil, err
 	}
+	if err = am.handleLocalMfaSettings(ctx, oldSettings, newSettings, userID, accountID); err != nil {
+		return nil, err
+	}
 	if oldSettings.DNSDomain != newSettings.DNSDomain {
 		eventMeta := map[string]any{
 			"old_dns_domain": oldSettings.DNSDomain,
@@ -407,9 +425,9 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		}
 		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountDNSDomainUpdated, eventMeta)
 	}
-	if oldSettings.NetworkRange != newSettings.NetworkRange {
+	if newSettings.NetworkRange.IsValid() && newSettings.NetworkRange != effectiveOldNetworkRange {
 		eventMeta := map[string]any{
-			"old_network_range": oldSettings.NetworkRange.String(),
+			"old_network_range": effectiveOldNetworkRange.String(),
 			"new_network_range": newSettings.NetworkRange.String(),
 		}
 		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountNetworkRangeUpdated, eventMeta)
@@ -515,6 +533,22 @@ func ipv6SettingsChanged(old, updated *types.Settings) bool {
 	slices.Sort(oldGroups)
 	slices.Sort(newGroups)
 	return !slices.Equal(oldGroups, newGroups)
+}
+
+// prefixFromIPNet returns the overlay prefix actually allocated on the account
+// network, or an invalid prefix if none is set. Settings.NetworkRange is a
+// user-facing override that is empty on legacy accounts, so the effective
+// range must be read from network.Net to compare against an incoming update.
+func prefixFromIPNet(ipNet net.IPNet) netip.Prefix {
+	if ipNet.IP == nil {
+		return netip.Prefix{}
+	}
+	addr, ok := netip.AddrFromSlice(ipNet.IP)
+	if !ok {
+		return netip.Prefix{}
+	}
+	ones, _ := ipNet.Mask.Size()
+	return netip.PrefixFrom(addr.Unmap(), ones)
 }
 
 func (am *DefaultAccountManager) validateSettingsUpdate(ctx context.Context, transaction store.Store, newSettings, oldSettings *types.Settings, userID, accountID string) error {
@@ -766,6 +800,29 @@ func (am *DefaultAccountManager) handleInactivityExpirationSettings(ctx context.
 			}
 			am.StoreEvent(ctx, userID, accountID, accountID, event, nil)
 		}
+	}
+
+	return nil
+}
+
+func (am *DefaultAccountManager) handleLocalMfaSettings(ctx context.Context, oldSettings, newSettings *types.Settings, userID, accountID string) error {
+	if oldSettings.LocalMfaEnabled == newSettings.LocalMfaEnabled {
+		return nil
+	}
+
+	embeddedIdp, ok := am.idpManager.(*idp.EmbeddedIdPManager)
+	if !ok {
+		return nil
+	}
+
+	if err := embeddedIdp.SetMFAEnabled(ctx, newSettings.LocalMfaEnabled); err != nil {
+		return fmt.Errorf("failed to toggle MFA: %w", err)
+	}
+
+	if newSettings.LocalMfaEnabled {
+		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountLocalMfaEnabled, nil)
+	} else {
+		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountLocalMfaDisabled, nil)
 	}
 
 	return nil
@@ -2630,6 +2687,18 @@ func (am *DefaultAccountManager) buildIPv6AllowedPeers(ctx context.Context, tran
 		}
 		for _, peerID := range group.Peers {
 			allowedPeers[peerID] = struct{}{}
+		}
+	}
+
+	// Embedded proxy peers sit outside regular group membership but must
+	// participate in any v6-enabled overlay to reach v6-only peers.
+	peers, err := transaction.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, "", "")
+	if err != nil {
+		return nil, fmt.Errorf("get peers: %w", err)
+	}
+	for _, p := range peers {
+		if p.ProxyMeta.Embedded {
+			allowedPeers[p.ID] = struct{}{}
 		}
 	}
 	return allowedPeers, nil
