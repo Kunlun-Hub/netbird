@@ -379,8 +379,9 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		if newSettings.LoginMethod == "" {
 			newSettings.LoginMethod = types.LoginMethodAll
 		}
-		// If newSettings doesn't have enabled_login_options, keep old ones
-		if len(newSettings.EnabledLoginOptions) == 0 && oldSettings.EnabledLoginOptions != nil {
+		// If newSettings doesn't have enabled_login_options, keep old ones.
+		// An explicitly provided empty list means "all login options".
+		if !newSettings.EnabledLoginOptionsSet && len(newSettings.EnabledLoginOptions) == 0 && oldSettings.EnabledLoginOptions != nil {
 			newSettings.EnabledLoginOptions = oldSettings.EnabledLoginOptions
 		}
 
@@ -416,6 +417,9 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		return nil, err
 	}
 	if err = am.handleLocalMfaSettings(ctx, oldSettings, newSettings, userID, accountID); err != nil {
+		return nil, err
+	}
+	if err = am.syncLoginOptionsToEmbeddedIDP(ctx, newSettings); err != nil {
 		return nil, err
 	}
 	if oldSettings.DNSDomain != newSettings.DNSDomain {
@@ -654,6 +658,55 @@ func (am *DefaultAccountManager) validateEnabledLoginOptions(ctx context.Context
 	}
 
 	return nil
+}
+
+func (am *DefaultAccountManager) syncLoginOptionsToEmbeddedIDP(ctx context.Context, settings *types.Settings) error {
+	embeddedIDP, ok := am.idpManager.(*idp.EmbeddedIdPManager)
+	if !ok || settings == nil {
+		return nil
+	}
+
+	allowedConnectors, err := am.loginOptionsToAllowedConnectors(ctx, settings)
+	if err != nil {
+		return err
+	}
+	return embeddedIDP.SetDefaultClientAllowedConnectors(ctx, allowedConnectors)
+}
+
+func (am *DefaultAccountManager) loginOptionsToAllowedConnectors(ctx context.Context, settings *types.Settings) ([]string, error) {
+	if settings.EnabledLoginOptionsSet && len(settings.EnabledLoginOptions) == 0 {
+		return nil, nil
+	}
+	if settings.EnabledLoginOptions != nil && len(settings.EnabledLoginOptions) == 0 {
+		return nil, nil
+	}
+
+	if len(settings.EnabledLoginOptions) > 0 {
+		allowedConnectors := make([]string, 0, len(settings.EnabledLoginOptions))
+		for _, option := range settings.EnabledLoginOptions {
+			switch {
+			case option == types.LoginOptionEmail:
+				allowedConnectors = append(allowedConnectors, "local")
+			case option.IsProviderLoginOption():
+				allowedConnectors = append(allowedConnectors, option.GetProviderIDFromLoginOption())
+			}
+		}
+		return allowedConnectors, nil
+	}
+
+	switch settings.LoginMethod {
+	case types.LoginMethodEmail:
+		return []string{"local"}, nil
+	case types.LoginMethodWeChatWork:
+		connectorID, err := am.getPreferredWeChatWorkConnectorID(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return []string{connectorID}, nil
+	default:
+		// Empty means Dex should allow every available connector.
+		return nil, nil
+	}
 }
 
 func (am *DefaultAccountManager) getPreferredWeChatWorkConnectorID(ctx context.Context) (string, error) {

@@ -15,8 +15,8 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
-	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxytoken"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	reverseproxymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service/manager"
 
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
@@ -162,19 +162,14 @@ func NewAPIHandler(ctx context.Context, accountManager account.Manager, networks
 
 	// Mount embedded IdP handler at /oauth2 path if configured
 	if embeddedIdpEnabled {
-		log.Infof("Registering login preference handlers with CORS")
-		loginPreferenceHandler := idp.NewLoginPreferenceHandler(accountManager, embeddedIdP)
-		wrappedHandler := corsMiddleware.Handler(loginPreferenceHandler)
-		
-		log.Infof("Registering route /oauth2/auth with login preference handler")
-		rootRouter.Handle("/oauth2/auth", wrappedHandler)
-		log.Infof("Registering route /oauth2/auth/{connector} with login preference handler")
-		rootRouter.Handle("/oauth2/auth/{connector}", wrappedHandler)
+		connectorGuardHandler := corsMiddleware.Handler(idp.NewConnectorGuardHandler(accountManager, embeddedIdP))
+		rootRouter.Handle("/oauth2/auth/{connector}", connectorGuardHandler)
+		rootRouter.Handle("/oauth2/auth/{connector}/login", connectorGuardHandler)
 		rootRouter.Handle("/oauth2/callback/{connector}", idp.NewWeChatWorkCallbackHandler(embeddedIdP))
-		log.Infof("Registering catch-all route /oauth2 with dex handler")
+		log.Infof("Registering embedded IdP routes with Dex handler")
 		rootRouter.PathPrefix("/oauth2").Handler(corsMiddleware.Handler(embeddedIdP.Handler()))
 	} else {
-		log.Infof("Embedded IdP is not enabled, skipping login preference handlers")
+		log.Infof("Embedded IdP is not enabled, skipping IdP routes")
 	}
 
 	return rootRouter, nil

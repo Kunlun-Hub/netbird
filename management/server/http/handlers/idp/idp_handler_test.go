@@ -414,16 +414,18 @@ func TestToAPIResponse(t *testing.T) {
 	assert.Equal(t, "test-id", *response.Id)
 	assert.Equal(t, "Test IDP", response.Name)
 	assert.Equal(t, api.IdentityProviderTypeGoogle, response.Type)
-	assert.Equal(t, "https://accounts.google.com", response.Issuer)
+	require.NotNil(t, response.Issuer)
+	assert.Equal(t, "https://accounts.google.com", *response.Issuer)
 	assert.Equal(t, "client-id", response.ClientId)
 	// Note: ClientSecret is not included in response type by design
 }
 
 func TestFromAPIRequest(t *testing.T) {
+	issuer := "https://dev-123456.okta.com"
 	req := &api.IdentityProviderRequest{
 		Name:         "New IDP",
 		Type:         api.IdentityProviderTypeOkta,
-		Issuer:       "https://dev-123456.okta.com",
+		Issuer:       &issuer,
 		ClientId:     "okta-client-id",
 		ClientSecret: "okta-client-secret",
 	}

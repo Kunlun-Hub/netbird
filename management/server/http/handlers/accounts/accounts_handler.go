@@ -386,6 +386,7 @@ func (h *handler) updateAccountRequestSettings(req api.PutApiAccountsAccountIdJS
 			enabledLoginOptions[i] = types.LoginOption(opt)
 		}
 		returnSettings.EnabledLoginOptions = enabledLoginOptions
+		returnSettings.EnabledLoginOptionsSet = true
 	}
 	if req.Settings.LocalMfaEnabled != nil {
 		returnSettings.LocalMfaEnabled = *req.Settings.LocalMfaEnabled

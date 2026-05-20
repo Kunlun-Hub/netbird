@@ -14,7 +14,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 )
 
-func TestLoginPreferenceHandler_RedirectsToLocalConnector(t *testing.T) {
+func TestLoginPreferenceHandler_AllowsDexWhenOnlyLocalIsAvailable(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
 
@@ -29,6 +29,9 @@ func TestLoginPreferenceHandler_RedirectsToLocalConnector(t *testing.T) {
 			},
 		},
 	}).AnyTimes()
+	storeMock.EXPECT().GetAccountSettings(gomock.Any(), store.LockingStrengthNone, "account-1").Return(&types.Settings{
+		LoginMethod: types.LoginMethodEmail,
+	}, nil).AnyTimes()
 
 	handler := &loginPreferenceHandler{
 		accountManager: &mock_server.MockAccountManager{
@@ -46,8 +49,7 @@ func TestLoginPreferenceHandler_RedirectsToLocalConnector(t *testing.T) {
 
 	handler.ServeHTTP(recorder, req)
 
-	assert.Equal(t, http.StatusFound, recorder.Code)
-	assert.Equal(t, "/oauth2/auth/local?client_id=test&state=abc", recorder.Header().Get("Location"))
+	assert.Equal(t, http.StatusNoContent, recorder.Code)
 }
 
 func TestLoginPreferenceHandler_AllowsDexLoginPageWhenModeIsAll(t *testing.T) {
@@ -65,6 +67,9 @@ func TestLoginPreferenceHandler_AllowsDexLoginPageWhenModeIsAll(t *testing.T) {
 			},
 		},
 	}).AnyTimes()
+	storeMock.EXPECT().GetAccountSettings(gomock.Any(), store.LockingStrengthNone, "account-1").Return(&types.Settings{
+		LoginMethod: types.LoginMethodAll,
+	}, nil).AnyTimes()
 
 	handler := &loginPreferenceHandler{
 		accountManager: &mock_server.MockAccountManager{

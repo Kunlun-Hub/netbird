@@ -29,6 +29,11 @@ import (
 	nbjwt "github.com/netbirdio/netbird/shared/auth/jwt"
 )
 
+const (
+	defaultDashboardClientID = "netbird-dashboard"
+	defaultCLIClientID       = "netbird-cli"
+)
+
 // Config matches what management/internals/server/server.go expects
 type Config struct {
 	Issuer  string
@@ -448,13 +453,13 @@ func (p *Provider) Stop(ctx context.Context) error {
 func (p *Provider) EnsureDefaultClients(ctx context.Context, dashboardURIs, cliURIs []string) error {
 	clients := []storage.Client{
 		{
-			ID:           "netbird-dashboard",
+			ID:           defaultDashboardClientID,
 			Name:         "NetBird Dashboard",
 			RedirectURIs: dashboardURIs,
 			Public:       true,
 		},
 		{
-			ID:           "netbird-cli",
+			ID:           defaultCLIClientID,
 			Name:         "NetBird CLI",
 			RedirectURIs: cliURIs,
 			Public:       true,
@@ -483,6 +488,61 @@ func (p *Provider) EnsureDefaultClients(ctx context.Context, dashboardURIs, cliU
 
 	p.logger.Info("default OIDC clients ensured")
 	return nil
+}
+
+// SetDefaultClientAllowedConnectors updates the connector allowlist for the default dashboard and CLI clients.
+// An empty allowlist means Dex will show all available connectors.
+func (p *Provider) SetDefaultClientAllowedConnectors(ctx context.Context, allowedConnectors []string) error {
+	for _, clientID := range []string{defaultDashboardClientID, defaultCLIClientID} {
+		_, err := p.storage.GetClient(ctx, clientID)
+		if errors.Is(err, storage.ErrNotFound) {
+			return fmt.Errorf("default client %s not found", clientID)
+		}
+		if err != nil {
+			return fmt.Errorf("failed to get client %s: %w", clientID, err)
+		}
+		if err := p.storage.UpdateClient(ctx, clientID, func(old storage.Client) (storage.Client, error) {
+			old.AllowedConnectors = append([]string(nil), allowedConnectors...)
+			return old, nil
+		}); err != nil {
+			return fmt.Errorf("failed to update allowed connectors for client %s: %w", clientID, err)
+		}
+	}
+	return nil
+}
+
+// IsConnectorAllowedForAuthRequest reports whether the current client settings allow a connector
+// for an existing Dex auth request. Dex validates this for external connectors, but password
+// login pages need an explicit check before serving stale /auth/local/login URLs.
+func (p *Provider) IsConnectorAllowedForAuthRequest(ctx context.Context, authRequestID, connectorID string) (bool, error) {
+	authReq, err := p.storage.GetAuthRequest(ctx, authRequestID)
+	if err != nil {
+		return false, fmt.Errorf("failed to get auth request %s: %w", authRequestID, err)
+	}
+
+	return p.IsConnectorAllowedForClient(ctx, authReq.ClientID, connectorID)
+}
+
+// IsConnectorAllowedForClient reports whether the current Dex client allowlist permits a connector.
+func (p *Provider) IsConnectorAllowedForClient(ctx context.Context, clientID, connectorID string) (bool, error) {
+	client, err := p.storage.GetClient(ctx, clientID)
+	if err != nil {
+		return false, fmt.Errorf("failed to get client %s: %w", clientID, err)
+	}
+
+	return connectorAllowed(client.AllowedConnectors, connectorID), nil
+}
+
+func connectorAllowed(allowedConnectors []string, connectorID string) bool {
+	if len(allowedConnectors) == 0 {
+		return true
+	}
+	for _, allowedConnector := range allowedConnectors {
+		if allowedConnector == connectorID {
+			return true
+		}
+	}
+	return false
 }
 
 // Storage returns the underlying Dex storage for direct access

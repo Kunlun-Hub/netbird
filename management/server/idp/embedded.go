@@ -698,6 +698,22 @@ func (m *EmbeddedIdPManager) ListConnectors(ctx context.Context) ([]*dex.Connect
 	return m.provider.ListConnectors(ctx)
 }
 
+// SetDefaultClientAllowedConnectors updates the login connector allowlist for the dashboard and CLI clients.
+func (m *EmbeddedIdPManager) SetDefaultClientAllowedConnectors(ctx context.Context, allowedConnectors []string) error {
+	return m.provider.SetDefaultClientAllowedConnectors(ctx, allowedConnectors)
+}
+
+// IsConnectorAllowedForAuthRequest reports whether the current Dex client settings allow a connector
+// for an existing auth request.
+func (m *EmbeddedIdPManager) IsConnectorAllowedForAuthRequest(ctx context.Context, authRequestID, connectorID string) (bool, error) {
+	return m.provider.IsConnectorAllowedForAuthRequest(ctx, authRequestID, connectorID)
+}
+
+// IsConnectorAllowedForClient reports whether the current Dex client settings allow a connector.
+func (m *EmbeddedIdPManager) IsConnectorAllowedForClient(ctx context.Context, clientID, connectorID string) (bool, error) {
+	return m.provider.IsConnectorAllowedForClient(ctx, clientID, connectorID)
+}
+
 // UpdateConnector updates an existing identity provider connector.
 // Field preservation for partial updates is handled by Provider.UpdateConnector.
 func (m *EmbeddedIdPManager) UpdateConnector(ctx context.Context, cfg *dex.ConnectorConfig) error {
