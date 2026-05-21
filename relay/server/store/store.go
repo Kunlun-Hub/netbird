@@ -78,6 +78,13 @@ func (s *Store) Peers() []IPeer {
 	return peers
 }
 
+func (s *Store) Count() int {
+	s.peersLock.RLock()
+	defer s.peersLock.RUnlock()
+
+	return len(s.peers)
+}
+
 func (s *Store) GetOnlinePeersAndRegisterInterest(peerIDs []messages.PeerID, listener *Listener) []messages.PeerID {
 	s.peersLock.RLock()
 	defer s.peersLock.RUnlock()

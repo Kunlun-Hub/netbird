@@ -18,6 +18,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxytoken"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	reverseproxymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service/manager"
+	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	idpmanager "github.com/netbirdio/netbird/management/server/idp"
@@ -50,6 +51,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/http/handlers/networks"
 	"github.com/netbirdio/netbird/management/server/http/handlers/peers"
 	"github.com/netbirdio/netbird/management/server/http/handlers/policies"
+	"github.com/netbirdio/netbird/management/server/http/handlers/relays"
 	"github.com/netbirdio/netbird/management/server/http/handlers/routes"
 	"github.com/netbirdio/netbird/management/server/http/handlers/setup_keys"
 	"github.com/netbirdio/netbird/management/server/http/handlers/users"
@@ -67,7 +69,7 @@ import (
 const apiPrefix = "/api"
 
 // NewAPIHandler creates the Management service HTTP API handler registering all the available endpoints.
-func NewAPIHandler(ctx context.Context, accountManager account.Manager, networksManager nbnetworks.Manager, resourceManager resources.Manager, routerManager routers.Manager, groupsManager nbgroups.Manager, LocationManager geolocation.Geolocation, authManager auth.Manager, appMetrics telemetry.AppMetrics, integratedValidator integrated_validator.IntegratedValidator, proxyController port_forwarding.Controller, permissionsManager permissions.Manager, peersManager nbpeers.Manager, settingsManager settings.Manager, zManager zones.Manager, rManager records.Manager, networkMapController network_map.Controller, idpManager idpmanager.Manager, serviceManager service.Manager, reverseProxyDomainManager *manager.Manager, reverseProxyAccessLogsManager accesslogs.Manager, proxyGRPCServer *nbgrpc.ProxyServiceServer, trustedHTTPProxies []netip.Prefix, rateLimiter *middleware.APIRateLimiter) (http.Handler, error) {
+func NewAPIHandler(ctx context.Context, accountManager account.Manager, networksManager nbnetworks.Manager, resourceManager resources.Manager, routerManager routers.Manager, groupsManager nbgroups.Manager, LocationManager geolocation.Geolocation, authManager auth.Manager, appMetrics telemetry.AppMetrics, integratedValidator integrated_validator.IntegratedValidator, proxyController port_forwarding.Controller, permissionsManager permissions.Manager, peersManager nbpeers.Manager, settingsManager settings.Manager, zManager zones.Manager, rManager records.Manager, networkMapController network_map.Controller, idpManager idpmanager.Manager, serviceManager service.Manager, reverseProxyDomainManager *manager.Manager, reverseProxyAccessLogsManager accesslogs.Manager, proxyGRPCServer *nbgrpc.ProxyServiceServer, relayConfig *nbconfig.Relay, trustedHTTPProxies []netip.Prefix, rateLimiter *middleware.APIRateLimiter) (http.Handler, error) {
 
 	// Register bypass paths for unauthenticated endpoints
 	if err := bypass.AddBypassPath("/api/instance"); err != nil {
@@ -139,6 +141,7 @@ func NewAPIHandler(ctx context.Context, accountManager account.Manager, networks
 	policies.AddLocationsEndpoints(accountManager, LocationManager, permissionsManager, router)
 	groups.AddEndpoints(accountManager, router)
 	routes.AddEndpoints(accountManager, router)
+	relays.AddEndpoints(accountManager, relayConfig, router)
 	dns.AddEndpoints(accountManager, router)
 	events.AddEndpoints(accountManager, router)
 	version_releases.AddEndpoints(accountManager, router, rootRouter)

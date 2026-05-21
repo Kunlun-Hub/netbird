@@ -135,6 +135,10 @@ func (r *Server) InstanceURL() url.URL {
 	return r.relay.InstanceURL()
 }
 
+func (r *Server) ConnectedPeerCount() int {
+	return r.relay.ConnectedPeerCount()
+}
+
 // RelayAccept returns the relay's Accept function for handling incoming connections.
 // This allows external HTTP handlers to route connections to the relay without
 // starting the relay's own listeners.

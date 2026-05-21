@@ -197,3 +197,7 @@ func (r *Relay) Shutdown(ctx context.Context) {
 func (r *Relay) InstanceURL() url.URL {
 	return r.instanceURL
 }
+
+func (r *Relay) ConnectedPeerCount() int {
+	return r.store.Count()
+}
