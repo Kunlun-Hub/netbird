@@ -320,7 +320,7 @@ func LogConfigInfo(cfg *nbconfig.Config) {
 		log.Infof("running with the embedded IdP: %v", cfg.EmbeddedIdP.Issuer)
 	}
 	if cfg.Relay != nil {
-		log.Infof("Relay addresses: %v", cfg.Relay.Addresses)
+		log.Infof("Relay addresses: %v", cfg.Relay.GetAddresses())
 	}
 }
 

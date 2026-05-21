@@ -135,6 +135,10 @@ func (r *Server) InstanceURL() url.URL {
 	return r.relay.InstanceURL()
 }
 
+func (r *Server) InstanceID() string {
+	return r.relay.InstanceID()
+}
+
 func (r *Server) ConnectedPeerCount() int {
 	return r.relay.ConnectedPeerCount()
 }

@@ -93,6 +93,10 @@ func NewAPIHandler(ctx context.Context, accountManager account.Manager, networks
 	if err := bypass.AddBypassPath("/api/version-releases/public"); err != nil {
 		return nil, fmt.Errorf("failed to add bypass path: %w", err)
 	}
+	// Relay instances use a one-time setup token to register and report heartbeats.
+	if err := bypass.AddBypassPath("/api/relays/register"); err != nil {
+		return nil, fmt.Errorf("failed to add bypass path: %w", err)
+	}
 
 	if rateLimiter == nil {
 		log.Warn("NewAPIHandler: nil rate limiter, rate limiting disabled")

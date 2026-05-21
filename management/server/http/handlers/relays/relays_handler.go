@@ -2,10 +2,18 @@ package relays
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/coder/websocket"
@@ -22,7 +30,12 @@ import (
 	"github.com/netbirdio/netbird/shared/relay/messages"
 )
 
-const relayProbeTimeout = 5 * time.Second
+const (
+	relayProbeTimeout      = 5 * time.Second
+	relaySetupTokenTTL     = 24 * time.Hour
+	relayRegistrationTTL   = 2 * time.Minute
+	relaySetupTokenVersion = "v1"
+)
 
 type Handler struct {
 	accountManager account.Manager
@@ -31,6 +44,10 @@ type Handler struct {
 
 type RelayStatus struct {
 	Address           string    `json:"address"`
+	ID                string    `json:"id,omitempty"`
+	Name              string    `json:"name,omitempty"`
+	ObservedID        string    `json:"observed_id,omitempty"`
+	Registered        bool      `json:"registered,omitempty"`
 	Status            string    `json:"status"`
 	ConnectedClients  *int      `json:"connected_clients,omitempty"`
 	RegisteredClients int       `json:"registered_clients"`
@@ -38,13 +55,53 @@ type RelayStatus struct {
 	Error             string    `json:"error,omitempty"`
 }
 
+type relaySetupTokenResponse struct {
+	Token           string `json:"token"`
+	RelayAuthSecret string `json:"relay_auth_secret"`
+	ExpiresAt       string `json:"expires_at"`
+}
+
+type registerRelayRequest struct {
+	SetupKey      string `json:"setup_key"`
+	ID            string `json:"id"`
+	Name          string `json:"name,omitempty"`
+	Address       string `json:"address"`
+	ManagementURL string `json:"management_url,omitempty"`
+	Version       string `json:"version,omitempty"`
+}
+
+type registerRelayResponse struct {
+	Status string `json:"status"`
+}
+
 type healthResponse struct {
-	ConnectedPeers *int `json:"connected_peers,omitempty"`
+	ConnectedPeers *int   `json:"connected_peers,omitempty"`
+	RelayID        string `json:"relay_id,omitempty"`
+}
+
+type registeredRelay struct {
+	ID            string
+	Name          string
+	Address       string
+	ManagementURL string
+	Version       string
+	LastSeen      time.Time
+}
+
+type relayRegistry struct {
+	mu     sync.RWMutex
+	relays map[string]registeredRelay
+}
+
+var activeRelayRegistry = &relayRegistry{
+	relays: make(map[string]registeredRelay),
 }
 
 func AddEndpoints(accountManager account.Manager, config *nbconfig.Relay, router *mux.Router) {
 	handler := &Handler{accountManager: accountManager, config: config}
 	router.HandleFunc("/relays", handler.getAllRelays).Methods("GET", "OPTIONS")
+	router.HandleFunc("/relays/setup-token", handler.createSetupToken).Methods("POST", "OPTIONS")
+	router.HandleFunc("/relays/register", handler.registerRelay).Methods("POST", "OPTIONS")
 }
 
 func (h *Handler) getAllRelays(w http.ResponseWriter, r *http.Request) {
@@ -57,9 +114,9 @@ func (h *Handler) getAllRelays(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), relayProbeTimeout)
 	defer cancel()
 
-	addresses := make([]string, 0)
+	servers := make([]*nbconfig.RelayServer, 0)
 	if h.config != nil {
-		addresses = h.config.Addresses
+		servers = h.config.GetServers()
 	}
 
 	registeredClients, err := h.registeredClients(ctx, userAuth.AccountId, userAuth.UserId)
@@ -68,14 +125,92 @@ func (h *Handler) getAllRelays(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	relays := make([]RelayStatus, 0, len(addresses))
-	for _, address := range addresses {
-		relays = append(relays, probeRelay(ctx, address, registeredClients))
+	relays := make([]RelayStatus, 0, len(servers))
+	seen := make(map[string]struct{}, len(servers))
+	for _, server := range servers {
+		if server == nil || server.Address == "" {
+			continue
+		}
+		relays = append(relays, probeRelay(ctx, server, registeredClients))
+		seen[relayKey(server.ID, server.Address)] = struct{}{}
+	}
+
+	for _, relay := range activeRelayRegistry.list() {
+		if _, ok := seen[relayKey(relay.ID, relay.Address)]; ok {
+			continue
+		}
+		relays = append(relays, relay.status(registeredClients))
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(relays); err != nil {
 		log.WithContext(r.Context()).Errorf("failed to encode relay status response: %v", err)
+	}
+}
+
+func (h *Handler) createSetupToken(w http.ResponseWriter, r *http.Request) {
+	if h.config == nil || h.config.Secret == "" {
+		util.WriteErrorResponse("relay secret is not configured", http.StatusPreconditionFailed, w)
+		return
+	}
+
+	expiresAt := time.Now().Add(relaySetupTokenTTL)
+	token, err := signRelaySetupToken(h.config.Secret, expiresAt)
+	if err != nil {
+		util.WriteErrorResponse("failed to generate relay setup token", http.StatusInternalServerError, w)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(relaySetupTokenResponse{
+		Token:           token,
+		RelayAuthSecret: h.config.Secret,
+		ExpiresAt:       expiresAt.UTC().Format(time.RFC3339),
+	}); err != nil {
+		log.WithContext(r.Context()).Errorf("failed to encode relay setup token response: %v", err)
+	}
+}
+
+func (h *Handler) registerRelay(w http.ResponseWriter, r *http.Request) {
+	if h.config == nil || h.config.Secret == "" {
+		util.WriteErrorResponse("relay secret is not configured", http.StatusPreconditionFailed, w)
+		return
+	}
+
+	var req registerRelayRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
+		return
+	}
+
+	req.ID = strings.TrimSpace(req.ID)
+	req.Name = strings.TrimSpace(req.Name)
+	req.Address = strings.TrimSpace(req.Address)
+	if req.ID == "" {
+		util.WriteErrorResponse("relay ID is required", http.StatusBadRequest, w)
+		return
+	}
+	if req.Address == "" {
+		util.WriteErrorResponse("relay address is required", http.StatusBadRequest, w)
+		return
+	}
+	if err := verifyRelaySetupToken(req.SetupKey, h.config.Secret); err != nil {
+		util.WriteErrorResponse("invalid relay setup token", http.StatusUnauthorized, w)
+		return
+	}
+
+	activeRelayRegistry.upsert(registeredRelay{
+		ID:            req.ID,
+		Name:          req.Name,
+		Address:       req.Address,
+		ManagementURL: req.ManagementURL,
+		Version:       req.Version,
+		LastSeen:      time.Now(),
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(registerRelayResponse{Status: "ok"}); err != nil {
+		log.WithContext(r.Context()).Errorf("failed to encode relay registration response: %v", err)
 	}
 }
 
@@ -95,22 +230,112 @@ func (h *Handler) registeredClients(ctx context.Context, accountID, userID strin
 	return count, nil
 }
 
-func probeRelay(ctx context.Context, address string, registeredClients int) RelayStatus {
+func (r *relayRegistry) upsert(relay registeredRelay) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.relays[relayKey(relay.ID, relay.Address)] = relay
+}
+
+func (r *relayRegistry) list() []registeredRelay {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	result := make([]registeredRelay, 0, len(r.relays))
+	for _, relay := range r.relays {
+		result = append(result, relay)
+	}
+	return result
+}
+
+func (r registeredRelay) status(registeredClients int) RelayStatus {
+	status := "offline"
+	if time.Since(r.LastSeen) <= relayRegistrationTTL {
+		status = "online"
+	}
+	return RelayStatus{
+		Address:           r.Address,
+		ID:                r.ID,
+		Name:              r.Name,
+		ObservedID:        r.ID,
+		Registered:        true,
+		Status:            status,
+		RegisteredClients: registeredClients,
+		LastChecked:       r.LastSeen,
+	}
+}
+
+func relayKey(id, address string) string {
+	if id != "" {
+		return id
+	}
+	return address
+}
+
+func signRelaySetupToken(secret string, expiresAt time.Time) (string, error) {
+	nonce := make([]byte, 16)
+	if _, err := rand.Read(nonce); err != nil {
+		return "", err
+	}
+	payload := fmt.Sprintf("%s:%d:%s", relaySetupTokenVersion, expiresAt.Unix(), base64.RawURLEncoding.EncodeToString(nonce))
+	sig := relaySetupTokenSignature(secret, payload)
+	return base64.RawURLEncoding.EncodeToString([]byte(payload)) + "." + base64.RawURLEncoding.EncodeToString(sig), nil
+}
+
+func verifyRelaySetupToken(token, secret string) error {
+	parts := strings.Split(token, ".")
+	if len(parts) != 2 {
+		return errors.New("invalid token format")
+	}
+	payloadBytes, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		return err
+	}
+	signature, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return err
+	}
+	payload := string(payloadBytes)
+	if !hmac.Equal(signature, relaySetupTokenSignature(secret, payload)) {
+		return errors.New("invalid token signature")
+	}
+	payloadParts := strings.Split(payload, ":")
+	if len(payloadParts) != 3 || payloadParts[0] != relaySetupTokenVersion {
+		return errors.New("invalid token payload")
+	}
+	expiresAt, err := strconv.ParseInt(payloadParts[1], 10, 64)
+	if err != nil {
+		return err
+	}
+	if time.Unix(expiresAt, 0).Before(time.Now()) {
+		return errors.New("token expired")
+	}
+	return nil
+}
+
+func relaySetupTokenSignature(secret, payload string) []byte {
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write([]byte(payload))
+	return mac.Sum(nil)
+}
+
+func probeRelay(ctx context.Context, server *nbconfig.RelayServer, registeredClients int) RelayStatus {
 	result := RelayStatus{
-		Address:           address,
+		Address:           server.Address,
+		ID:                server.ID,
+		Name:              server.Name,
 		Status:            "offline",
 		RegisteredClients: registeredClients,
 		LastChecked:       time.Now(),
 	}
 
-	if err := probeRelayWebsocket(ctx, address); err != nil {
+	if err := probeRelayWebsocket(ctx, server.Address); err != nil {
 		result.Error = err.Error()
 		return result
 	}
 
 	result.Status = "online"
-	if connectedClients, err := fetchConnectedClients(ctx, address); err == nil {
-		result.ConnectedClients = connectedClients
+	if health, err := fetchHealth(ctx, server.Address); err == nil {
+		result.ConnectedClients = health.ConnectedPeers
+		result.ObservedID = health.RelayID
 	}
 	return result
 }
@@ -161,7 +386,7 @@ func relayWebsocketURL(address string) (string, error) {
 	return parsed.String(), nil
 }
 
-func fetchConnectedClients(ctx context.Context, address string) (*int, error) {
+func fetchHealth(ctx context.Context, address string) (*healthResponse, error) {
 	healthURL, err := relayHealthURL(address)
 	if err != nil {
 		return nil, err
@@ -186,7 +411,7 @@ func fetchConnectedClients(ctx context.Context, address string) (*int, error) {
 	if err := json.NewDecoder(resp.Body).Decode(&health); err != nil {
 		return nil, err
 	}
-	return health.ConnectedPeers, nil
+	return &health, nil
 }
 
 func relayHealthURL(address string) (string, error) {

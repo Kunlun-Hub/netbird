@@ -67,13 +67,13 @@ type ServerConfig struct {
 	SignalURI string       `yaml:"signalUri"` // External signal server (disables local signal)
 
 	// Management settings (simplified mode)
-	DisableAnonymousMetrics bool               `yaml:"disableAnonymousMetrics"`
-	DisableGeoliteUpdate    bool               `yaml:"disableGeoliteUpdate"`
-	Auth                    AuthConfig         `yaml:"auth"`
-	Store                   StoreConfig        `yaml:"store"`
-	ActivityStore           StoreConfig        `yaml:"activityStore"`
-	AuthStore               StoreConfig        `yaml:"authStore"`
-	ReverseProxy            ReverseProxyConfig `yaml:"reverseProxy"`
+	DisableAnonymousMetrics bool                 `yaml:"disableAnonymousMetrics"`
+	DisableGeoliteUpdate    bool                 `yaml:"disableGeoliteUpdate"`
+	Auth                    AuthConfig           `yaml:"auth"`
+	Store                   StoreConfig          `yaml:"store"`
+	ActivityStore           StoreConfig          `yaml:"activityStore"`
+	AuthStore               StoreConfig          `yaml:"authStore"`
+	ReverseProxy            ReverseProxyConfig   `yaml:"reverseProxy"`
 	NetworkTraffic          NetworkTrafficConfig `yaml:"networkTraffic"`
 }
 
@@ -117,19 +117,19 @@ type SignalConfig struct {
 
 // ManagementConfig contains management service settings
 type ManagementConfig struct {
-	Enabled                 bool               `yaml:"enabled"`
-	LogLevel                string             `yaml:"logLevel"`
-	DataDir                 string             `yaml:"dataDir"`
-	DnsDomain               string             `yaml:"dnsDomain"`
-	DisableAnonymousMetrics bool               `yaml:"disableAnonymousMetrics"`
-	DisableGeoliteUpdate    bool               `yaml:"disableGeoliteUpdate"`
-	DisableDefaultPolicy    bool               `yaml:"disableDefaultPolicy"`
-	Auth                    AuthConfig         `yaml:"auth"`
-	Stuns                   []HostConfig       `yaml:"stuns"`
-	Relays                  RelaysConfig       `yaml:"relays"`
-	SignalURI               string             `yaml:"signalUri"`
-	Store                   StoreConfig        `yaml:"store"`
-	ReverseProxy            ReverseProxyConfig `yaml:"reverseProxy"`
+	Enabled                 bool                 `yaml:"enabled"`
+	LogLevel                string               `yaml:"logLevel"`
+	DataDir                 string               `yaml:"dataDir"`
+	DnsDomain               string               `yaml:"dnsDomain"`
+	DisableAnonymousMetrics bool                 `yaml:"disableAnonymousMetrics"`
+	DisableGeoliteUpdate    bool                 `yaml:"disableGeoliteUpdate"`
+	DisableDefaultPolicy    bool                 `yaml:"disableDefaultPolicy"`
+	Auth                    AuthConfig           `yaml:"auth"`
+	Stuns                   []HostConfig         `yaml:"stuns"`
+	Relays                  RelaysConfig         `yaml:"relays"`
+	SignalURI               string               `yaml:"signalUri"`
+	Store                   StoreConfig          `yaml:"store"`
+	ReverseProxy            ReverseProxyConfig   `yaml:"reverseProxy"`
 	NetworkTraffic          NetworkTrafficConfig `yaml:"networkTraffic"`
 }
 
@@ -801,6 +801,6 @@ func LogConfigInfo(cfg *nbconfig.Config) {
 		log.Infof("running with the embedded IdP: %v", cfg.EmbeddedIdP.Issuer)
 	}
 	if cfg.Relay != nil {
-		log.Infof("Relay addresses: %v", cfg.Relay.Addresses)
+		log.Infof("Relay addresses: %v", cfg.Relay.GetAddresses())
 	}
 }

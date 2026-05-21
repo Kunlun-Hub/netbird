@@ -66,9 +66,9 @@ func toNetbirdConfig(config *nbconfig.Config, turnCredentials *Token, relayToken
 	}
 
 	var relayCfg *proto.RelayConfig
-	if config.Relay != nil && len(config.Relay.Addresses) > 0 {
+	if config.Relay != nil && len(config.Relay.GetAddresses()) > 0 {
 		relayCfg = &proto.RelayConfig{
-			Urls: config.Relay.Addresses,
+			Urls: config.Relay.GetAddresses(),
 		}
 
 		if relayToken != nil {
@@ -388,7 +388,6 @@ func toProtocolFirewallRules(rules []*types.FirewallRule, includeIPv6, useSource
 	}
 	return result
 }
-
 
 // populateSourcePrefixes sets SourcePrefixes on fwRule and returns any
 // additional rules needed (e.g. a v6 wildcard clone when the peer IP is unspecified).
