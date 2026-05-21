@@ -62,12 +62,13 @@ type relaySetupTokenResponse struct {
 }
 
 type registerRelayRequest struct {
-	SetupKey      string `json:"setup_key"`
-	ID            string `json:"id"`
-	Name          string `json:"name,omitempty"`
-	Address       string `json:"address"`
-	ManagementURL string `json:"management_url,omitempty"`
-	Version       string `json:"version,omitempty"`
+	SetupKey         string `json:"setup_key"`
+	ID               string `json:"id"`
+	Name             string `json:"name,omitempty"`
+	Address          string `json:"address"`
+	ManagementURL    string `json:"management_url,omitempty"`
+	Version          string `json:"version,omitempty"`
+	ConnectedClients *int   `json:"connected_clients,omitempty"`
 }
 
 type registerRelayResponse struct {
@@ -80,12 +81,13 @@ type healthResponse struct {
 }
 
 type registeredRelay struct {
-	ID            string
-	Name          string
-	Address       string
-	ManagementURL string
-	Version       string
-	LastSeen      time.Time
+	ID               string
+	Name             string
+	Address          string
+	ManagementURL    string
+	Version          string
+	ConnectedClients *int
+	LastSeen         time.Time
 }
 
 type relayRegistry struct {
@@ -102,6 +104,7 @@ func AddEndpoints(accountManager account.Manager, config *nbconfig.Relay, router
 	router.HandleFunc("/relays", handler.getAllRelays).Methods("GET", "OPTIONS")
 	router.HandleFunc("/relays/setup-token", handler.createSetupToken).Methods("POST", "OPTIONS")
 	router.HandleFunc("/relays/register", handler.registerRelay).Methods("POST", "OPTIONS")
+	router.HandleFunc("/relays/{id}", handler.deleteRelay).Methods("DELETE", "OPTIONS")
 }
 
 func (h *Handler) getAllRelays(w http.ResponseWriter, r *http.Request) {
@@ -200,18 +203,34 @@ func (h *Handler) registerRelay(w http.ResponseWriter, r *http.Request) {
 	}
 
 	activeRelayRegistry.upsert(registeredRelay{
-		ID:            req.ID,
-		Name:          req.Name,
-		Address:       req.Address,
-		ManagementURL: req.ManagementURL,
-		Version:       req.Version,
-		LastSeen:      time.Now(),
+		ID:               req.ID,
+		Name:             req.Name,
+		Address:          req.Address,
+		ManagementURL:    req.ManagementURL,
+		Version:          req.Version,
+		ConnectedClients: req.ConnectedClients,
+		LastSeen:         time.Now(),
 	})
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(registerRelayResponse{Status: "ok"}); err != nil {
 		log.WithContext(r.Context()).Errorf("failed to encode relay registration response: %v", err)
 	}
+}
+
+func (h *Handler) deleteRelay(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(mux.Vars(r)["id"])
+	if id == "" {
+		util.WriteErrorResponse("relay ID is required", http.StatusBadRequest, w)
+		return
+	}
+
+	if !activeRelayRegistry.delete(id) {
+		util.WriteErrorResponse("relay not found", http.StatusNotFound, w)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *Handler) registeredClients(ctx context.Context, accountID, userID string) (int, error) {
@@ -236,6 +255,16 @@ func (r *relayRegistry) upsert(relay registeredRelay) {
 	r.relays[relayKey(relay.ID, relay.Address)] = relay
 }
 
+func (r *relayRegistry) delete(id string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.relays[id]; !ok {
+		return false
+	}
+	delete(r.relays, id)
+	return true
+}
+
 func (r *relayRegistry) list() []registeredRelay {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -258,6 +287,7 @@ func (r registeredRelay) status(registeredClients int) RelayStatus {
 		ObservedID:        r.ID,
 		Registered:        true,
 		Status:            status,
+		ConnectedClients:  r.ConnectedClients,
 		RegisteredClients: registeredClients,
 		LastChecked:       r.LastSeen,
 	}

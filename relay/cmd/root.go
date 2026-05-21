@@ -320,12 +320,13 @@ func startServers(wg *sync.WaitGroup, metricsServer *metrics.Metrics, srv *serve
 }
 
 type relayRegistrationRequest struct {
-	SetupKey      string `json:"setup_key"`
-	ID            string `json:"id"`
-	Name          string `json:"name,omitempty"`
-	Address       string `json:"address"`
-	ManagementURL string `json:"management_url,omitempty"`
-	Version       string `json:"version,omitempty"`
+	SetupKey         string `json:"setup_key"`
+	ID               string `json:"id"`
+	Name             string `json:"name,omitempty"`
+	Address          string `json:"address"`
+	ManagementURL    string `json:"management_url,omitempty"`
+	Version          string `json:"version,omitempty"`
+	ConnectedClients *int   `json:"connected_clients,omitempty"`
 }
 
 func startRegistrationLoop(ctx context.Context, wg *sync.WaitGroup, cfg *Config, srv *server.Server) {
@@ -364,12 +365,14 @@ func registerRelay(ctx context.Context, cfg *Config, srv *server.Server) {
 	}
 
 	instanceURL := srv.InstanceURL()
+	connectedClients := srv.ConnectedPeerCount()
 	body, err := json.Marshal(relayRegistrationRequest{
-		SetupKey:      cfg.SetupKey,
-		ID:            relayID,
-		Name:          cfg.RelayName,
-		Address:       instanceURL.String(),
-		ManagementURL: cfg.ManagementURL,
+		SetupKey:         cfg.SetupKey,
+		ID:               relayID,
+		Name:             cfg.RelayName,
+		Address:          instanceURL.String(),
+		ManagementURL:    cfg.ManagementURL,
+		ConnectedClients: &connectedClients,
 	})
 	if err != nil {
 		log.Warnf("marshal relay registration request: %v", err)
