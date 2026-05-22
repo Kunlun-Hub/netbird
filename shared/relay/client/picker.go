@@ -15,6 +15,7 @@ import (
 const (
 	maxConcurrentServers     = 7
 	defaultConnectionTimeout = 30 * time.Second
+	preferredConnectionDelay = 1500 * time.Millisecond
 )
 
 type connResult struct {
@@ -35,16 +36,19 @@ func (sp *ServerPicker) PickServer(parentCtx context.Context) (*Client, error) {
 	ctx, cancel := context.WithTimeout(parentCtx, sp.ConnectionTimeout)
 	defer cancel()
 
-	totalServers := len(sp.ServerURLs.Load().([]string))
+	serverURLs := sp.ServerURLs.Load().([]string)
+	totalServers := len(serverURLs)
+	if totalServers == 0 {
+		return nil, errors.New("failed to connect to any relay server: all attempts failed")
+	}
 
 	connResultChan := make(chan connResult, totalServers)
-	successChan := make(chan connResult, 1)
 	concurrentLimiter := make(chan struct{}, maxConcurrentServers)
+	startedServers := 0
 
-	log.Debugf("pick server from list: %v", sp.ServerURLs.Load().([]string))
-	for _, url := range sp.ServerURLs.Load().([]string) {
-		// todo check if we have a successful connection so we do not need to connect to other servers
+	startConnection := func(url string) {
 		concurrentLimiter <- struct{}{}
+		startedServers++
 		go func(url string) {
 			defer func() {
 				<-concurrentLimiter
@@ -53,18 +57,51 @@ func (sp *ServerPicker) PickServer(parentCtx context.Context) (*Client, error) {
 		}(url)
 	}
 
-	go sp.processConnResults(connResultChan, successChan)
-
-	select {
-	case cr, ok := <-successChan:
-		if !ok {
-			return nil, errors.New("failed to connect to any relay server: all attempts failed")
+	startFallbacks := func() {
+		for _, url := range serverURLs[1:] {
+			startConnection(url)
 		}
-		log.Infof("chosen home Relay server: %s", cr.Url)
-		return cr.RelayClient, nil
-	case <-ctx.Done():
-		return nil, fmt.Errorf("failed to connect to any relay server: %w", ctx.Err())
 	}
+
+	log.Debugf("pick server from list: %v", serverURLs)
+	startConnection(serverURLs[0])
+
+	fallbacksStarted := totalServers == 1
+	preferredTimer := time.NewTimer(preferredConnectionDelay)
+	defer preferredTimer.Stop()
+	if fallbacksStarted {
+		preferredTimer.Stop()
+	}
+
+	receivedResults := 0
+	for receivedResults < startedServers || !fallbacksStarted {
+		select {
+		case cr := <-connResultChan:
+			receivedResults++
+			if cr.Err == nil {
+				log.Infof("chosen home Relay server: %s", cr.Url)
+				go sp.drainConnResults(connResultChan, receivedResults, startedServers)
+				return cr.RelayClient, nil
+			}
+
+			log.Tracef("failed to connect to Relay server: %s: %v", cr.Url, cr.Err)
+			if !fallbacksStarted {
+				fallbacksStarted = true
+				preferredTimer.Stop()
+				startFallbacks()
+			}
+		case <-preferredTimer.C:
+			if !fallbacksStarted {
+				log.Tracef("preferred Relay server did not connect within %s, trying fallback servers", preferredConnectionDelay)
+				fallbacksStarted = true
+				startFallbacks()
+			}
+		case <-ctx.Done():
+			return nil, fmt.Errorf("failed to connect to any relay server: %w", ctx.Err())
+		}
+	}
+
+	return nil, errors.New("failed to connect to any relay server: all attempts failed")
 }
 
 func (sp *ServerPicker) startConnection(ctx context.Context, resultChan chan connResult, url string) {
@@ -100,4 +137,17 @@ func (sp *ServerPicker) processConnResults(resultChan chan connResult, successCh
 		successChan <- cr
 	}
 	close(successChan)
+}
+
+func (sp *ServerPicker) drainConnResults(resultChan <-chan connResult, receivedResults, startedServers int) {
+	for ; receivedResults < startedServers; receivedResults++ {
+		cr := <-resultChan
+		if cr.Err != nil || cr.RelayClient == nil {
+			continue
+		}
+		log.Infof("closing unnecessary Relay connection to: %s", cr.Url)
+		if err := cr.RelayClient.Close(); err != nil {
+			log.Errorf("failed to close connection to %s: %v", cr.Url, err)
+		}
+	}
 }

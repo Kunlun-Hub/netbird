@@ -31,6 +31,7 @@ type SecretsManager interface {
 	GenerateTurnToken() (*Token, error)
 	GenerateRelayToken() (*Token, error)
 	PushRelayList(ctx context.Context) int
+	PushRelayTokens(ctx context.Context, accountID string, peerIDs []string) int
 	SetupRefresh(ctx context.Context, accountID, peerKey string)
 	CancelRefresh(peerKey string)
 	GetWGKey() (wgtypes.Key, error)
@@ -141,6 +142,25 @@ func (m *TimeBasedAuthSecretsManager) PushRelayList(ctx context.Context) int {
 	}
 
 	return len(connectedPeers)
+}
+
+func (m *TimeBasedAuthSecretsManager) PushRelayTokens(ctx context.Context, accountID string, peerIDs []string) int {
+	if m.relayCfg == nil || m.relayHmacToken == nil {
+		log.WithContext(ctx).Debug("relay configuration is not set, skip pushing relay tokens")
+		return 0
+	}
+
+	connectedPeers := m.updateManager.GetAllConnectedPeers()
+	count := 0
+	for _, peerID := range peerIDs {
+		if _, ok := connectedPeers[peerID]; !ok {
+			continue
+		}
+		m.pushNewRelayTokens(ctx, accountID, peerID)
+		count++
+	}
+
+	return count
 }
 
 func (m *TimeBasedAuthSecretsManager) cancelTURN(peerID string) {

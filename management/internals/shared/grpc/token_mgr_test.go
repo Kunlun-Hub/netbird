@@ -136,6 +136,62 @@ func TestTimeBasedAuthSecretsManager_PushRelayList(t *testing.T) {
 	}
 }
 
+func TestTimeBasedAuthSecretsManager_PushRelayTokens(t *testing.T) {
+	ttl := util.Duration{Duration: time.Hour}
+	secret := "some_secret"
+	peersManager := update_channel.NewPeersUpdateManager(nil)
+	accountID := "account-id"
+	peerA := "peer-a"
+	peerB := "peer-b"
+	peerC := "peer-c"
+	channelA := peersManager.CreateChannel(context.Background(), peerA)
+	channelB := peersManager.CreateChannel(context.Background(), peerB)
+
+	rc := &config.Relay{
+		Addresses:      []string{"localhost:0"},
+		CredentialsTTL: ttl,
+		Secret:         secret,
+	}
+
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+	settingsMockManager := settings.NewMockManager(ctrl)
+	settingsMockManager.EXPECT().GetExtraSettings(gomock.Any(), accountID).Return(&types.ExtraSettings{}, nil).AnyTimes()
+	groupsManager := groups.NewManagerMock()
+
+	tested, err := NewTimeBasedAuthSecretsManager(peersManager, nil, rc, settingsMockManager, groupsManager)
+	require.NoError(t, err)
+
+	count := tested.PushRelayTokens(context.Background(), accountID, []string{peerB, peerC, peerA})
+	require.Equal(t, 2, count)
+
+	readUpdate := func(ch <-chan *network_map.UpdateMessage) *network_map.UpdateMessage {
+		t.Helper()
+		select {
+		case update := <-ch:
+			return update
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for relay token update")
+			return nil
+		}
+	}
+
+	expectedURLs := relayhandler.ActiveRelayAddresses(rc)
+	for _, ch := range []<-chan *network_map.UpdateMessage{channelA, channelB} {
+		update := readUpdate(ch)
+		require.NotNil(t, update)
+		require.Equal(t, network_map.MessageTypeControlConfig, update.MessageType)
+		config := update.Update.GetNetbirdConfig()
+		require.Empty(t, config.GetStuns())
+		require.Empty(t, config.GetTurns())
+		relay := config.GetRelay()
+		require.NotNil(t, relay)
+		require.Equal(t, expectedURLs, relay.GetUrls())
+		require.NotEmpty(t, relay.GetTokenPayload())
+		require.NotEmpty(t, relay.GetTokenSignature())
+	}
+}
+
 func TestTimeBasedAuthSecretsManager_SetupRefresh(t *testing.T) {
 	ttl := util.Duration{Duration: 2 * time.Second}
 	secret := "some_secret"

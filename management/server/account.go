@@ -359,7 +359,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 			updateAccountPeers = true
 		}
 
-		if flowSettingsChanged(oldSettings.Extra, newSettings.Extra) || relayPreferencesChanged(oldSettings.Extra, newSettings.Extra) {
+		if flowSettingsChanged(oldSettings.Extra, newSettings.Extra) {
 			updateAccountPeers = true
 		}
 
@@ -526,33 +526,6 @@ func flowSettingsChanged(oldExtra, newExtra *types.ExtraSettings) bool {
 	}
 
 	return false
-}
-
-func relayPreferencesChanged(oldExtra, newExtra *types.ExtraSettings) bool {
-	if oldExtra == nil && newExtra == nil {
-		return false
-	}
-	if oldExtra == nil {
-		oldExtra = &types.ExtraSettings{}
-	}
-	if newExtra == nil {
-		newExtra = &types.ExtraSettings{}
-	}
-	return !stringSliceMapEqual(oldExtra.RelayPeerPreferences, newExtra.RelayPeerPreferences) ||
-		!stringSliceMapEqual(oldExtra.RelayGroupPreferences, newExtra.RelayGroupPreferences)
-}
-
-func stringSliceMapEqual(left, right map[string][]string) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for key, leftValue := range left {
-		rightValue, ok := right[key]
-		if !ok || !slices.Equal(leftValue, rightValue) {
-			return false
-		}
-	}
-	return true
 }
 
 func ipv6SettingsChanged(old, updated *types.Settings) bool {

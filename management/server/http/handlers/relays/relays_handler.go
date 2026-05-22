@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -50,6 +51,7 @@ type Handler struct {
 
 type relayConfigPusher interface {
 	PushRelayList(ctx context.Context) int
+	PushRelayTokens(ctx context.Context, accountID string, peerIDs []string) int
 }
 
 type RelayStatus struct {
@@ -96,6 +98,7 @@ type applyRelayConfigResponse struct {
 type relayPreferencesResponse struct {
 	PeerPreferences  map[string][]string `json:"peer_preferences"`
 	GroupPreferences map[string][]string `json:"group_preferences"`
+	AppliedPeers     int                 `json:"applied_peers,omitempty"`
 }
 
 type healthResponse struct {
@@ -128,17 +131,8 @@ func ActiveRelayAddresses(config *nbconfig.Relay) []string {
 
 func PreferredRelayAddresses(config *nbconfig.Relay, peerID string, peerGroups []string, settings *types.Settings) []string {
 	registeredRelays := registeredRelaysFromSettings(settings)
-	allAddresses := relayAddresses(config, nil, registeredRelays)
 	preferred := preferredRelayIDs(peerID, peerGroups, settings)
-	if len(preferred) == 0 {
-		return allAddresses
-	}
-
-	addresses := relayAddresses(config, preferred, registeredRelays)
-	if len(addresses) == 0 {
-		return allAddresses
-	}
-	return addresses
+	return relayAddresses(config, preferred, registeredRelays)
 }
 
 func preferredRelayIDs(peerID string, peerGroups []string, settings *types.Settings) []string {
@@ -148,6 +142,8 @@ func preferredRelayIDs(peerID string, peerGroups []string, settings *types.Setti
 	if relays := settings.Extra.RelayPeerPreferences[peerID]; len(relays) > 0 {
 		return relays
 	}
+	peerGroups = slices.Clone(peerGroups)
+	slices.Sort(peerGroups)
 	seen := make(map[string]struct{})
 	var relays []string
 	for _, groupID := range peerGroups {
@@ -206,7 +202,7 @@ func relayAddresses(config *nbconfig.Relay, preferred []string, registeredRelays
 		return allAddresses
 	}
 
-	addresses := make([]string, 0, len(preferred))
+	addresses := make([]string, 0, len(allAddresses))
 	seenPreferred := make(map[string]struct{}, len(preferred))
 	for _, relayID := range preferred {
 		address := relayByPreference[relayID]
@@ -218,6 +214,13 @@ func relayAddresses(config *nbconfig.Relay, preferred []string, registeredRelays
 		}
 		addresses = append(addresses, address)
 		seenPreferred[address] = struct{}{}
+	}
+
+	for _, address := range allAddresses {
+		if _, ok := seenPreferred[address]; ok {
+			continue
+		}
+		addresses = append(addresses, address)
 	}
 	return addresses
 }
@@ -388,25 +391,39 @@ func (h *Handler) saveRelayPreferences(w http.ResponseWriter, r *http.Request) {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
-	settings = settings.Copy()
-	if settings.Extra == nil {
-		settings.Extra = &types.ExtraSettings{}
+
+	oldSettings := settings.Copy()
+	newSettings := settings.Copy()
+	if newSettings.Extra == nil {
+		newSettings.Extra = &types.ExtraSettings{}
 	}
-	settings.Extra.RelayPeerPreferences = sanitizePreferences(req.PeerPreferences)
-	settings.Extra.RelayGroupPreferences = sanitizePreferences(req.GroupPreferences)
-	if err := h.validateRelayPreferences(r.Context(), userAuth.AccountId, userAuth.UserId, settings.Extra.RelayPeerPreferences, settings.Extra.RelayGroupPreferences); err != nil {
+	newSettings.Extra.RelayPeerPreferences = sanitizePreferences(req.PeerPreferences)
+	newSettings.Extra.RelayGroupPreferences = sanitizePreferences(req.GroupPreferences)
+	if err := h.validateRelayPreferences(r.Context(), userAuth.AccountId, userAuth.UserId, newSettings.Extra.RelayPeerPreferences, newSettings.Extra.RelayGroupPreferences); err != nil {
 		util.WriteErrorResponse(err.Error(), http.StatusBadRequest, w)
 		return
 	}
 
-	if _, err := h.accountManager.UpdateAccountSettings(r.Context(), userAuth.AccountId, userAuth.UserId, settings); err != nil {
+	affectedPeers, err := h.affectedRelayPreferencePeers(r.Context(), userAuth.AccountId, oldSettings, newSettings)
+	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
+	if _, err := h.accountManager.UpdateAccountSettings(r.Context(), userAuth.AccountId, userAuth.UserId, newSettings); err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	appliedPeers := 0
+	if h.configPusher != nil && len(affectedPeers) > 0 {
+		appliedPeers = h.configPusher.PushRelayTokens(r.Context(), userAuth.AccountId, affectedPeers)
+	}
+
 	response := relayPreferencesResponse{
-		PeerPreferences:  settings.Extra.RelayPeerPreferences,
-		GroupPreferences: settings.Extra.RelayGroupPreferences,
+		PeerPreferences:  newSettings.Extra.RelayPeerPreferences,
+		GroupPreferences: newSettings.Extra.RelayGroupPreferences,
+		AppliedPeers:     appliedPeers,
 	}
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
@@ -552,6 +569,30 @@ func (h *Handler) validateRelayPreferences(ctx context.Context, accountID, userI
 	return nil
 }
 
+func (h *Handler) affectedRelayPreferencePeers(ctx context.Context, accountID string, oldSettings, newSettings *types.Settings) ([]string, error) {
+	account, err := h.accountManager.GetAccount(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	var affected []string
+	for _, peer := range account.GetPeers() {
+		if peer == nil || peer.ProxyMeta.Embedded {
+			continue
+		}
+
+		peerGroups := account.GetPeerGroupsList(peer.ID)
+		oldRelays := PreferredRelayAddresses(h.config, peer.ID, peerGroups, oldSettings)
+		newRelays := PreferredRelayAddresses(h.config, peer.ID, peerGroups, newSettings)
+		if !stringSlicesEqual(oldRelays, newRelays) {
+			affected = append(affected, peer.ID)
+		}
+	}
+
+	slices.Sort(affected)
+	return affected, nil
+}
+
 func (h *Handler) relayPreferenceKeys(ctx context.Context, accountID string) map[string]struct{} {
 	keys := make(map[string]struct{})
 	add := func(id, address string) {
@@ -619,6 +660,18 @@ func sanitizePreferences(source map[string][]string) map[string][]string {
 	return result
 }
 
+func stringSlicesEqual(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
+}
+
 func (r *relayRegistry) upsert(relay registeredRelay) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -642,6 +695,7 @@ func (r *relayRegistry) list() []registeredRelay {
 	for _, relay := range r.relays {
 		result = append(result, relay)
 	}
+	sortRegisteredRelays(result)
 	return result
 }
 
@@ -649,7 +703,11 @@ func (h *Handler) storedRegisteredRelays(ctx context.Context, accountID string) 
 	if accountID == "" || h.accountManager == nil {
 		return nil
 	}
-	settings, err := h.accountManager.GetStore().GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
+	storeManager := h.accountManager.GetStore()
+	if storeManager == nil {
+		return nil
+	}
+	settings, err := storeManager.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		log.WithContext(ctx).Debugf("failed to load stored registered relays for account %s: %v", accountID, err)
 		return nil
@@ -673,7 +731,14 @@ func registeredRelaysFromSettings(settings *types.Settings) []registeredRelay {
 			LastSeen:         relay.LastSeen,
 		})
 	}
+	sortRegisteredRelays(result)
 	return result
+}
+
+func sortRegisteredRelays(relays []registeredRelay) {
+	slices.SortFunc(relays, func(left, right registeredRelay) int {
+		return strings.Compare(relayKey(left.ID, left.Address), relayKey(right.ID, right.Address))
+	})
 }
 
 func (h *Handler) persistRegisteredRelay(ctx context.Context, accountID string, relay registeredRelay) error {
