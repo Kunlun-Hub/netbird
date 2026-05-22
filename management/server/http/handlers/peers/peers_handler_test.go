@@ -24,6 +24,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
+	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/management/http/api"
@@ -219,6 +220,72 @@ func initTestMetaData(t *testing.T, peers ...*nbpeer.Peer) *Handler {
 		networkMapController: networkMapController,
 		permissionsManager:   permissionsManager,
 	}
+}
+
+func TestCreateTemporaryAccessTracksEphemeralPeer(t *testing.T) {
+	ctrl := ugomock.NewController(t)
+	networkMapController := network_map.NewMockController(ctrl)
+
+	targetPeer := &nbpeer.Peer{
+		ID:        testPeerID,
+		AccountID: "test_id",
+		Name:      "target",
+	}
+	temporaryPeer := &nbpeer.Peer{
+		ID:        "temporary-peer",
+		AccountID: "test_id",
+		Name:      "chrome-148-browser-client",
+		Ephemeral: true,
+	}
+
+	networkMapController.EXPECT().
+		TrackEphemeralPeer(ugomock.Any(), temporaryPeer).
+		Times(1)
+
+	handler := &Handler{
+		accountManager: &mock_server.MockAccountManager{
+			GetPeerFunc: func(_ context.Context, accountID, peerID, userID string) (*nbpeer.Peer, error) {
+				assert.Equal(t, "test_id", accountID)
+				assert.Equal(t, testPeerID, peerID)
+				assert.Equal(t, adminUser, userID)
+				return targetPeer, nil
+			},
+			AddPeerFunc: func(_ context.Context, accountID string, setupKey string, userID string, peer *nbpeer.Peer, temporary bool) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error) {
+				assert.Equal(t, "test_id", accountID)
+				assert.Empty(t, setupKey)
+				assert.Equal(t, adminUser, userID)
+				assert.True(t, temporary)
+				assert.True(t, peer.Ephemeral)
+				assert.Equal(t, temporaryPeer.Name, peer.Name)
+				return temporaryPeer, nil, nil, nil
+			},
+			SavePolicyFunc: func(_ context.Context, accountID, userID string, policy *types.Policy, create bool) (*types.Policy, error) {
+				assert.Equal(t, "test_id", accountID)
+				assert.Equal(t, adminUser, userID)
+				assert.True(t, create)
+				require.Len(t, policy.Rules, 1)
+				assert.Equal(t, temporaryPeer.ID, policy.Rules[0].SourceResource.ID)
+				assert.Equal(t, targetPeer.ID, policy.Rules[0].DestinationResource.ID)
+				return policy, nil
+			},
+		},
+		networkMapController: networkMapController,
+	}
+
+	body := bytes.NewBufferString(`{"name":"chrome-148-browser-client","wg_pub_key":"browser-pub-key","rules":["tcp/22"]}`)
+	req := httptest.NewRequest(http.MethodPost, "/peers/"+testPeerID+"/temporary-access", body)
+	req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{
+		UserId:    adminUser,
+		Domain:    "hotmail.com",
+		AccountId: "test_id",
+	})
+
+	rr := httptest.NewRecorder()
+	router := mux.NewRouter()
+	router.HandleFunc("/peers/{peerId}/temporary-access", handler.CreateTemporaryAccess).Methods(http.MethodPost)
+	router.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
 }
 
 // Tests the GetAllPeers endpoint reachable in the route /api/peers

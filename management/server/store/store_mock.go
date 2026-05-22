@@ -865,6 +865,21 @@ func (mr *MockStoreMockRecorder) GetAccountNetworkTrafficEvents(ctx, lockStrengt
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAccountNetworkTrafficEvents", reflect.TypeOf((*MockStore)(nil).GetAccountNetworkTrafficEvents), ctx, lockStrength, accountID, filter)
 }
 
+// GetAccountNetworkTrafficSummary mocks base method.
+func (m *MockStore) GetAccountNetworkTrafficSummary(ctx context.Context, accountID string, filter networktraffic.Filter, bucketSeconds int) ([]networktraffic.SummaryPoint, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAccountNetworkTrafficSummary", ctx, accountID, filter, bucketSeconds)
+	ret0, _ := ret[0].([]networktraffic.SummaryPoint)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetAccountNetworkTrafficSummary indicates an expected call of GetAccountNetworkTrafficSummary.
+func (mr *MockStoreMockRecorder) GetAccountNetworkTrafficSummary(ctx, accountID, filter, bucketSeconds interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAccountNetworkTrafficSummary", reflect.TypeOf((*MockStore)(nil).GetAccountNetworkTrafficSummary), ctx, accountID, filter, bucketSeconds)
+}
+
 // GetAccountByPeerID mocks base method.
 func (m *MockStore) GetAccountByPeerID(ctx context.Context, peerID string) (*types2.Account, error) {
 	m.ctrl.T.Helper()

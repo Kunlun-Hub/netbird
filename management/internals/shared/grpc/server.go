@@ -823,24 +823,29 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 }
 
 func (s *Server) prepareLoginResponse(ctx context.Context, peer *nbpeer.Peer, netMap *types.NetworkMap, postureChecks []*posture.Checks) (*proto.LoginResponse, error) {
-	var relayToken *Token
-	var err error
-	if s.config.Relay != nil && len(relayhandler.ActiveRelayAddresses(s.config.Relay)) > 0 {
-		relayToken, err = s.secretsManager.GenerateRelayToken()
-		if err != nil {
-			log.Errorf("failed generating Relay token: %v", err)
-		}
-	}
-
 	settings, err := s.settingsManager.GetSettings(ctx, peer.AccountID, activity.SystemInitiator)
 	if err != nil {
 		log.WithContext(ctx).Warnf("failed getting settings for peer %s: %s", peer.Key, err)
 		return nil, status.Errorf(codes.Internal, "failed getting settings")
 	}
 
+	peerGroups, err := s.accountManager.GetStore().GetPeerGroupIDs(ctx, store.LockingStrengthNone, peer.AccountID, peer.ID)
+	if err != nil {
+		log.WithContext(ctx).Warnf("failed to get peer groups for peer %s, using default relay list: %v", peer.ID, err)
+		peerGroups = nil
+	}
+
+	var relayToken *Token
+	if s.config.Relay != nil && len(relayhandler.PreferredRelayAddresses(s.config.Relay, peer.ID, peerGroups, settings)) > 0 {
+		relayToken, err = s.secretsManager.GenerateRelayToken()
+		if err != nil {
+			log.Errorf("failed generating Relay token: %v", err)
+		}
+	}
+
 	// if peer has reached this point then it has logged in
 	loginResp := &proto.LoginResponse{
-		NetbirdConfig: toNetbirdConfig(s.config, nil, relayToken, nil),
+		NetbirdConfig: toNetbirdConfig(s.config, nil, relayToken, settings, peer.ID, peerGroups),
 		PeerConfig:    toPeerConfig(peer, netMap.Network, s.networkMapController.GetDNSDomain(settings), settings, s.config.HttpConfig, s.config.DeviceAuthorizationFlow, netMap.EnableSSH),
 		Checks:        toProtocolChecks(ctx, postureChecks),
 	}
@@ -915,14 +920,6 @@ func (s *Server) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer 
 		}
 	}
 
-	var relayToken *Token
-	if s.config.Relay != nil && len(relayhandler.ActiveRelayAddresses(s.config.Relay)) > 0 {
-		relayToken, err = s.secretsManager.GenerateRelayToken()
-		if err != nil {
-			log.Errorf("failed generating Relay token: %v", err)
-		}
-	}
-
 	settings, err := s.settingsManager.GetSettings(ctx, peer.AccountID, activity.SystemInitiator)
 	if err != nil {
 		return status.Errorf(codes.Internal, "error handling request")
@@ -931,6 +928,14 @@ func (s *Server) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer 
 	peerGroups, err := s.accountManager.GetStore().GetPeerGroupIDs(ctx, store.LockingStrengthNone, peer.AccountID, peer.ID)
 	if err != nil {
 		return status.Errorf(codes.Internal, "failed to get peer groups %s", err)
+	}
+
+	var relayToken *Token
+	if s.config.Relay != nil && len(relayhandler.PreferredRelayAddresses(s.config.Relay, peer.ID, peerGroups, settings)) > 0 {
+		relayToken, err = s.secretsManager.GenerateRelayToken()
+		if err != nil {
+			log.Errorf("failed generating Relay token: %v", err)
+		}
 	}
 
 	plainResp := ToSyncResponse(ctx, s.config, s.config.HttpConfig, s.config.DeviceAuthorizationFlow, peer, turnToken, relayToken, networkMap, s.networkMapController.GetDNSDomain(settings), postureChecks, nil, settings, settings.Extra, peerGroups, dnsFwdPort)

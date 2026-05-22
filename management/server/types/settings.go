@@ -210,6 +210,23 @@ type ExtraSettings struct {
 	FlowSyslogFacility string
 	// FlowSyslogTag sets the syslog tag
 	FlowSyslogTag string
+
+	// RelayPeerPreferences maps peer IDs to preferred relay IDs or addresses.
+	RelayPeerPreferences map[string][]string `gorm:"serializer:json"`
+	// RelayGroupPreferences maps group IDs to preferred relay IDs or addresses.
+	RelayGroupPreferences map[string][]string `gorm:"serializer:json"`
+	// RegisteredRelays stores actively registered relay metadata so relay choices survive management restarts.
+	RegisteredRelays map[string]RegisteredRelay `gorm:"serializer:json"`
+}
+
+type RegisteredRelay struct {
+	ID               string
+	Name             string
+	Address          string
+	ManagementURL    string
+	Version          string
+	ConnectedClients *int
+	LastSeen         time.Time
 }
 
 // Copy copies the ExtraSettings struct
@@ -233,5 +250,30 @@ func (e *ExtraSettings) Copy() *ExtraSettings {
 		FlowSyslogProtocol:        e.FlowSyslogProtocol,
 		FlowSyslogFacility:        e.FlowSyslogFacility,
 		FlowSyslogTag:             e.FlowSyslogTag,
+		RelayPeerPreferences:      cloneStringSliceMap(e.RelayPeerPreferences),
+		RelayGroupPreferences:     cloneStringSliceMap(e.RelayGroupPreferences),
+		RegisteredRelays:          cloneRegisteredRelays(e.RegisteredRelays),
 	}
+}
+
+func cloneStringSliceMap(source map[string][]string) map[string][]string {
+	if source == nil {
+		return nil
+	}
+	result := make(map[string][]string, len(source))
+	for key, value := range source {
+		result[key] = slices.Clone(value)
+	}
+	return result
+}
+
+func cloneRegisteredRelays(source map[string]RegisteredRelay) map[string]RegisteredRelay {
+	if source == nil {
+		return nil
+	}
+	result := make(map[string]RegisteredRelay, len(source))
+	for key, value := range source {
+		result[key] = value
+	}
+	return result
 }

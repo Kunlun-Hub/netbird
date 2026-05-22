@@ -939,13 +939,14 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 
 func (e *Engine) handleRelayUpdate(update *mgmProto.RelayConfig) error {
 	if update != nil {
-		// when we receive token we expect valid address list too
-		c := &auth.Token{
-			Payload:   update.GetTokenPayload(),
-			Signature: update.GetTokenSignature(),
-		}
-		if err := e.relayManager.UpdateToken(c); err != nil {
-			return fmt.Errorf("update relay token: %w", err)
+		if update.GetTokenPayload() != "" || update.GetTokenSignature() != "" {
+			c := &auth.Token{
+				Payload:   update.GetTokenPayload(),
+				Signature: update.GetTokenSignature(),
+			}
+			if err := e.relayManager.UpdateToken(c); err != nil {
+				return fmt.Errorf("update relay token: %w", err)
+			}
 		}
 
 		urls := update.Urls

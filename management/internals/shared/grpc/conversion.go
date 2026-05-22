@@ -30,7 +30,7 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 )
 
-func toNetbirdConfig(config *nbconfig.Config, turnCredentials *Token, relayToken *Token, extraSettings *types.ExtraSettings) *proto.NetbirdConfig {
+func toNetbirdConfig(config *nbconfig.Config, turnCredentials *Token, relayToken *Token, settings *types.Settings, peerID string, peerGroups []string) *proto.NetbirdConfig {
 	if config == nil {
 		return nil
 	}
@@ -67,7 +67,7 @@ func toNetbirdConfig(config *nbconfig.Config, turnCredentials *Token, relayToken
 	}
 
 	var relayCfg *proto.RelayConfig
-	relayAddresses := relayhandler.ActiveRelayAddresses(config.Relay)
+	relayAddresses := relayhandler.PreferredRelayAddresses(config.Relay, peerID, peerGroups, settings)
 	if config.Relay != nil && len(relayAddresses) > 0 {
 		relayCfg = &proto.RelayConfig{
 			Urls: relayAddresses,
@@ -92,6 +92,10 @@ func toNetbirdConfig(config *nbconfig.Config, turnCredentials *Token, relayToken
 		Turns:  turns,
 		Signal: signalCfg,
 		Relay:  relayCfg,
+	}
+	var extraSettings *types.ExtraSettings
+	if settings != nil {
+		extraSettings = settings.Extra
 	}
 	nbConfig.Flow = buildFlowConfig(config, relayToken, extraSettings)
 
@@ -204,7 +208,7 @@ func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nb
 		Checks: toProtocolChecks(ctx, checks),
 	}
 
-	nbConfig := toNetbirdConfig(config, turnCredentials, relayCredentials, extraSettings)
+	nbConfig := toNetbirdConfig(config, turnCredentials, relayCredentials, settings, peer.ID, peerGroups)
 	extendedConfig := integrationsConfig.ExtendNetBirdConfig(peer.ID, peerGroups, nbConfig, extraSettings)
 	response.NetbirdConfig = extendedConfig
 

@@ -16,6 +16,7 @@ import (
 	peer "github.com/netbirdio/netbird/management/server/peer"
 	posture "github.com/netbirdio/netbird/management/server/posture"
 	types "github.com/netbirdio/netbird/management/server/types"
+	route "github.com/netbirdio/netbird/route"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -197,6 +198,51 @@ func (m *MockController) OnPeersUpdated(ctx context.Context, accountId string, p
 func (mr *MockControllerMockRecorder) OnPeersUpdated(ctx, accountId, peerIDs any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OnPeersUpdated", reflect.TypeOf((*MockController)(nil).OnPeersUpdated), ctx, accountId, peerIDs)
+}
+
+// OnRouteAddedUpdNetworkMapCache mocks base method.
+func (m *MockController) OnRouteAddedUpdNetworkMapCache(account *types.Account, r *route.Route) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "OnRouteAddedUpdNetworkMapCache", account, r)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// OnRouteAddedUpdNetworkMapCache indicates an expected call of OnRouteAddedUpdNetworkMapCache.
+func (mr *MockControllerMockRecorder) OnRouteAddedUpdNetworkMapCache(account, r any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OnRouteAddedUpdNetworkMapCache", reflect.TypeOf((*MockController)(nil).OnRouteAddedUpdNetworkMapCache), account, r)
+}
+
+// OnRouteDeletedUpdNetworkMapCache mocks base method.
+func (m *MockController) OnRouteDeletedUpdNetworkMapCache(account *types.Account, r *route.Route) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "OnRouteDeletedUpdNetworkMapCache", account, r)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// OnRouteDeletedUpdNetworkMapCache indicates an expected call of OnRouteDeletedUpdNetworkMapCache.
+func (mr *MockControllerMockRecorder) OnRouteDeletedUpdNetworkMapCache(account, r any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OnRouteDeletedUpdNetworkMapCache", reflect.TypeOf((*MockController)(nil).OnRouteDeletedUpdNetworkMapCache), account, r)
+}
+
+// OnRouteUpdatedUpdNetworkMapCache mocks base method.
+func (m *MockController) OnRouteUpdatedUpdNetworkMapCache(account *types.Account, oldRoute, newRoute *route.Route) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "OnRouteUpdatedUpdNetworkMapCache", account, oldRoute, newRoute)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// OnRouteUpdatedUpdNetworkMapCache indicates an expected call of OnRouteUpdatedUpdNetworkMapCache.
+func (mr *MockControllerMockRecorder) OnRouteUpdatedUpdNetworkMapCache(account, oldRoute, newRoute any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OnRouteUpdatedUpdNetworkMapCache", reflect.TypeOf((*MockController)(nil).OnRouteUpdatedUpdNetworkMapCache), account, oldRoute, newRoute)
 }
 
 // StartWarmup mocks base method.

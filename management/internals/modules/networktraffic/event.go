@@ -68,6 +68,12 @@ type Event struct {
 	UserEmail string
 }
 
+type SummaryPoint struct {
+	Timestamp time.Time
+	RxBytes   int64
+	TxBytes   int64
+}
+
 func FormatAddress(ip net.IP, port uint32) string {
 	if ip == nil {
 		return ""

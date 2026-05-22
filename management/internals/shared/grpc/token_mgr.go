@@ -18,6 +18,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/groups"
 	relayhandler "github.com/netbirdio/netbird/management/server/http/handlers/relays"
 	"github.com/netbirdio/netbird/management/server/settings"
+	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/proto"
 	auth "github.com/netbirdio/netbird/shared/relay/auth/hmac"
 	authv2 "github.com/netbirdio/netbird/shared/relay/auth/hmac/v2"
@@ -233,7 +234,7 @@ func (m *TimeBasedAuthSecretsManager) pushNewTURNAndRelayTokens(ctx context.Cont
 		token, err := m.GenerateRelayToken()
 		if err == nil {
 			update.NetbirdConfig.Relay = &proto.RelayConfig{
-				Urls:           relayhandler.ActiveRelayAddresses(m.relayCfg),
+				Urls:           m.relayURLsForPeer(ctx, accountID, peerID),
 				TokenPayload:   token.Payload,
 				TokenSignature: token.Signature,
 			}
@@ -259,7 +260,7 @@ func (m *TimeBasedAuthSecretsManager) pushNewRelayTokens(ctx context.Context, ac
 	update := &proto.SyncResponse{
 		NetbirdConfig: &proto.NetbirdConfig{
 			Relay: &proto.RelayConfig{
-				Urls:           relayhandler.ActiveRelayAddresses(m.relayCfg),
+				Urls:           m.relayURLsForPeer(ctx, accountID, peerID),
 				TokenPayload:   string(relayToken.Payload),
 				TokenSignature: base64.StdEncoding.EncodeToString(relayToken.Signature),
 			},
@@ -274,6 +275,21 @@ func (m *TimeBasedAuthSecretsManager) pushNewRelayTokens(ctx context.Context, ac
 		Update:      update,
 		MessageType: network_map.MessageTypeControlConfig,
 	})
+}
+
+func (m *TimeBasedAuthSecretsManager) relayURLsForPeer(ctx context.Context, accountID, peerID string) []string {
+	extraSettings, err := m.settingsManager.GetExtraSettings(ctx, accountID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get extra settings for relay preferences: %v", err)
+		return relayhandler.ActiveRelayAddresses(m.relayCfg)
+	}
+
+	peerGroups, err := m.groupsManager.GetPeerGroupIDs(ctx, accountID, peerID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get peer groups for relay preferences: %v", err)
+	}
+
+	return relayhandler.PreferredRelayAddresses(m.relayCfg, peerID, peerGroups, &types.Settings{Extra: extraSettings})
 }
 
 func (m *TimeBasedAuthSecretsManager) extendNetbirdConfig(ctx context.Context, peerID, accountID string, update *proto.SyncResponse) {

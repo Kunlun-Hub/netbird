@@ -291,6 +291,7 @@ type Store interface {
 	DeleteOldAccessLogs(ctx context.Context, olderThan time.Time) (int64, error)
 	CreateNetworkTrafficEvent(ctx context.Context, event *networktraffic.Event) error
 	GetAccountNetworkTrafficEvents(ctx context.Context, lockStrength LockingStrength, accountID string, filter networktraffic.Filter) ([]*networktraffic.Event, int64, error)
+	GetAccountNetworkTrafficSummary(ctx context.Context, accountID string, filter networktraffic.Filter, bucketSeconds int) ([]networktraffic.SummaryPoint, error)
 	DeleteOldNetworkTrafficEvents(ctx context.Context, olderThan time.Time) (int64, error)
 	GetServiceTargetByTargetID(ctx context.Context, lockStrength LockingStrength, accountID string, targetID string) (*rpservice.Target, error)
 	GetServicesByTargetID(ctx context.Context, lockStrength LockingStrength, accountID string, targetID string) ([]*rpservice.Service, error)

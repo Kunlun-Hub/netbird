@@ -484,6 +484,7 @@ func (h *Handler) CreateTemporaryAccess(w http.ResponseWriter, r *http.Request) 
 		util.WriteError(r.Context(), err, w)
 		return
 	}
+	h.networkMapController.TrackEphemeralPeer(r.Context(), peer)
 
 	for _, rule := range req.Rules {
 		protocol, portRange, err := types.ParseRuleString(rule)

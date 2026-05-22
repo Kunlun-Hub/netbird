@@ -3,6 +3,7 @@ package events
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
@@ -26,6 +27,7 @@ func AddEndpoints(accountManager account.Manager, router *mux.Router) {
 	router.HandleFunc("/events", eventsHandler.getAllEvents).Methods("GET", "OPTIONS")
 	router.HandleFunc("/events/audit", eventsHandler.getAllEvents).Methods("GET", "OPTIONS")
 	router.HandleFunc("/events/network-traffic", eventsHandler.getAllNetworkTrafficEvents).Methods("GET", "OPTIONS")
+	router.HandleFunc("/events/network-traffic/summary", eventsHandler.getNetworkTrafficSummary).Methods("GET", "OPTIONS")
 }
 
 // newHandler creates a new events handler
@@ -112,6 +114,63 @@ func (h *handler) getAllNetworkTrafficEvents(w http.ResponseWriter, r *http.Requ
 		TotalRecords: int(totalCount),
 		TotalPages:   getTotalPageCount(int(totalCount), filter.PageSize),
 	})
+}
+
+type networkTrafficSummaryPoint struct {
+	Timestamp string `json:"timestamp"`
+	RxBytes   int64  `json:"rx_bytes"`
+	TxBytes   int64  `json:"tx_bytes"`
+}
+
+type networkTrafficSummaryResponse struct {
+	Data []networkTrafficSummaryPoint `json:"data"`
+}
+
+func (h *handler) getNetworkTrafficSummary(w http.ResponseWriter, r *http.Request) {
+	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	var filter networktraffic.Filter
+	filter.ParseFromRequest(r)
+
+	bucketSeconds := parseBucketSeconds(r)
+	points, err := h.accountManager.GetStore().GetAccountNetworkTrafficSummary(
+		r.Context(),
+		userAuth.AccountId,
+		filter,
+		bucketSeconds,
+	)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	response := networkTrafficSummaryResponse{Data: make([]networkTrafficSummaryPoint, 0, len(points))}
+	for _, point := range points {
+		response.Data = append(response.Data, networkTrafficSummaryPoint{
+			Timestamp: point.Timestamp.Format("2006-01-02T15:04:05.000Z07:00"),
+			RxBytes:   point.RxBytes,
+			TxBytes:   point.TxBytes,
+		})
+	}
+	util.WriteJSONObject(r.Context(), w, response)
+}
+
+func parseBucketSeconds(r *http.Request) int {
+	bucketSeconds, err := strconv.Atoi(r.URL.Query().Get("bucket_seconds"))
+	if err != nil || bucketSeconds <= 0 {
+		return 300
+	}
+	if bucketSeconds < 60 {
+		return 60
+	}
+	if bucketSeconds > 24*60*60 {
+		return 24 * 60 * 60
+	}
+	return bucketSeconds
 }
 
 func getTotalPageCount(totalCount, pageSize int) int {

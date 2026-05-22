@@ -5595,6 +5595,53 @@ func (s *SqlStore) GetAccountNetworkTrafficEvents(ctx context.Context, lockStren
 	return events, totalCount, nil
 }
 
+func (s *SqlStore) GetAccountNetworkTrafficSummary(ctx context.Context, accountID string, filter networktraffic.Filter, bucketSeconds int) ([]networktraffic.SummaryPoint, error) {
+	if bucketSeconds <= 0 {
+		bucketSeconds = 300
+	}
+
+	type summaryRow struct {
+		Bucket  int64
+		RxBytes int64
+		TxBytes int64
+	}
+
+	bucketExpr := s.networkTrafficBucketExpression()
+	var rows []summaryRow
+	query := s.db.Model(&networktraffic.Event{}).
+		Where(accountIDCondition, accountID)
+	query = s.applyNetworkTrafficFilters(query, filter).
+		Select(fmt.Sprintf("%s AS bucket, COALESCE(SUM(rx_bytes), 0) AS rx_bytes, COALESCE(SUM(tx_bytes), 0) AS tx_bytes", bucketExpr), bucketSeconds).
+		Group("bucket").
+		Order("bucket ASC")
+
+	if err := query.Scan(&rows).Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to summarize network traffic events: %v", err)
+		return nil, status.Errorf(status.Internal, "failed to summarize network traffic events")
+	}
+
+	points := make([]networktraffic.SummaryPoint, 0, len(rows))
+	for _, row := range rows {
+		points = append(points, networktraffic.SummaryPoint{
+			Timestamp: time.Unix(row.Bucket*int64(bucketSeconds), 0).UTC(),
+			RxBytes:   row.RxBytes,
+			TxBytes:   row.TxBytes,
+		})
+	}
+	return points, nil
+}
+
+func (s *SqlStore) networkTrafficBucketExpression() string {
+	switch s.storeEngine {
+	case types.PostgresStoreEngine:
+		return "FLOOR(EXTRACT(EPOCH FROM timestamp) / ?)::bigint"
+	case types.MysqlStoreEngine:
+		return "FLOOR(UNIX_TIMESTAMP(timestamp) / ?)"
+	default:
+		return "CAST(strftime('%s', timestamp) AS INTEGER) / ?"
+	}
+}
+
 // DeleteOldAccessLogs deletes all access logs older than the specified time
 func (s *SqlStore) DeleteOldAccessLogs(ctx context.Context, olderThan time.Time) (int64, error) {
 	result := s.db.
