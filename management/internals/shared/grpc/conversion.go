@@ -19,6 +19,7 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller/cache"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
+	relayhandler "github.com/netbirdio/netbird/management/server/http/handlers/relays"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -66,9 +67,10 @@ func toNetbirdConfig(config *nbconfig.Config, turnCredentials *Token, relayToken
 	}
 
 	var relayCfg *proto.RelayConfig
-	if config.Relay != nil && len(config.Relay.GetAddresses()) > 0 {
+	relayAddresses := relayhandler.ActiveRelayAddresses(config.Relay)
+	if config.Relay != nil && len(relayAddresses) > 0 {
 		relayCfg = &proto.RelayConfig{
-			Urls: config.Relay.GetAddresses(),
+			Urls: relayAddresses,
 		}
 
 		if relayToken != nil {

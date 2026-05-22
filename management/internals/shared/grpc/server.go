@@ -40,6 +40,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/auth"
 	nbContext "github.com/netbirdio/netbird/management/server/context"
+	relayhandler "github.com/netbirdio/netbird/management/server/http/handlers/relays"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/settings"
@@ -824,7 +825,7 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 func (s *Server) prepareLoginResponse(ctx context.Context, peer *nbpeer.Peer, netMap *types.NetworkMap, postureChecks []*posture.Checks) (*proto.LoginResponse, error) {
 	var relayToken *Token
 	var err error
-	if s.config.Relay != nil && len(s.config.Relay.GetAddresses()) > 0 {
+	if s.config.Relay != nil && len(relayhandler.ActiveRelayAddresses(s.config.Relay)) > 0 {
 		relayToken, err = s.secretsManager.GenerateRelayToken()
 		if err != nil {
 			log.Errorf("failed generating Relay token: %v", err)
@@ -915,7 +916,7 @@ func (s *Server) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer 
 	}
 
 	var relayToken *Token
-	if s.config.Relay != nil && len(s.config.Relay.GetAddresses()) > 0 {
+	if s.config.Relay != nil && len(relayhandler.ActiveRelayAddresses(s.config.Relay)) > 0 {
 		relayToken, err = s.secretsManager.GenerateRelayToken()
 		if err != nil {
 			log.Errorf("failed generating Relay token: %v", err)

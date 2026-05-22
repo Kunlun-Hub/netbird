@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -23,6 +24,7 @@ import (
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/account"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
+	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/relay/healthcheck/peerid"
 	relayserver "github.com/netbirdio/netbird/relay/server"
 	"github.com/netbirdio/netbird/shared/management/http/util"
@@ -40,6 +42,7 @@ const (
 type Handler struct {
 	accountManager account.Manager
 	config         *nbconfig.Relay
+	geo            geolocation.Geolocation
 }
 
 type RelayStatus struct {
@@ -51,6 +54,9 @@ type RelayStatus struct {
 	Status            string    `json:"status"`
 	ConnectedClients  *int      `json:"connected_clients,omitempty"`
 	RegisteredClients int       `json:"registered_clients"`
+	PublicIP          string    `json:"public_ip,omitempty"`
+	CountryCode       string    `json:"country_code,omitempty"`
+	CityName          string    `json:"city_name,omitempty"`
 	LastChecked       time.Time `json:"last_checked"`
 	Error             string    `json:"error,omitempty"`
 }
@@ -99,8 +105,37 @@ var activeRelayRegistry = &relayRegistry{
 	relays: make(map[string]registeredRelay),
 }
 
-func AddEndpoints(accountManager account.Manager, config *nbconfig.Relay, router *mux.Router) {
-	handler := &Handler{accountManager: accountManager, config: config}
+func ActiveRelayAddresses(config *nbconfig.Relay) []string {
+	addresses := make([]string, 0)
+	seen := make(map[string]struct{})
+	if config != nil {
+		for _, address := range config.GetAddresses() {
+			if address == "" {
+				continue
+			}
+			if _, ok := seen[address]; ok {
+				continue
+			}
+			addresses = append(addresses, address)
+			seen[address] = struct{}{}
+		}
+	}
+
+	for _, relay := range activeRelayRegistry.list() {
+		if relay.Address == "" || time.Since(relay.LastSeen) > relayRegistrationTTL {
+			continue
+		}
+		if _, ok := seen[relay.Address]; ok {
+			continue
+		}
+		addresses = append(addresses, relay.Address)
+		seen[relay.Address] = struct{}{}
+	}
+	return addresses
+}
+
+func AddEndpoints(accountManager account.Manager, config *nbconfig.Relay, geo geolocation.Geolocation, router *mux.Router) {
+	handler := &Handler{accountManager: accountManager, config: config, geo: geo}
 	router.HandleFunc("/relays", handler.getAllRelays).Methods("GET", "OPTIONS")
 	router.HandleFunc("/relays/setup-token", handler.createSetupToken).Methods("POST", "OPTIONS")
 	router.HandleFunc("/relays/register", handler.registerRelay).Methods("POST", "OPTIONS")
@@ -134,7 +169,7 @@ func (h *Handler) getAllRelays(w http.ResponseWriter, r *http.Request) {
 		if server == nil || server.Address == "" {
 			continue
 		}
-		relays = append(relays, probeRelay(ctx, server, registeredClients))
+		relays = append(relays, h.probeRelay(ctx, server, registeredClients))
 		seen[relayKey(server.ID, server.Address)] = struct{}{}
 	}
 
@@ -142,7 +177,7 @@ func (h *Handler) getAllRelays(w http.ResponseWriter, r *http.Request) {
 		if _, ok := seen[relayKey(relay.ID, relay.Address)]; ok {
 			continue
 		}
-		relays = append(relays, relay.status(registeredClients))
+		relays = append(relays, h.registeredRelayStatus(relay, registeredClients))
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -275,12 +310,12 @@ func (r *relayRegistry) list() []registeredRelay {
 	return result
 }
 
-func (r registeredRelay) status(registeredClients int) RelayStatus {
+func (h *Handler) registeredRelayStatus(r registeredRelay, registeredClients int) RelayStatus {
 	status := "offline"
 	if time.Since(r.LastSeen) <= relayRegistrationTTL {
 		status = "online"
 	}
-	return RelayStatus{
+	result := RelayStatus{
 		Address:           r.Address,
 		ID:                r.ID,
 		Name:              r.Name,
@@ -291,6 +326,8 @@ func (r registeredRelay) status(registeredClients int) RelayStatus {
 		RegisteredClients: registeredClients,
 		LastChecked:       r.LastSeen,
 	}
+	h.enrichRelayLocation(&result)
+	return result
 }
 
 func relayKey(id, address string) string {
@@ -347,7 +384,7 @@ func relaySetupTokenSignature(secret, payload string) []byte {
 	return mac.Sum(nil)
 }
 
-func probeRelay(ctx context.Context, server *nbconfig.RelayServer, registeredClients int) RelayStatus {
+func (h *Handler) probeRelay(ctx context.Context, server *nbconfig.RelayServer, registeredClients int) RelayStatus {
 	result := RelayStatus{
 		Address:           server.Address,
 		ID:                server.ID,
@@ -356,6 +393,7 @@ func probeRelay(ctx context.Context, server *nbconfig.RelayServer, registeredCli
 		RegisteredClients: registeredClients,
 		LastChecked:       time.Now(),
 	}
+	h.enrichRelayLocation(&result)
 
 	if err := probeRelayWebsocket(ctx, server.Address); err != nil {
 		result.Error = err.Error()
@@ -368,6 +406,51 @@ func probeRelay(ctx context.Context, server *nbconfig.RelayServer, registeredCli
 		result.ObservedID = health.RelayID
 	}
 	return result
+}
+
+func (h *Handler) enrichRelayLocation(result *RelayStatus) {
+	ip := publicIPFromAddress(result.Address)
+	if ip == nil {
+		return
+	}
+	result.PublicIP = ip.String()
+	if h.geo == nil {
+		return
+	}
+	location, err := h.geo.Lookup(ip)
+	if err != nil {
+		log.Debugf("failed to lookup relay location for %s: %v", ip.String(), err)
+		return
+	}
+	result.CountryCode = location.Country.ISOCode
+	result.CityName = location.City.Names.En
+}
+
+func publicIPFromAddress(address string) net.IP {
+	parsed, err := url.Parse(address)
+	if err != nil {
+		return nil
+	}
+	host := parsed.Hostname()
+	if host == "" {
+		return nil
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ip
+	}
+	ips, err := net.LookupIP(host)
+	if err != nil {
+		return nil
+	}
+	for _, ip := range ips {
+		if ip.To4() != nil {
+			return ip
+		}
+	}
+	if len(ips) > 0 {
+		return ips[0]
+	}
+	return nil
 }
 
 func probeRelayWebsocket(ctx context.Context, address string) error {

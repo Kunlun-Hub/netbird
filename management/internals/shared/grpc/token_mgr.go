@@ -16,6 +16,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/groups"
+	relayhandler "github.com/netbirdio/netbird/management/server/http/handlers/relays"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/shared/management/proto"
 	auth "github.com/netbirdio/netbird/shared/relay/auth/hmac"
@@ -232,7 +233,7 @@ func (m *TimeBasedAuthSecretsManager) pushNewTURNAndRelayTokens(ctx context.Cont
 		token, err := m.GenerateRelayToken()
 		if err == nil {
 			update.NetbirdConfig.Relay = &proto.RelayConfig{
-				Urls:           m.relayCfg.GetAddresses(),
+				Urls:           relayhandler.ActiveRelayAddresses(m.relayCfg),
 				TokenPayload:   token.Payload,
 				TokenSignature: token.Signature,
 			}
@@ -258,7 +259,7 @@ func (m *TimeBasedAuthSecretsManager) pushNewRelayTokens(ctx context.Context, ac
 	update := &proto.SyncResponse{
 		NetbirdConfig: &proto.NetbirdConfig{
 			Relay: &proto.RelayConfig{
-				Urls:           m.relayCfg.GetAddresses(),
+				Urls:           relayhandler.ActiveRelayAddresses(m.relayCfg),
 				TokenPayload:   string(relayToken.Payload),
 				TokenSignature: base64.StdEncoding.EncodeToString(relayToken.Signature),
 			},

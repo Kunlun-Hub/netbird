@@ -145,7 +145,7 @@ func NewAPIHandler(ctx context.Context, accountManager account.Manager, networks
 	policies.AddLocationsEndpoints(accountManager, LocationManager, permissionsManager, router)
 	groups.AddEndpoints(accountManager, router)
 	routes.AddEndpoints(accountManager, router)
-	relays.AddEndpoints(accountManager, relayConfig, router)
+	relays.AddEndpoints(accountManager, relayConfig, LocationManager, router)
 	dns.AddEndpoints(accountManager, router)
 	events.AddEndpoints(accountManager, router)
 	version_releases.AddEndpoints(accountManager, router, rootRouter)
