@@ -17,6 +17,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/update_channel"
 	"github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/groups"
+	relayhandler "github.com/netbirdio/netbird/management/server/http/handlers/relays"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/proto"
@@ -78,6 +79,61 @@ func TestTimeBasedAuthSecretsManager_GenerateCredentials(t *testing.T) {
 
 	hashedSecret := sha256.Sum256([]byte(secret))
 	validateMAC(t, sha256.New, relayCredentials.Payload, relayCredentials.Signature, hashedSecret[:])
+}
+
+func TestTimeBasedAuthSecretsManager_PushRelayList(t *testing.T) {
+	ttl := util.Duration{Duration: time.Hour}
+	secret := "some_secret"
+	peersManager := update_channel.NewPeersUpdateManager(nil)
+	peerA := "peer-a"
+	peerB := "peer-b"
+	channelA := peersManager.CreateChannel(context.Background(), peerA)
+	channelB := peersManager.CreateChannel(context.Background(), peerB)
+
+	rc := &config.Relay{
+		Addresses:      []string{"localhost:0"},
+		CredentialsTTL: ttl,
+		Secret:         secret,
+	}
+
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+	settingsMockManager := settings.NewMockManager(ctrl)
+	groupsManager := groups.NewManagerMock()
+
+	tested, err := NewTimeBasedAuthSecretsManager(peersManager, &config.TURNConfig{
+		CredentialsTTL:       ttl,
+		Secret:               secret,
+		Turns:                []*config.Host{TurnTestHost},
+		TimeBasedCredentials: true,
+	}, rc, settingsMockManager, groupsManager)
+	require.NoError(t, err)
+
+	count := tested.PushRelayList(context.Background())
+	require.Equal(t, 2, count)
+
+	readUpdate := func(ch <-chan *network_map.UpdateMessage) *network_map.UpdateMessage {
+		t.Helper()
+		select {
+		case update := <-ch:
+			return update
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for relay list update")
+			return nil
+		}
+	}
+
+	expectedURLs := relayhandler.ActiveRelayAddresses(rc)
+	for _, ch := range []<-chan *network_map.UpdateMessage{channelA, channelB} {
+		update := readUpdate(ch)
+		require.NotNil(t, update)
+		require.Equal(t, network_map.MessageTypeControlConfig, update.MessageType)
+		relay := update.Update.GetNetbirdConfig().GetRelay()
+		require.NotNil(t, relay)
+		require.Equal(t, expectedURLs, relay.GetUrls())
+		require.NotEmpty(t, relay.GetTokenPayload())
+		require.NotEmpty(t, relay.GetTokenSignature())
+	}
 }
 
 func TestTimeBasedAuthSecretsManager_SetupRefresh(t *testing.T) {

@@ -30,6 +30,7 @@ const defaultDuration = 12 * time.Hour
 type SecretsManager interface {
 	GenerateTurnToken() (*Token, error)
 	GenerateRelayToken() (*Token, error)
+	PushRelayList(ctx context.Context) int
 	SetupRefresh(ctx context.Context, accountID, peerKey string)
 	CancelRefresh(peerKey string)
 	GetWGKey() (wgtypes.Key, error)
@@ -126,6 +127,20 @@ func (m *TimeBasedAuthSecretsManager) GenerateRelayToken() (*Token, error) {
 		Payload:   string(relayToken.Payload),
 		Signature: base64.StdEncoding.EncodeToString(relayToken.Signature),
 	}, nil
+}
+
+func (m *TimeBasedAuthSecretsManager) PushRelayList(ctx context.Context) int {
+	if m.relayCfg == nil || m.relayHmacToken == nil {
+		log.WithContext(ctx).Debug("relay configuration is not set, skip pushing relay list")
+		return 0
+	}
+
+	connectedPeers := m.updateManager.GetAllConnectedPeers()
+	for peerID := range connectedPeers {
+		m.pushRelayList(ctx, peerID)
+	}
+
+	return len(connectedPeers)
 }
 
 func (m *TimeBasedAuthSecretsManager) cancelTURN(peerID string) {
@@ -271,6 +286,31 @@ func (m *TimeBasedAuthSecretsManager) pushNewRelayTokens(ctx context.Context, ac
 	m.extendNetbirdConfig(ctx, peerID, accountID, update)
 
 	log.WithContext(ctx).Debugf("sending new relay credentials to peer %s", peerID)
+	m.updateManager.SendUpdate(ctx, peerID, &network_map.UpdateMessage{
+		Update:      update,
+		MessageType: network_map.MessageTypeControlConfig,
+	})
+}
+
+func (m *TimeBasedAuthSecretsManager) pushRelayList(ctx context.Context, peerID string) {
+	relayToken, err := m.relayHmacToken.GenerateToken()
+	if err != nil {
+		log.Errorf("failed to generate relay token for peer '%s': %s", peerID, err)
+		return
+	}
+
+	update := &proto.SyncResponse{
+		NetbirdConfig: &proto.NetbirdConfig{
+			Relay: &proto.RelayConfig{
+				Urls:           relayhandler.ActiveRelayAddresses(m.relayCfg),
+				TokenPayload:   string(relayToken.Payload),
+				TokenSignature: base64.StdEncoding.EncodeToString(relayToken.Signature),
+			},
+			// omit Turns to avoid updates there
+		},
+	}
+
+	log.WithContext(ctx).Debugf("sending relay list to peer %s", peerID)
 	m.updateManager.SendUpdate(ctx, peerID, &network_map.UpdateMessage{
 		Update:      update,
 		MessageType: network_map.MessageTypeControlConfig,

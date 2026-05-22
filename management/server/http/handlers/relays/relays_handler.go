@@ -45,6 +45,11 @@ type Handler struct {
 	accountManager account.Manager
 	config         *nbconfig.Relay
 	geo            geolocation.Geolocation
+	configPusher   relayConfigPusher
+}
+
+type relayConfigPusher interface {
+	PushRelayList(ctx context.Context) int
 }
 
 type RelayStatus struct {
@@ -81,6 +86,11 @@ type registerRelayRequest struct {
 
 type registerRelayResponse struct {
 	Status string `json:"status"`
+}
+
+type applyRelayConfigResponse struct {
+	Status      string `json:"status"`
+	TargetPeers int    `json:"target_peers"`
 }
 
 type relayPreferencesResponse struct {
@@ -212,9 +222,10 @@ func relayAddresses(config *nbconfig.Relay, preferred []string, registeredRelays
 	return addresses
 }
 
-func AddEndpoints(accountManager account.Manager, config *nbconfig.Relay, geo geolocation.Geolocation, router *mux.Router) {
-	handler := &Handler{accountManager: accountManager, config: config, geo: geo}
+func AddEndpoints(accountManager account.Manager, config *nbconfig.Relay, geo geolocation.Geolocation, configPusher relayConfigPusher, router *mux.Router) {
+	handler := &Handler{accountManager: accountManager, config: config, geo: geo, configPusher: configPusher}
 	router.HandleFunc("/relays", handler.getAllRelays).Methods("GET", "OPTIONS")
+	router.HandleFunc("/relays/apply", handler.applyRelayConfig).Methods("POST", "OPTIONS")
 	router.HandleFunc("/relays/preferences", handler.getRelayPreferences).Methods("GET", "OPTIONS")
 	router.HandleFunc("/relays/preferences", handler.saveRelayPreferences).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/relays/setup-token", handler.createSetupToken).Methods("POST", "OPTIONS")
@@ -328,6 +339,34 @@ func (h *Handler) getRelayPreferences(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		log.WithContext(r.Context()).Errorf("failed to encode relay preferences response: %v", err)
+	}
+}
+
+func (h *Handler) applyRelayConfig(w http.ResponseWriter, r *http.Request) {
+	if h.configPusher == nil {
+		util.WriteErrorResponse("relay config pusher is not configured", http.StatusPreconditionFailed, w)
+		return
+	}
+
+	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	if _, err := h.accountManager.GetAccountByID(r.Context(), userAuth.AccountId, userAuth.UserId); err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	targetPeers := h.configPusher.PushRelayList(r.Context())
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(applyRelayConfigResponse{
+		Status:      "ok",
+		TargetPeers: targetPeers,
+	}); err != nil {
+		log.WithContext(r.Context()).Errorf("failed to encode relay config apply response: %v", err)
 	}
 }
 

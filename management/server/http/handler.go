@@ -69,7 +69,7 @@ import (
 const apiPrefix = "/api"
 
 // NewAPIHandler creates the Management service HTTP API handler registering all the available endpoints.
-func NewAPIHandler(ctx context.Context, accountManager account.Manager, networksManager nbnetworks.Manager, resourceManager resources.Manager, routerManager routers.Manager, groupsManager nbgroups.Manager, LocationManager geolocation.Geolocation, authManager auth.Manager, appMetrics telemetry.AppMetrics, integratedValidator integrated_validator.IntegratedValidator, proxyController port_forwarding.Controller, permissionsManager permissions.Manager, peersManager nbpeers.Manager, settingsManager settings.Manager, zManager zones.Manager, rManager records.Manager, networkMapController network_map.Controller, idpManager idpmanager.Manager, serviceManager service.Manager, reverseProxyDomainManager *manager.Manager, reverseProxyAccessLogsManager accesslogs.Manager, proxyGRPCServer *nbgrpc.ProxyServiceServer, relayConfig *nbconfig.Relay, trustedHTTPProxies []netip.Prefix, rateLimiter *middleware.APIRateLimiter) (http.Handler, error) {
+func NewAPIHandler(ctx context.Context, accountManager account.Manager, networksManager nbnetworks.Manager, resourceManager resources.Manager, routerManager routers.Manager, groupsManager nbgroups.Manager, LocationManager geolocation.Geolocation, authManager auth.Manager, appMetrics telemetry.AppMetrics, integratedValidator integrated_validator.IntegratedValidator, proxyController port_forwarding.Controller, permissionsManager permissions.Manager, peersManager nbpeers.Manager, settingsManager settings.Manager, zManager zones.Manager, rManager records.Manager, networkMapController network_map.Controller, idpManager idpmanager.Manager, serviceManager service.Manager, reverseProxyDomainManager *manager.Manager, reverseProxyAccessLogsManager accesslogs.Manager, proxyGRPCServer *nbgrpc.ProxyServiceServer, secretsManager nbgrpc.SecretsManager, relayConfig *nbconfig.Relay, trustedHTTPProxies []netip.Prefix, rateLimiter *middleware.APIRateLimiter) (http.Handler, error) {
 
 	// Register bypass paths for unauthenticated endpoints
 	if err := bypass.AddBypassPath("/api/instance"); err != nil {
@@ -145,7 +145,7 @@ func NewAPIHandler(ctx context.Context, accountManager account.Manager, networks
 	policies.AddLocationsEndpoints(accountManager, LocationManager, permissionsManager, router)
 	groups.AddEndpoints(accountManager, router)
 	routes.AddEndpoints(accountManager, router)
-	relays.AddEndpoints(accountManager, relayConfig, LocationManager, router)
+	relays.AddEndpoints(accountManager, relayConfig, LocationManager, secretsManager, router)
 	dns.AddEndpoints(accountManager, router)
 	events.AddEndpoints(accountManager, router)
 	version_releases.AddEndpoints(accountManager, router, rootRouter)
