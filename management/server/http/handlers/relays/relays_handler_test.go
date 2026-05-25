@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -182,6 +183,20 @@ func TestPreferredRelayAddressesKeepsAllRelaysWithPreferredFirst(t *testing.T) {
 		"rels://relay-a.example.com:443",
 		"rels://relay-c.example.com:443",
 	}, addresses)
+}
+
+func TestVerifyRelaySetupTokenAcceptsExpiredLegacyToken(t *testing.T) {
+	const (
+		secret    = "relay-secret"
+		accountID = "account-id"
+	)
+
+	token, err := signRelaySetupToken(secret, time.Now().Add(-time.Hour).Unix(), accountID)
+	require.NoError(t, err)
+
+	actualAccountID, err := verifyRelaySetupToken(token, secret)
+	require.NoError(t, err)
+	require.Equal(t, accountID, actualAccountID)
 }
 
 func TestSaveRelayPreferencesSkipsPushWhenEffectiveRelayOrderDoesNotChange(t *testing.T) {

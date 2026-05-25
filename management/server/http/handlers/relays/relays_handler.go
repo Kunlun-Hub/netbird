@@ -36,10 +36,10 @@ import (
 )
 
 const (
-	relayProbeTimeout      = 5 * time.Second
-	relaySetupTokenTTL     = 24 * time.Hour
-	relayRegistrationTTL   = 2 * time.Minute
-	relaySetupTokenVersion = "v1"
+	relayProbeTimeout           = 5 * time.Second
+	relaySetupTokenNeverExpires = 0
+	relayRegistrationTTL        = 2 * time.Minute
+	relaySetupTokenVersion      = "v1"
 )
 
 type Handler struct {
@@ -73,7 +73,7 @@ type RelayStatus struct {
 type relaySetupTokenResponse struct {
 	Token           string `json:"token"`
 	RelayAuthSecret string `json:"relay_auth_secret"`
-	ExpiresAt       string `json:"expires_at"`
+	ExpiresAt       string `json:"expires_at,omitempty"`
 }
 
 type registerRelayRequest struct {
@@ -294,14 +294,13 @@ func (h *Handler) createSetupToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	expiresAt := time.Now().Add(relaySetupTokenTTL)
 	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	token, err := signRelaySetupToken(h.config.Secret, expiresAt, userAuth.AccountId)
+	token, err := signRelaySetupToken(h.config.Secret, relaySetupTokenNeverExpires, userAuth.AccountId)
 	if err != nil {
 		util.WriteErrorResponse("failed to generate relay setup token", http.StatusInternalServerError, w)
 		return
@@ -311,7 +310,6 @@ func (h *Handler) createSetupToken(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewEncoder(w).Encode(relaySetupTokenResponse{
 		Token:           token,
 		RelayAuthSecret: h.config.Secret,
-		ExpiresAt:       expiresAt.UTC().Format(time.RFC3339),
 	}); err != nil {
 		log.WithContext(r.Context()).Errorf("failed to encode relay setup token response: %v", err)
 	}
@@ -820,12 +818,12 @@ func relayKey(id, address string) string {
 	return address
 }
 
-func signRelaySetupToken(secret string, expiresAt time.Time, accountID string) (string, error) {
+func signRelaySetupToken(secret string, expiresAt int64, accountID string) (string, error) {
 	nonce := make([]byte, 16)
 	if _, err := rand.Read(nonce); err != nil {
 		return "", err
 	}
-	payload := fmt.Sprintf("%s:%d:%s:%s", relaySetupTokenVersion, expiresAt.Unix(), base64.RawURLEncoding.EncodeToString(nonce), accountID)
+	payload := fmt.Sprintf("%s:%d:%s:%s", relaySetupTokenVersion, expiresAt, base64.RawURLEncoding.EncodeToString(nonce), accountID)
 	sig := relaySetupTokenSignature(secret, payload)
 	return base64.RawURLEncoding.EncodeToString([]byte(payload)) + "." + base64.RawURLEncoding.EncodeToString(sig), nil
 }
@@ -851,12 +849,8 @@ func verifyRelaySetupToken(token, secret string) (string, error) {
 	if (len(payloadParts) != 3 && len(payloadParts) != 4) || payloadParts[0] != relaySetupTokenVersion {
 		return "", errors.New("invalid token payload")
 	}
-	expiresAt, err := strconv.ParseInt(payloadParts[1], 10, 64)
-	if err != nil {
+	if _, err := strconv.ParseInt(payloadParts[1], 10, 64); err != nil {
 		return "", err
-	}
-	if time.Unix(expiresAt, 0).Before(time.Now()) {
-		return "", errors.New("token expired")
 	}
 	if len(payloadParts) == 4 {
 		return payloadParts[3], nil
