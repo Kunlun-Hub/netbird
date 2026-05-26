@@ -27,8 +27,10 @@ type relayConfigPusherMock struct {
 	pushedPeerCount int
 }
 
-func (m *relayConfigPusherMock) PushRelayList(_ context.Context) int {
+func (m *relayConfigPusherMock) PushRelayList(_ context.Context, accountID string, peerIDs []string) int {
 	m.called = true
+	m.pushedAccountID = accountID
+	m.pushedPeerIDs = append([]string(nil), peerIDs...)
 	return m.count
 }
 
@@ -53,6 +55,17 @@ func TestApplyRelayConfigPushesGlobalRelayList(t *testing.T) {
 
 				return &types.Account{Id: accountID}, nil
 			},
+			GetPeersFunc: func(_ context.Context, requestedAccountID, requestedUserID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error) {
+				require.Equal(t, accountID, requestedAccountID)
+				require.Equal(t, userID, requestedUserID)
+				require.Empty(t, nameFilter)
+				require.Empty(t, ipFilter)
+				return []*nbpeer.Peer{
+					{ID: "peer-a", AccountID: accountID},
+					{ID: "embedded-peer", AccountID: accountID, ProxyMeta: nbpeer.ProxyMeta{Embedded: true}},
+					{ID: "peer-b", AccountID: accountID},
+				}, nil
+			},
 		},
 		configPusher: configPusher,
 	}
@@ -68,6 +81,8 @@ func TestApplyRelayConfigPushesGlobalRelayList(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, recorder.Code)
 	require.True(t, configPusher.called)
+	require.Equal(t, accountID, configPusher.pushedAccountID)
+	require.Equal(t, []string{"peer-a", "peer-b"}, configPusher.pushedPeerIDs)
 
 	var response applyRelayConfigResponse
 	require.NoError(t, json.NewDecoder(recorder.Body).Decode(&response))

@@ -85,13 +85,18 @@ func TestTimeBasedAuthSecretsManager_PushRelayList(t *testing.T) {
 	ttl := util.Duration{Duration: time.Hour}
 	secret := "some_secret"
 	peersManager := update_channel.NewPeersUpdateManager(nil)
+	accountID := "account-id"
 	peerA := "peer-a"
 	peerB := "peer-b"
+	peerC := "peer-c"
 	channelA := peersManager.CreateChannel(context.Background(), peerA)
 	channelB := peersManager.CreateChannel(context.Background(), peerB)
 
 	rc := &config.Relay{
-		Addresses:      []string{"localhost:0"},
+		Servers: []*config.RelayServer{
+			{ID: "relay-a", Address: "rels://relay-a.example.com:443"},
+			{ID: "relay-b", Address: "rels://relay-b.example.com:443"},
+		},
 		CredentialsTTL: ttl,
 		Secret:         secret,
 	}
@@ -99,6 +104,11 @@ func TestTimeBasedAuthSecretsManager_PushRelayList(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
 	settingsMockManager := settings.NewMockManager(ctrl)
+	settingsMockManager.EXPECT().GetExtraSettings(gomock.Any(), accountID).Return(&types.ExtraSettings{
+		RelayPeerPreferences: map[string][]string{
+			peerA: {"relay-b"},
+		},
+	}, nil).AnyTimes()
 	groupsManager := groups.NewManagerMock()
 
 	tested, err := NewTimeBasedAuthSecretsManager(peersManager, &config.TURNConfig{
@@ -109,7 +119,7 @@ func TestTimeBasedAuthSecretsManager_PushRelayList(t *testing.T) {
 	}, rc, settingsMockManager, groupsManager)
 	require.NoError(t, err)
 
-	count := tested.PushRelayList(context.Background())
+	count := tested.PushRelayList(context.Background(), accountID, []string{peerB, peerC, peerA})
 	require.Equal(t, 2, count)
 
 	readUpdate := func(ch <-chan *network_map.UpdateMessage) *network_map.UpdateMessage {
@@ -123,17 +133,23 @@ func TestTimeBasedAuthSecretsManager_PushRelayList(t *testing.T) {
 		}
 	}
 
-	expectedURLs := relayhandler.ActiveRelayAddresses(rc)
-	for _, ch := range []<-chan *network_map.UpdateMessage{channelA, channelB} {
-		update := readUpdate(ch)
-		require.NotNil(t, update)
-		require.Equal(t, network_map.MessageTypeControlConfig, update.MessageType)
-		relay := update.Update.GetNetbirdConfig().GetRelay()
-		require.NotNil(t, relay)
-		require.Equal(t, expectedURLs, relay.GetUrls())
-		require.NotEmpty(t, relay.GetTokenPayload())
-		require.NotEmpty(t, relay.GetTokenSignature())
-	}
+	updateA := readUpdate(channelA)
+	require.NotNil(t, updateA)
+	require.Equal(t, network_map.MessageTypeControlConfig, updateA.MessageType)
+	relayA := updateA.Update.GetNetbirdConfig().GetRelay()
+	require.NotNil(t, relayA)
+	require.Equal(t, []string{"rels://relay-b.example.com:443", "rels://relay-a.example.com:443"}, relayA.GetUrls())
+	require.NotEmpty(t, relayA.GetTokenPayload())
+	require.NotEmpty(t, relayA.GetTokenSignature())
+
+	updateB := readUpdate(channelB)
+	require.NotNil(t, updateB)
+	require.Equal(t, network_map.MessageTypeControlConfig, updateB.MessageType)
+	relayB := updateB.Update.GetNetbirdConfig().GetRelay()
+	require.NotNil(t, relayB)
+	require.Equal(t, relayhandler.ActiveRelayAddresses(rc), relayB.GetUrls())
+	require.NotEmpty(t, relayB.GetTokenPayload())
+	require.NotEmpty(t, relayB.GetTokenSignature())
 }
 
 func TestTimeBasedAuthSecretsManager_PushRelayTokens(t *testing.T) {

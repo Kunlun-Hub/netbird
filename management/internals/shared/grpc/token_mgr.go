@@ -30,7 +30,7 @@ const defaultDuration = 12 * time.Hour
 type SecretsManager interface {
 	GenerateTurnToken() (*Token, error)
 	GenerateRelayToken() (*Token, error)
-	PushRelayList(ctx context.Context) int
+	PushRelayList(ctx context.Context, accountID string, peerIDs []string) int
 	PushRelayTokens(ctx context.Context, accountID string, peerIDs []string) int
 	SetupRefresh(ctx context.Context, accountID, peerKey string)
 	CancelRefresh(peerKey string)
@@ -130,18 +130,23 @@ func (m *TimeBasedAuthSecretsManager) GenerateRelayToken() (*Token, error) {
 	}, nil
 }
 
-func (m *TimeBasedAuthSecretsManager) PushRelayList(ctx context.Context) int {
+func (m *TimeBasedAuthSecretsManager) PushRelayList(ctx context.Context, accountID string, peerIDs []string) int {
 	if m.relayCfg == nil || m.relayHmacToken == nil {
 		log.WithContext(ctx).Debug("relay configuration is not set, skip pushing relay list")
 		return 0
 	}
 
 	connectedPeers := m.updateManager.GetAllConnectedPeers()
-	for peerID := range connectedPeers {
-		m.pushRelayList(ctx, peerID)
+	count := 0
+	for _, peerID := range peerIDs {
+		if _, ok := connectedPeers[peerID]; !ok {
+			continue
+		}
+		m.pushRelayList(ctx, accountID, peerID)
+		count++
 	}
 
-	return len(connectedPeers)
+	return count
 }
 
 func (m *TimeBasedAuthSecretsManager) PushRelayTokens(ctx context.Context, accountID string, peerIDs []string) int {
@@ -312,7 +317,7 @@ func (m *TimeBasedAuthSecretsManager) pushNewRelayTokens(ctx context.Context, ac
 	})
 }
 
-func (m *TimeBasedAuthSecretsManager) pushRelayList(ctx context.Context, peerID string) {
+func (m *TimeBasedAuthSecretsManager) pushRelayList(ctx context.Context, accountID, peerID string) {
 	relayToken, err := m.relayHmacToken.GenerateToken()
 	if err != nil {
 		log.Errorf("failed to generate relay token for peer '%s': %s", peerID, err)
@@ -322,7 +327,7 @@ func (m *TimeBasedAuthSecretsManager) pushRelayList(ctx context.Context, peerID 
 	update := &proto.SyncResponse{
 		NetbirdConfig: &proto.NetbirdConfig{
 			Relay: &proto.RelayConfig{
-				Urls:           relayhandler.ActiveRelayAddresses(m.relayCfg),
+				Urls:           m.relayURLsForPeer(ctx, accountID, peerID),
 				TokenPayload:   string(relayToken.Payload),
 				TokenSignature: base64.StdEncoding.EncodeToString(relayToken.Signature),
 			},

@@ -45,16 +45,28 @@ func (sp *ServerPicker) PickServer(parentCtx context.Context) (*Client, error) {
 	connResultChan := make(chan connResult, totalServers)
 	concurrentLimiter := make(chan struct{}, maxConcurrentServers)
 	startedServers := 0
+	connectionCancels := make(map[string]context.CancelFunc, totalServers)
 
 	startConnection := func(url string) {
 		concurrentLimiter <- struct{}{}
 		startedServers++
+		connectionCtx, connectionCancel := context.WithCancel(parentCtx)
+		connectionCancels[url] = connectionCancel
 		go func(url string) {
 			defer func() {
 				<-concurrentLimiter
 			}()
-			sp.startConnection(parentCtx, connResultChan, url)
+			sp.startConnection(connectionCtx, connResultChan, url)
 		}(url)
+	}
+
+	cancelConnectionsExcept := func(selectedURL string) {
+		for url, cancelConnection := range connectionCancels {
+			if url == selectedURL {
+				continue
+			}
+			cancelConnection()
+		}
 	}
 
 	startFallbacks := func() {
@@ -80,6 +92,7 @@ func (sp *ServerPicker) PickServer(parentCtx context.Context) (*Client, error) {
 			receivedResults++
 			if cr.Err == nil {
 				log.Infof("chosen home Relay server: %s", cr.Url)
+				cancelConnectionsExcept(cr.Url)
 				go sp.drainConnResults(connResultChan, receivedResults, startedServers)
 				return cr.RelayClient, nil
 			}
@@ -97,10 +110,12 @@ func (sp *ServerPicker) PickServer(parentCtx context.Context) (*Client, error) {
 				startFallbacks()
 			}
 		case <-ctx.Done():
+			cancelConnectionsExcept("")
 			return nil, fmt.Errorf("failed to connect to any relay server: %w", ctx.Err())
 		}
 	}
 
+	cancelConnectionsExcept("")
 	return nil, errors.New("failed to connect to any relay server: all attempts failed")
 }
 

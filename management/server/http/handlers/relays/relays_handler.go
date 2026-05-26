@@ -50,7 +50,7 @@ type Handler struct {
 }
 
 type relayConfigPusher interface {
-	PushRelayList(ctx context.Context) int
+	PushRelayList(ctx context.Context, accountID string, peerIDs []string) int
 	PushRelayTokens(ctx context.Context, accountID string, peerIDs []string) int
 }
 
@@ -360,7 +360,21 @@ func (h *Handler) applyRelayConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	targetPeers := h.configPusher.PushRelayList(r.Context())
+	peers, err := h.accountManager.GetPeers(r.Context(), userAuth.AccountId, userAuth.UserId, "", "")
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	peerIDs := make([]string, 0, len(peers))
+	for _, peer := range peers {
+		if peer == nil || peer.ProxyMeta.Embedded {
+			continue
+		}
+		peerIDs = append(peerIDs, peer.ID)
+	}
+
+	targetPeers := h.configPusher.PushRelayList(r.Context(), userAuth.AccountId, peerIDs)
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(applyRelayConfigResponse{

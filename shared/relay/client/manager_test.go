@@ -398,6 +398,75 @@ func TestAutoReconnect(t *testing.T) {
 	}
 }
 
+func TestUpdateServerURLsSwitchesHomeRelayToPreferred(t *testing.T) {
+	ctx := context.Background()
+
+	srvCfg1 := server.ListenerConfig{
+		Address: "localhost:52411",
+	}
+	srv1, err := server.NewServer(newManagerTestServerConfig(srvCfg1.Address))
+	if err != nil {
+		t.Fatalf("failed to create first server: %s", err)
+	}
+	errChan1 := make(chan error, 1)
+	go func() {
+		if err := srv1.Listen(srvCfg1); err != nil {
+			errChan1 <- err
+		}
+	}()
+	defer func() {
+		if err := srv1.Shutdown(ctx); err != nil {
+			log.Errorf("failed to close first server: %s", err)
+		}
+	}()
+	if err := waitForServerToStart(errChan1); err != nil {
+		t.Fatalf("failed to start first server: %s", err)
+	}
+
+	srvCfg2 := server.ListenerConfig{
+		Address: "localhost:52412",
+	}
+	srv2, err := server.NewServer(newManagerTestServerConfig(srvCfg2.Address))
+	if err != nil {
+		t.Fatalf("failed to create second server: %s", err)
+	}
+	errChan2 := make(chan error, 1)
+	go func() {
+		if err := srv2.Listen(srvCfg2); err != nil {
+			errChan2 <- err
+		}
+	}()
+	defer func() {
+		if err := srv2.Shutdown(ctx); err != nil {
+			log.Errorf("failed to close second server: %s", err)
+		}
+	}()
+	if err := waitForServerToStart(errChan2); err != nil {
+		t.Fatalf("failed to start second server: %s", err)
+	}
+
+	mCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	url1 := toURL(srvCfg1)[0]
+	url2 := toURL(srvCfg2)[0]
+	clientAlice := NewManager(mCtx, []string{url1, url2}, "alice", iface.DefaultMTU,
+		WithMaxBackoffInterval(2*time.Second))
+	if err := clientAlice.Serve(); err != nil {
+		t.Fatalf("failed to serve manager: %s", err)
+	}
+
+	if err := waitForRelayAddress(ctx, clientAlice, url1, 5*time.Second); err != nil {
+		t.Fatalf("manager did not connect to initial relay: %s", err)
+	}
+
+	clientAlice.UpdateServerURLs([]string{url2, url1})
+
+	if err := waitForRelayAddress(ctx, clientAlice, url2, 10*time.Second); err != nil {
+		t.Fatalf("manager did not switch to preferred relay: %s", err)
+	}
+}
+
 func waitForReady(ctx context.Context, m *Manager, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
@@ -411,6 +480,26 @@ func waitForReady(ctx context.Context, m *Manager, timeout time.Duration) error 
 		}
 	}
 	return fmt.Errorf("manager not ready within %s", timeout)
+}
+
+func waitForRelayAddress(ctx context.Context, m *Manager, expected string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		address, _, err := m.RelayInstanceAddress()
+		if err == nil && address == expected {
+			return nil
+		}
+		select {
+		case <-time.After(100 * time.Millisecond):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	address, _, err := m.RelayInstanceAddress()
+	if err != nil {
+		return fmt.Errorf("relay address did not become %s within %s: %w", expected, timeout, err)
+	}
+	return fmt.Errorf("relay address = %s, want %s within %s", address, expected, timeout)
 }
 
 func TestNotifierDoubleAdd(t *testing.T) {

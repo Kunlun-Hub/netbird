@@ -76,6 +76,7 @@ type Manager struct {
 
 	mtu                uint16
 	maxBackoffInterval time.Duration
+	switchMu           sync.Mutex
 
 	cleanupInterval      time.Duration
 	keepUnusedServerTime time.Duration
@@ -244,11 +245,48 @@ func (m *Manager) HasRelayAddress() bool {
 func (m *Manager) UpdateServerURLs(serverURLs []string) {
 	log.Infof("update relay server URLs: %v", serverURLs)
 	m.serverPicker.ServerURLs.Store(serverURLs)
+	go m.switchHomeRelayIfNeeded(serverURLs)
 }
 
 // UpdateToken updates the token in the token store.
 func (m *Manager) UpdateToken(token *relayAuth.Token) error {
 	return m.tokenStore.UpdateToken(token)
+}
+
+func (m *Manager) switchHomeRelayIfNeeded(serverURLs []string) {
+	if len(serverURLs) == 0 {
+		return
+	}
+
+	m.switchMu.Lock()
+	defer m.switchMu.Unlock()
+
+	m.relayClientMu.Lock()
+	if !m.running || m.relayClient == nil || m.relayClient.connectionURL == serverURLs[0] {
+		m.relayClientMu.Unlock()
+		return
+	}
+
+	oldClient := m.relayClient
+	oldURL := oldClient.connectionURL
+	oldClient.SetOnDisconnectListener(nil)
+	m.relayClient = nil
+	m.relayClientMu.Unlock()
+
+	log.Infof("preferred Relay server changed from %s to %s, switching home Relay server", oldURL, serverURLs[0])
+	if err := oldClient.Close(); err != nil {
+		log.Warnf("failed to close previous home Relay server %s: %v", oldURL, err)
+	}
+
+	newClient, err := m.serverPicker.PickServer(m.ctx)
+	if err != nil {
+		log.Errorf("failed to switch home Relay server: %s", err)
+		go m.reconnectGuard.StartReconnectTrys(m.ctx, nil)
+		return
+	}
+
+	m.storeClient(newClient)
+	m.onServerConnected()
 }
 
 func (m *Manager) openConnVia(ctx context.Context, serverAddress, peerKey string, serverIP netip.Addr) (net.Conn, error) {
