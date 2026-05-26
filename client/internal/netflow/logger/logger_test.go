@@ -12,7 +12,7 @@ import (
 )
 
 func TestStore(t *testing.T) {
-	logger := logger.New(nil, netip.Prefix{}, netip.Prefix{})
+	logger := logger.New(nil, netip.MustParsePrefix("100.64.0.1/10"), netip.Prefix{})
 	logger.UpdateFlowStorageConfig(true, t.TempDir(), 1, 10, false, "", "", "", "")
 	logger.Enable()
 
@@ -21,6 +21,8 @@ func TestStore(t *testing.T) {
 		Type:      types.TypeStart,
 		Direction: types.Ingress,
 		Protocol:  6,
+		SourceIP:  netip.MustParseAddr("100.64.0.1"),
+		DestIP:    netip.MustParseAddr("100.64.0.2"),
 	}
 
 	wait := func() { time.Sleep(time.Millisecond) }

@@ -37,6 +37,9 @@ type Filter struct {
 	ConnectionType *string
 	Direction      *string
 	DNS            *bool
+	NetworkOnly    *bool
+	AggregateFlows *bool
+	InternalDNS    *bool
 	DNSDomain      *string
 	DNSType        *string
 	StartDate      *time.Time
@@ -57,6 +60,9 @@ func (f *Filter) ParseFromRequest(r *http.Request) {
 	f.ConnectionType = parseOptionalString(query.Get("connection_type"))
 	f.Direction = parseOptionalString(query.Get("direction"))
 	f.DNS = parseOptionalBool(query.Get("dns"))
+	f.NetworkOnly = parseOptionalBool(query.Get("network_only"))
+	f.AggregateFlows = parseOptionalBool(query.Get("aggregate_flows"))
+	f.InternalDNS = parseOptionalBool(query.Get("internal_dns"))
 	f.DNSDomain = parseOptionalString(query.Get("dns_domain"))
 	f.DNSType = parseOptionalString(query.Get("dns_type"))
 	f.StartDate = parseOptionalRFC3339(query.Get("start_date"))

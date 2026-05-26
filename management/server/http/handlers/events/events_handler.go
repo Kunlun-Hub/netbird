@@ -3,6 +3,7 @@ package events
 import (
 	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
 
 	"github.com/gorilla/mux"
@@ -106,6 +107,9 @@ func (h *handler) getAllNetworkTrafficEvents(w http.ResponseWriter, r *http.Requ
 	for _, event := range events {
 		apiEvents = append(apiEvents, *event.ToAPIResponse())
 	}
+	if filter.AggregateFlows != nil && *filter.AggregateFlows {
+		apiEvents = aggregateNetworkTrafficFlowEvents(apiEvents)
+	}
 
 	util.WriteJSONObject(r.Context(), w, &api.NetworkTrafficEventsResponse{
 		Data:         apiEvents,
@@ -114,6 +118,46 @@ func (h *handler) getAllNetworkTrafficEvents(w http.ResponseWriter, r *http.Requ
 		TotalRecords: int(totalCount),
 		TotalPages:   getTotalPageCount(int(totalCount), filter.PageSize),
 	})
+}
+
+func aggregateNetworkTrafficFlowEvents(events []api.NetworkTrafficEvent) []api.NetworkTrafficEvent {
+	flows := make(map[string]*api.NetworkTrafficEvent)
+	order := make([]string, 0, len(events))
+
+	for _, event := range events {
+		flow, ok := flows[event.FlowId]
+		if !ok {
+			flowCopy := event
+			flowCopy.Events = append([]api.NetworkTrafficSubEvent{}, event.Events...)
+			flows[event.FlowId] = &flowCopy
+			order = append(order, event.FlowId)
+			continue
+		}
+
+		flow.Events = append(flow.Events, event.Events...)
+		if event.TxBytes > flow.TxBytes {
+			flow.TxBytes = event.TxBytes
+		}
+		if event.RxBytes > flow.RxBytes {
+			flow.RxBytes = event.RxBytes
+		}
+		if event.TxPackets > flow.TxPackets {
+			flow.TxPackets = event.TxPackets
+		}
+		if event.RxPackets > flow.RxPackets {
+			flow.RxPackets = event.RxPackets
+		}
+	}
+
+	result := make([]api.NetworkTrafficEvent, 0, len(order))
+	for _, flowID := range order {
+		flow := flows[flowID]
+		sort.SliceStable(flow.Events, func(i, j int) bool {
+			return flow.Events[i].Timestamp.After(flow.Events[j].Timestamp)
+		})
+		result = append(result, *flow)
+	}
+	return result
 }
 
 type networkTrafficSummaryPoint struct {

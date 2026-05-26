@@ -24,6 +24,8 @@ type Logger struct {
 	rcvChan            atomic.Pointer[rcvChan]
 	cancel             context.CancelFunc
 	statusRecorder     *peer.Status
+	wgIfaceIP          netip.Addr
+	wgIfaceIPv6        netip.Addr
 	wgIfaceNet         netip.Prefix
 	wgIfaceNetV6       netip.Prefix
 	dnsCollection      atomic.Bool
@@ -44,12 +46,19 @@ type Logger struct {
 }
 
 func New(statusRecorder *peer.Status, wgIfaceIPNet, wgIfaceIPNetV6 netip.Prefix) *Logger {
-	return &Logger{
+	logger := &Logger{
 		statusRecorder: statusRecorder,
 		wgIfaceNet:     wgIfaceIPNet,
 		Store:          store.NewFileStore("", 100, 10),
 		wgIfaceNetV6:   wgIfaceIPNetV6,
 	}
+	if wgIfaceIPNet.IsValid() {
+		logger.wgIfaceIP = wgIfaceIPNet.Addr()
+	}
+	if wgIfaceIPNetV6.IsValid() {
+		logger.wgIfaceIPv6 = wgIfaceIPNetV6.Addr()
+	}
+	return logger
 }
 
 func (l *Logger) UpdateFlowStorageConfig(
@@ -175,16 +184,22 @@ func (l *Logger) startReceiver() {
 
 			var isSrcExitNode bool
 			var isDestExitNode bool
+			var srcRoute peer.RouteLookupResult
+			var destRoute peer.RouteLookupResult
 
 			if !l.isOverlayIP(event.SourceIP) {
-				event.SourceResourceID, isSrcExitNode = l.statusRecorder.CheckRoutes(event.SourceIP)
+				srcRoute = l.statusRecorder.CheckRoutesDetailed(event.SourceIP)
+				event.SourceResourceID = []byte(srcRoute.ResourceID)
+				isSrcExitNode = srcRoute.IsExitNode
 			}
 
 			if !l.isOverlayIP(event.DestIP) {
-				event.DestResourceID, isDestExitNode = l.statusRecorder.CheckRoutes(event.DestIP)
+				destRoute = l.statusRecorder.CheckRoutesDetailed(event.DestIP)
+				event.DestResourceID = []byte(destRoute.ResourceID)
+				isDestExitNode = destRoute.IsExitNode
 			}
 
-			if l.shouldStore(eventFields, isSrcExitNode || isDestExitNode) {
+			if l.shouldStore(&event, srcRoute, destRoute, isSrcExitNode || isDestExitNode) {
 				l.Store.StoreEvent(&event)
 
 				if l.syslogEnabled.Load() && l.syslogSender != nil {
@@ -237,7 +252,11 @@ func (l *Logger) isOverlayIP(ip netip.Addr) bool {
 	return l.wgIfaceNet.Contains(ip) || (l.wgIfaceNetV6.IsValid() && l.wgIfaceNetV6.Contains(ip))
 }
 
-func (l *Logger) shouldStore(event *types.EventFields, isExitNode bool) bool {
+func (l *Logger) shouldStore(event *types.Event, srcRoute, destRoute peer.RouteLookupResult, isExitNode bool) bool {
+	if isDNSEvent(&event.EventFields) {
+		return l.dnsCollection.Load() && !isNoiseAddress(event.SourceIP) && !isNoiseAddress(event.DestIP)
+	}
+
 	// check dns collection
 	if !l.dnsCollection.Load() {
 		if event.DNSInfo != nil {
@@ -254,5 +273,56 @@ func (l *Logger) shouldStore(event *types.EventFields, isExitNode bool) bool {
 		return false
 	}
 
-	return true
+	return l.isZeroTrustFlow(event, srcRoute, destRoute)
+}
+
+func (l *Logger) isZeroTrustFlow(event *types.Event, srcRoute, destRoute peer.RouteLookupResult) bool {
+	if event.SourceIP == event.DestIP {
+		return false
+	}
+	if isNoiseAddress(event.SourceIP) || isNoiseAddress(event.DestIP) {
+		return false
+	}
+
+	sourceOverlay := l.isOverlayIP(event.SourceIP)
+	destOverlay := l.isOverlayIP(event.DestIP)
+	sourceResource := srcRoute.ResourceID != ""
+	destResource := destRoute.ResourceID != ""
+
+	if sourceOverlay && destOverlay {
+		return true
+	}
+	if sourceOverlay && destResource {
+		if destRoute.Kind == peer.RouteLookupLocal && l.isLocalOverlayIP(event.SourceIP) {
+			return false
+		}
+		return destRoute.Kind == peer.RouteLookupLocal || destRoute.Kind == peer.RouteLookupRemote || destRoute.Kind == peer.RouteLookupResolved
+	}
+	if destOverlay && sourceResource {
+		return srcRoute.Kind == peer.RouteLookupLocal
+	}
+	return false
+}
+
+func (l *Logger) isLocalOverlayIP(ip netip.Addr) bool {
+	return (l.wgIfaceIP.IsValid() && ip == l.wgIfaceIP) || (l.wgIfaceIPv6.IsValid() && ip == l.wgIfaceIPv6)
+}
+
+func isNoiseAddress(ip netip.Addr) bool {
+	return !ip.IsValid() || ip.IsMulticast() || ip.IsLinkLocalUnicast() || ip.IsLoopback() || ip.IsInterfaceLocalMulticast()
+}
+
+func isDNSEvent(event *types.EventFields) bool {
+	if event.DNSInfo != nil {
+		return true
+	}
+	if event.Protocol != types.UDP && event.Protocol != types.TCP {
+		return false
+	}
+	return event.DestPort == 53 ||
+		event.SourcePort == 53 ||
+		event.DestPort == dns.ForwarderClientPort ||
+		event.SourcePort == dns.ForwarderClientPort ||
+		event.DestPort == dns.ForwarderServerPort ||
+		event.SourcePort == dns.ForwarderServerPort
 }

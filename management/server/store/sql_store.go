@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -5566,11 +5567,20 @@ func (s *SqlStore) GetAccountAccessLogs(ctx context.Context, lockStrength Lockin
 }
 
 func (s *SqlStore) GetAccountNetworkTrafficEvents(ctx context.Context, lockStrength LockingStrength, accountID string, filter networktraffic.Filter) ([]*networktraffic.Event, int64, error) {
+	if filter.AggregateFlows != nil && *filter.AggregateFlows {
+		return s.getAccountNetworkTrafficFlowEvents(ctx, lockStrength, accountID, filter)
+	}
+
 	var events []*networktraffic.Event
 	var totalCount int64
+	internalDNSGroups, err := s.internalDNSNameServerGroups(ctx, accountID, filter)
+	if err != nil {
+		return nil, 0, err
+	}
 
 	baseQuery := s.db.Model(&networktraffic.Event{}).Where(accountIDCondition, accountID)
 	baseQuery = s.applyNetworkTrafficFilters(baseQuery, filter)
+	baseQuery = s.applyInternalDNSFilter(baseQuery, internalDNSGroups)
 
 	if err := baseQuery.Count(&totalCount).Error; err != nil {
 		log.WithContext(ctx).Errorf("failed to count network traffic events: %v", err)
@@ -5579,6 +5589,7 @@ func (s *SqlStore) GetAccountNetworkTrafficEvents(ctx context.Context, lockStren
 
 	query := s.db.Where(accountIDCondition, accountID)
 	query = s.applyNetworkTrafficFilters(query, filter).
+		Scopes(func(db *gorm.DB) *gorm.DB { return s.applyInternalDNSFilter(db, internalDNSGroups) }).
 		Order(filter.GetSortColumn() + " " + strings.ToUpper(filter.GetSortOrder())).
 		Limit(filter.GetLimit()).
 		Offset(filter.GetOffset())
@@ -5591,6 +5602,83 @@ func (s *SqlStore) GetAccountNetworkTrafficEvents(ctx context.Context, lockStren
 		log.WithContext(ctx).Errorf("failed to get network traffic events from store: %v", err)
 		return nil, 0, status.Errorf(status.Internal, "failed to get network traffic events from store")
 	}
+
+	return events, totalCount, nil
+}
+
+func (s *SqlStore) getAccountNetworkTrafficFlowEvents(ctx context.Context, lockStrength LockingStrength, accountID string, filter networktraffic.Filter) ([]*networktraffic.Event, int64, error) {
+	type flowPageRow struct {
+		FlowID string
+	}
+
+	flowTrafficHaving := "MAX(tx_packets) > 0 OR MAX(rx_packets) > 0 OR MAX(tx_bytes) > 0 OR MAX(rx_bytes) > 0"
+	internalDNSGroups, err := s.internalDNSNameServerGroups(ctx, accountID, filter)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	groupedQuery := s.db.Model(&networktraffic.Event{}).
+		Where(accountIDCondition, accountID)
+	groupedQuery = s.applyNetworkTrafficFilters(groupedQuery, filter).
+		Scopes(func(db *gorm.DB) *gorm.DB { return s.applyInternalDNSFilter(db, internalDNSGroups) }).
+		Select("flow_id").
+		Group("flow_id").
+		Having(flowTrafficHaving)
+
+	var totalCount int64
+	if err := s.db.Table("(?) as flow_groups", groupedQuery).Count(&totalCount).Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to count network traffic flows: %v", err)
+		return nil, 0, status.Errorf(status.Internal, "failed to count network traffic flows")
+	}
+
+	var flowRows []flowPageRow
+	pageQuery := s.db.Model(&networktraffic.Event{}).
+		Where(accountIDCondition, accountID)
+	pageQuery = s.applyNetworkTrafficFilters(pageQuery, filter).
+		Scopes(func(db *gorm.DB) *gorm.DB { return s.applyInternalDNSFilter(db, internalDNSGroups) }).
+		Select("flow_id").
+		Group("flow_id").
+		Having(flowTrafficHaving).
+		Order("MAX(timestamp) " + strings.ToUpper(filter.GetSortOrder())).
+		Limit(filter.GetLimit()).
+		Offset(filter.GetOffset())
+
+	if err := pageQuery.Scan(&flowRows).Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to page network traffic flows: %v", err)
+		return nil, 0, status.Errorf(status.Internal, "failed to page network traffic flows")
+	}
+
+	flowIDs := make([]string, 0, len(flowRows))
+	flowOrder := make(map[string]int, len(flowRows))
+	for i, row := range flowRows {
+		flowIDs = append(flowIDs, row.FlowID)
+		flowOrder[row.FlowID] = i
+	}
+	if len(flowIDs) == 0 {
+		return []*networktraffic.Event{}, totalCount, nil
+	}
+
+	var events []*networktraffic.Event
+	query := s.db.Where(accountIDCondition, accountID).Where("flow_id IN ?", flowIDs)
+	query = s.applyNetworkTrafficFilters(query, filter)
+	query = s.applyInternalDNSFilter(query, internalDNSGroups)
+	if lockStrength != LockingStrengthNone {
+		query = query.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	if err := query.Find(&events).Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to get network traffic flow events from store: %v", err)
+		return nil, 0, status.Errorf(status.Internal, "failed to get network traffic flow events from store")
+	}
+
+	sort.SliceStable(events, func(i, j int) bool {
+		iOrder := flowOrder[events[i].FlowID]
+		jOrder := flowOrder[events[j].FlowID]
+		if iOrder != jOrder {
+			return iOrder < jOrder
+		}
+		return events[i].Timestamp.After(events[j].Timestamp)
+	})
 
 	return events, totalCount, nil
 }
@@ -5640,6 +5728,93 @@ func (s *SqlStore) networkTrafficBucketExpression() string {
 	default:
 		return "CAST(strftime('%s', timestamp) AS INTEGER) / ?"
 	}
+}
+
+func (s *SqlStore) internalDNSNameServerGroups(ctx context.Context, accountID string, filter networktraffic.Filter) ([]*nbdns.NameServerGroup, error) {
+	if filter.InternalDNS == nil || !*filter.InternalDNS {
+		return nil, nil
+	}
+
+	groups, err := s.GetAccountNameServerGroups(ctx, LockingStrengthNone, accountID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get nameserver groups for internal dns filter: %v", err)
+		return nil, status.Errorf(status.Internal, "failed to get nameserver groups")
+	}
+
+	internalGroups := make([]*nbdns.NameServerGroup, 0, len(groups))
+	for _, group := range groups {
+		if group == nil || !group.Enabled || group.Primary || len(group.Domains) == 0 || len(group.NameServers) == 0 {
+			continue
+		}
+		internalGroups = append(internalGroups, group)
+	}
+	return internalGroups, nil
+}
+
+func (s *SqlStore) applyInternalDNSFilter(query *gorm.DB, groups []*nbdns.NameServerGroup) *gorm.DB {
+	if groups == nil {
+		return query
+	}
+	if len(groups) == 0 {
+		return query.Where("1 = 0")
+	}
+
+	var groupConditions []string
+	var args []any
+	for _, group := range groups {
+		domainCondition, domainArgs := internalDNSDomainCondition(group.Domains)
+		nameserverCondition, nameserverArgs := internalDNSNameServerCondition(group.NameServers)
+		if domainCondition == "" || nameserverCondition == "" {
+			continue
+		}
+		groupConditions = append(groupConditions, "("+domainCondition+") AND ("+nameserverCondition+")")
+		args = append(args, domainArgs...)
+		args = append(args, nameserverArgs...)
+	}
+
+	if len(groupConditions) == 0 {
+		return query.Where("1 = 0")
+	}
+	return query.Where("dns_domain <> ''").Where(strings.Join(groupConditions, " OR "), args...)
+}
+
+func internalDNSDomainCondition(domains []string) (string, []any) {
+	var conditions []string
+	var args []any
+	for _, domain := range domains {
+		domain = strings.Trim(strings.TrimPrefix(strings.ToLower(strings.TrimSpace(domain)), "*."), ".")
+		if domain == "" {
+			continue
+		}
+		conditions = append(conditions, "LOWER(dns_domain) = ? OR LOWER(dns_domain) = ? OR LOWER(dns_domain) LIKE ? OR LOWER(dns_domain) LIKE ?")
+		args = append(args, domain, domain+".", "%."+escapeLikePattern(domain), "%."+escapeLikePattern(domain)+".")
+	}
+	return strings.Join(conditions, " OR "), args
+}
+
+func internalDNSNameServerCondition(nameservers []nbdns.NameServer) (string, []any) {
+	var conditions []string
+	var args []any
+	for _, ns := range nameservers {
+		if !ns.IP.IsValid() {
+			continue
+		}
+		port := ns.Port
+		if port == 0 {
+			port = nbdns.DefaultDNSPort
+		}
+		address := networktraffic.FormatAddress(net.IP(ns.IP.AsSlice()), uint32(port))
+		conditions = append(conditions, "source_address = ? OR destination_address = ?")
+		args = append(args, address, address)
+	}
+	return strings.Join(conditions, " OR "), args
+}
+
+func escapeLikePattern(value string) string {
+	value = strings.ReplaceAll(value, `\`, `\\`)
+	value = strings.ReplaceAll(value, `%`, `\%`)
+	value = strings.ReplaceAll(value, `_`, `\_`)
+	return value
 }
 
 // DeleteOldAccessLogs deletes all access logs older than the specified time
@@ -5760,13 +5935,42 @@ func (s *SqlStore) applyNetworkTrafficFilters(query *gorm.DB, filter networktraf
 			// DNS 过滤：检查有明确 DNS 字段的记录，或者是 UDP 协议到 DNS 端口的流量
 			query = query.Where(
 				"dns_domain <> '' OR " +
-					"(protocol = 17 AND " +
+					"(protocol IN (6, 17) AND " +
 					" (destination_address LIKE '%:53' OR destination_address LIKE '%:5353' OR destination_address LIKE '%:22054' OR " +
 					"  source_address LIKE '%:53' OR source_address LIKE '%:5353' OR source_address LIKE '%:22054'))",
 			)
 		} else {
 			query = query.Where("dns_domain = ''")
 		}
+	}
+
+	if filter.NetworkOnly != nil && *filter.NetworkOnly {
+		dnsPortPattern := "%:53"
+		dnsForwarderClientPattern := fmt.Sprintf("%%:%d", nbdns.ForwarderClientPort)
+		dnsForwarderServerPattern := fmt.Sprintf("%%:%d", nbdns.ForwarderServerPort)
+
+		query = query.Where("dns_domain = ''")
+		query = query.Where("source_address <> destination_address")
+		query = query.Where("(source_id = '' OR destination_id = '' OR source_id <> destination_id)")
+		query = query.Where(
+			"(source_type = ? AND (destination_type = ? OR destination_type = ?)) OR "+
+				"(destination_type = ? AND (source_type = ? OR source_type = ?))",
+			networktraffic.EndpointTypePeer,
+			networktraffic.EndpointTypePeer,
+			networktraffic.EndpointTypeHostResource,
+			networktraffic.EndpointTypePeer,
+			networktraffic.EndpointTypePeer,
+			networktraffic.EndpointTypeHostResource,
+		)
+		query = query.Where(
+			"source_address NOT LIKE ? AND source_address NOT LIKE ? AND source_address NOT LIKE ? AND "+
+				"source_address NOT LIKE ? AND source_address NOT LIKE ? AND source_address NOT LIKE ? AND "+
+				"source_address NOT LIKE ? AND destination_address NOT LIKE ? AND destination_address NOT LIKE ? AND "+
+				"destination_address NOT LIKE ? AND destination_address NOT LIKE ? AND destination_address NOT LIKE ? AND "+
+				"destination_address NOT LIKE ? AND destination_address NOT LIKE ?",
+			"224.%", "239.%", "255.255.255.255%", "[ff%", dnsPortPattern, dnsForwarderClientPattern, dnsForwarderServerPattern,
+			"224.%", "239.%", "255.255.255.255%", "[ff%", dnsPortPattern, dnsForwarderClientPattern, dnsForwarderServerPattern,
+		)
 	}
 
 	if filter.DNSDomain != nil {

@@ -56,3 +56,20 @@ func TestFilterParseFromRequestPageSize(t *testing.T) {
 		})
 	}
 }
+
+func TestFilterParseFromRequestNetworkOnly(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/test?network_only=true&aggregate_flows=true&internal_dns=true", nil)
+
+	var filter Filter
+	filter.ParseFromRequest(req)
+
+	if assert.NotNil(t, filter.NetworkOnly) {
+		assert.True(t, *filter.NetworkOnly)
+	}
+	if assert.NotNil(t, filter.AggregateFlows) {
+		assert.True(t, *filter.AggregateFlows)
+	}
+	if assert.NotNil(t, filter.InternalDNS) {
+		assert.True(t, *filter.InternalDNS)
+	}
+}

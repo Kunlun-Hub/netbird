@@ -16,6 +16,21 @@ type routeEntry struct {
 	resourceID route.ResID
 }
 
+type RouteLookupKind int
+
+const (
+	RouteLookupNone RouteLookupKind = iota
+	RouteLookupLocal
+	RouteLookupRemote
+	RouteLookupResolved
+)
+
+type RouteLookupResult struct {
+	ResourceID route.ResID
+	IsExitNode bool
+	Kind       RouteLookupKind
+}
+
 type routeIDLookup struct {
 	localRoutes []routeEntry
 	localLock   sync.RWMutex
@@ -100,34 +115,43 @@ func (r *routeIDLookup) RemoveResolvedIP(route netip.Prefix) {
 // Lookup returns the resource ID for the given IP address
 // and a bool indicating if the IP is an exit node.
 func (r *routeIDLookup) Lookup(ip netip.Addr) (route.ResID, bool) {
-	if res, ok := r.resolvedIPs.Load(ip); ok {
-		return res.(route.ResID), false
-	}
+	result := r.LookupDetailed(ip)
+	return result.ResourceID, result.IsExitNode
+}
 
-	var resourceID route.ResID
-	var isExitNode bool
+func (r *routeIDLookup) LookupDetailed(ip netip.Addr) RouteLookupResult {
+	if res, ok := r.resolvedIPs.Load(ip); ok {
+		return RouteLookupResult{
+			ResourceID: res.(route.ResID),
+			Kind:       RouteLookupResolved,
+		}
+	}
 
 	r.localLock.RLock()
 	for _, entry := range r.localRoutes {
 		if entry.prefix.Contains(ip) {
-			resourceID = entry.resourceID
-			isExitNode = entry.prefix.Bits() == 0
-			break
+			r.localLock.RUnlock()
+			return RouteLookupResult{
+				ResourceID: entry.resourceID,
+				IsExitNode: entry.prefix.Bits() == 0,
+				Kind:       RouteLookupLocal,
+			}
 		}
 	}
 	r.localLock.RUnlock()
 
-	if resourceID == "" {
-		r.remoteLock.RLock()
-		for _, entry := range r.remoteRoutes {
-			if entry.prefix.Contains(ip) {
-				resourceID = entry.resourceID
-				isExitNode = entry.prefix.Bits() == 0
-				break
+	r.remoteLock.RLock()
+	for _, entry := range r.remoteRoutes {
+		if entry.prefix.Contains(ip) {
+			r.remoteLock.RUnlock()
+			return RouteLookupResult{
+				ResourceID: entry.resourceID,
+				IsExitNode: entry.prefix.Bits() == 0,
+				Kind:       RouteLookupRemote,
 			}
 		}
-		r.remoteLock.RUnlock()
 	}
+	r.remoteLock.RUnlock()
 
-	return resourceID, isExitNode
+	return RouteLookupResult{}
 }

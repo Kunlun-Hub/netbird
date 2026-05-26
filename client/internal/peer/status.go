@@ -431,6 +431,13 @@ func (d *Status) CheckRoutes(ip netip.Addr) ([]byte, bool) {
 	return []byte(resId), isExitNode
 }
 
+func (d *Status) CheckRoutesDetailed(ip netip.Addr) RouteLookupResult {
+	if d == nil {
+		return RouteLookupResult{}
+	}
+	return d.routeIDLookup.LookupDetailed(ip)
+}
+
 func (d *Status) UpdatePeerICEState(receivedState State) error {
 	d.mux.Lock()
 
