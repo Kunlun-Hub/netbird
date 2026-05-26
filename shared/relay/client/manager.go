@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"net/url"
 	"reflect"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -39,6 +42,14 @@ func NewRelayTrack() *RelayTrack {
 }
 
 type OnServerCloseListener func()
+
+type RelayServerInfo struct {
+	URL       string
+	Weight    int
+	Preferred bool
+	Forced    bool
+	Current   bool
+}
 
 // ManagerOption configures a Manager at construction time.
 type ManagerOption func(*Manager)
@@ -74,9 +85,12 @@ type Manager struct {
 	onReconnectedListenerFn func()
 	listenerLock            sync.Mutex
 
-	mtu                uint16
-	maxBackoffInterval time.Duration
-	switchMu           sync.Mutex
+	mtu                 uint16
+	maxBackoffInterval  time.Duration
+	switchMu            sync.Mutex
+	relayConfigMu       sync.RWMutex
+	configuredRelayURLs []string
+	forcedRelayURL      string
 
 	cleanupInterval      time.Duration
 	keepUnusedServerTime time.Duration
@@ -106,7 +120,8 @@ func NewManager(ctx context.Context, serverURLs []string, peerID string, mtu uin
 	for _, opt := range opts {
 		opt(m)
 	}
-	m.serverPicker.ServerURLs.Store(serverURLs)
+	m.configuredRelayURLs = slices.Clone(serverURLs)
+	m.serverPicker.ServerURLs.Store(m.effectiveRelayURLsLocked())
 	m.reconnectGuard = NewGuard(m.serverPicker, m.maxBackoffInterval)
 	return m
 }
@@ -233,7 +248,7 @@ func (m *Manager) RelayInstanceAddress() (string, netip.Addr, error) {
 
 // ServerURLs returns the addresses of the relay servers.
 func (m *Manager) ServerURLs() []string {
-	return m.serverPicker.ServerURLs.Load().([]string)
+	return slices.Clone(m.serverPicker.ServerURLs.Load().([]string))
 }
 
 // HasRelayAddress returns true if the manager is serving. With this method can check if the peer can communicate with
@@ -244,13 +259,138 @@ func (m *Manager) HasRelayAddress() bool {
 
 func (m *Manager) UpdateServerURLs(serverURLs []string) {
 	log.Infof("update relay server URLs: %v", serverURLs)
-	m.serverPicker.ServerURLs.Store(serverURLs)
-	go m.switchHomeRelayIfNeeded(serverURLs)
+	m.relayConfigMu.Lock()
+	m.configuredRelayURLs = slices.Clone(serverURLs)
+	if m.forcedRelayURL != "" && !slices.Contains(m.configuredRelayURLs, m.forcedRelayURL) {
+		log.Warnf("forced Relay server %s is no longer in the received Relay list, clearing override", m.forcedRelayURL)
+		m.forcedRelayURL = ""
+	}
+	effectiveURLs := m.effectiveRelayURLsLocked()
+	m.relayConfigMu.Unlock()
+
+	m.serverPicker.ServerURLs.Store(effectiveURLs)
+	go m.switchHomeRelayIfNeeded(effectiveURLs)
 }
 
 // UpdateToken updates the token in the token store.
 func (m *Manager) UpdateToken(token *relayAuth.Token) error {
 	return m.tokenStore.UpdateToken(token)
+}
+
+func (m *Manager) RelayServers() []RelayServerInfo {
+	m.relayConfigMu.RLock()
+	configuredURLs := slices.Clone(m.configuredRelayURLs)
+	forcedURL := m.forcedRelayURL
+	effectiveURLs := m.effectiveRelayURLsLocked()
+	m.relayConfigMu.RUnlock()
+
+	currentURL := m.currentRelayURL()
+	preferredURL := ""
+	if len(effectiveURLs) > 0 {
+		preferredURL = effectiveURLs[0]
+	}
+
+	result := make([]RelayServerInfo, 0, len(configuredURLs))
+	for _, relayURL := range configuredURLs {
+		weight := 30
+		if relayURL == preferredURL {
+			weight = 70
+		}
+		result = append(result, RelayServerInfo{
+			URL:       relayURL,
+			Weight:    weight,
+			Preferred: len(configuredURLs) > 0 && relayURL == configuredURLs[0],
+			Forced:    relayURL == forcedURL,
+			Current:   relayURL == currentURL,
+		})
+	}
+	return result
+}
+
+func (m *Manager) SetForcedRelay(identifier string) (string, error) {
+	identifier = strings.TrimSpace(identifier)
+	if identifier == "" {
+		return "", fmt.Errorf("relay identifier is required")
+	}
+
+	m.relayConfigMu.Lock()
+	defer m.relayConfigMu.Unlock()
+
+	if strings.EqualFold(identifier, "auto") || strings.EqualFold(identifier, "default") || strings.EqualFold(identifier, "clear") {
+		m.forcedRelayURL = ""
+		effectiveURLs := m.effectiveRelayURLsLocked()
+		m.serverPicker.ServerURLs.Store(effectiveURLs)
+		go m.switchHomeRelayIfNeeded(effectiveURLs)
+		return "", nil
+	}
+
+	relayURL, err := matchRelayURL(identifier, m.configuredRelayURLs)
+	if err != nil {
+		return "", err
+	}
+
+	m.forcedRelayURL = relayURL
+	effectiveURLs := m.effectiveRelayURLsLocked()
+	m.serverPicker.ServerURLs.Store(effectiveURLs)
+	go m.switchHomeRelayIfNeeded(effectiveURLs)
+	return relayURL, nil
+}
+
+func (m *Manager) effectiveRelayURLsLocked() []string {
+	if m.forcedRelayURL == "" {
+		return slices.Clone(m.configuredRelayURLs)
+	}
+
+	result := make([]string, 0, len(m.configuredRelayURLs))
+	result = append(result, m.forcedRelayURL)
+	for _, relayURL := range m.configuredRelayURLs {
+		if relayURL == m.forcedRelayURL {
+			continue
+		}
+		result = append(result, relayURL)
+	}
+	return result
+}
+
+func (m *Manager) currentRelayURL() string {
+	m.relayClientMu.RLock()
+	defer m.relayClientMu.RUnlock()
+	if m.relayClient == nil {
+		return ""
+	}
+	return m.relayClient.connectionURL
+}
+
+func matchRelayURL(identifier string, relayURLs []string) (string, error) {
+	var matches []string
+	normalizedIdentifier := strings.ToLower(identifier)
+	for _, relayURL := range relayURLs {
+		if relayURL == identifier {
+			return relayURL, nil
+		}
+		parsedURL, err := url.Parse(relayURL)
+		host := ""
+		if err == nil {
+			host = parsedURL.Hostname()
+		}
+		if strings.EqualFold(host, identifier) {
+			return relayURL, nil
+		}
+		normalizedURL := strings.ToLower(relayURL)
+		normalizedHost := strings.ToLower(host)
+		if strings.Contains(normalizedURL, normalizedIdentifier) || strings.Contains(normalizedHost, normalizedIdentifier) {
+			matches = append(matches, relayURL)
+		}
+	}
+
+	switch len(matches) {
+	case 0:
+		return "", fmt.Errorf("relay %q was not found in received relay list", identifier)
+	case 1:
+		return matches[0], nil
+	default:
+		return "", fmt.Errorf("relay %q matches multiple relays: %s", identifier, strings.Join(matches, ", "))
+	}
 }
 
 func (m *Manager) switchHomeRelayIfNeeded(serverURLs []string) {

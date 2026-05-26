@@ -1977,6 +1977,20 @@ func (e *Engine) GetExposeManager() *expose.Manager {
 	return e.exposeManager
 }
 
+func (e *Engine) RelayServers() []relayClient.RelayServerInfo {
+	if e.relayManager == nil {
+		return nil
+	}
+	return e.relayManager.RelayServers()
+}
+
+func (e *Engine) SetForcedRelay(identifier string) (string, error) {
+	if e.relayManager == nil {
+		return "", fmt.Errorf("relay manager is not initialized")
+	}
+	return e.relayManager.SetForcedRelay(identifier)
+}
+
 // IsBlockInbound returns whether inbound connections are blocked.
 func (e *Engine) IsBlockInbound() bool {
 	return e.config.BlockInbound

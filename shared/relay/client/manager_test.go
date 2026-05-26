@@ -467,6 +467,49 @@ func TestUpdateServerURLsSwitchesHomeRelayToPreferred(t *testing.T) {
 	}
 }
 
+func TestSetForcedRelayReordersRelayList(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	relayURLs := []string{
+		"rels://auto.relay.example.com:12580",
+		"rels://hz-cucc-relay.example.com:12580",
+		"rels://hk-relay.example.com:12580",
+	}
+	mgr := NewManager(ctx, relayURLs, "alice", iface.DefaultMTU)
+
+	matched, err := mgr.SetForcedRelay("hz-cucc")
+	if err != nil {
+		t.Fatalf("failed to force relay: %s", err)
+	}
+	if matched != relayURLs[1] {
+		t.Fatalf("matched relay = %s, want %s", matched, relayURLs[1])
+	}
+
+	effectiveURLs := mgr.ServerURLs()
+	if effectiveURLs[0] != relayURLs[1] {
+		t.Fatalf("first effective relay = %s, want %s", effectiveURLs[0], relayURLs[1])
+	}
+
+	relays := mgr.RelayServers()
+	if len(relays) != len(relayURLs) {
+		t.Fatalf("relay count = %d, want %d", len(relays), len(relayURLs))
+	}
+	if relays[1].URL != relayURLs[1] || !relays[1].Forced || relays[1].Weight != 70 {
+		t.Fatalf("forced relay info = %+v", relays[1])
+	}
+	if relays[0].Weight != 30 {
+		t.Fatalf("default relay weight = %d, want 30", relays[0].Weight)
+	}
+
+	if _, err := mgr.SetForcedRelay("auto"); err != nil {
+		t.Fatalf("failed to clear forced relay: %s", err)
+	}
+	if got := mgr.ServerURLs()[0]; got != relayURLs[0] {
+		t.Fatalf("first relay after clear = %s, want %s", got, relayURLs[0])
+	}
+}
+
 func waitForReady(ctx context.Context, m *Manager, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
