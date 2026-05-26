@@ -10,8 +10,8 @@ import (
 	"github.com/netbirdio/netbird/client/proto"
 )
 
-// ListRelays returns the relays received by the running client.
-func (s *Server) ListRelays(context.Context, *proto.EmptyRequest) (*proto.ListRelaysResponse, error) {
+// ListRelays returns the relays received by the running client with local probe results.
+func (s *Server) ListRelays(ctx context.Context, _ *proto.EmptyRequest) (*proto.ListRelaysResponse, error) {
 	s.mutex.Lock()
 	connectClient := s.connectClient
 	s.mutex.Unlock()
@@ -25,7 +25,7 @@ func (s *Server) ListRelays(context.Context, *proto.EmptyRequest) (*proto.ListRe
 		return nil, fmt.Errorf("not connected")
 	}
 
-	relays := engine.RelayServers()
+	relays := engine.ProbeRelayServers(ctx)
 	response := &proto.ListRelaysResponse{
 		Relays: make([]*proto.RelayServer, 0, len(relays)),
 	}
@@ -36,6 +36,8 @@ func (s *Server) ListRelays(context.Context, *proto.EmptyRequest) (*proto.ListRe
 			Preferred: relay.Preferred,
 			Forced:    relay.Forced,
 			Current:   relay.Current,
+			Available: relay.Available,
+			Error:     relay.Error,
 		})
 	}
 

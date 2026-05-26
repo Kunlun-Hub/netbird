@@ -387,6 +387,8 @@ message RelayServer {
   bool preferred = 3;
   bool forced = 4;
   bool current = 5;
+  bool available = 6;
+  string error = 7;
 }
 
 message ListRelaysResponse {

@@ -59,6 +59,7 @@ func listRelays(cmd *cobra.Command, _ []string) error {
 		cmd.Printf("  - %s\n", relayDisplayID(relay.GetUri()))
 		cmd.Printf("    URI: %s\n", relay.GetUri())
 		cmd.Printf("    Weight: %d%s\n", relay.GetWeight(), labelText)
+		cmd.Printf("    Status: %s\n", relayProbeStatus(relay))
 	}
 
 	return nil
@@ -98,6 +99,16 @@ func relayLabels(relay *proto.RelayServer) []string {
 		labels = append(labels, "forced")
 	}
 	return labels
+}
+
+func relayProbeStatus(relay *proto.RelayServer) string {
+	if relay.GetAvailable() {
+		return "Available"
+	}
+	if relay.GetError() == "" {
+		return "Unavailable"
+	}
+	return fmt.Sprintf("Unavailable, reason: %s", relay.GetError())
 }
 
 func relayDisplayID(relayURL string) string {

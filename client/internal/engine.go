@@ -1984,6 +1984,13 @@ func (e *Engine) RelayServers() []relayClient.RelayServerInfo {
 	return e.relayManager.RelayServers()
 }
 
+func (e *Engine) ProbeRelayServers(ctx context.Context) []relayClient.RelayServerInfo {
+	if e.relayManager == nil {
+		return nil
+	}
+	return e.relayManager.ProbeRelayServers(ctx)
+}
+
 func (e *Engine) SetForcedRelay(identifier string) (string, error) {
 	if e.relayManager == nil {
 		return "", fmt.Errorf("relay manager is not initialized")

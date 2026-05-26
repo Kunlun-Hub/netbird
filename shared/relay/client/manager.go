@@ -19,8 +19,11 @@ import (
 )
 
 var (
-	relayCleanupInterval = 60 * time.Second
-	keepUnusedServerTime = 5 * time.Second
+	relayCleanupInterval    = 60 * time.Second
+	keepUnusedServerTime    = 5 * time.Second
+	preferredReconcileDelay = 5 * time.Second
+	preferredProbeTimeout   = 10 * time.Second
+	relayProbeTimeout       = 6 * time.Second
 
 	ErrRelayClientNotConnected = fmt.Errorf("relay client not connected")
 )
@@ -49,6 +52,8 @@ type RelayServerInfo struct {
 	Preferred bool
 	Forced    bool
 	Current   bool
+	Available bool
+	Error     string
 }
 
 // ManagerOption configures a Manager at construction time.
@@ -142,6 +147,7 @@ func (m *Manager) Serve() error {
 		go m.reconnectGuard.StartReconnectTrys(m.ctx, nil)
 	} else {
 		m.storeClient(client)
+		m.schedulePreferredHomeRelayReconcile()
 	}
 
 	go m.listenGuardEvent(m.ctx)
@@ -270,6 +276,7 @@ func (m *Manager) UpdateServerURLs(serverURLs []string) {
 
 	m.serverPicker.ServerURLs.Store(effectiveURLs)
 	go m.switchHomeRelayIfNeeded(effectiveURLs)
+	m.schedulePreferredHomeRelayReconcile()
 }
 
 // UpdateToken updates the token in the token store.
@@ -305,6 +312,42 @@ func (m *Manager) RelayServers() []RelayServerInfo {
 		})
 	}
 	return result
+}
+
+func (m *Manager) ProbeRelayServers(ctx context.Context) []RelayServerInfo {
+	relays := m.RelayServers()
+
+	var wg sync.WaitGroup
+	for i := range relays {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+
+			err := m.probeRelayServer(ctx, relays[idx].URL)
+			if err != nil {
+				relays[idx].Error = err.Error()
+				return
+			}
+			relays[idx].Available = true
+		}(i)
+	}
+	wg.Wait()
+
+	return relays
+}
+
+func (m *Manager) probeRelayServer(ctx context.Context, relayURL string) error {
+	probeCtx, cancel := context.WithTimeout(ctx, relayProbeTimeout)
+	defer cancel()
+
+	probeClient := NewClient(relayURL, m.tokenStore, m.peerID, m.mtu)
+	if err := probeClient.Connect(probeCtx); err != nil {
+		return err
+	}
+	if err := probeClient.Close(); err != nil {
+		return fmt.Errorf("close: %w", err)
+	}
+	return nil
 }
 
 func (m *Manager) SetForcedRelay(identifier string) (string, error) {
@@ -427,6 +470,82 @@ func (m *Manager) switchHomeRelayIfNeeded(serverURLs []string) {
 
 	m.storeClient(newClient)
 	m.onServerConnected()
+	m.schedulePreferredHomeRelayReconcile()
+}
+
+func (m *Manager) schedulePreferredHomeRelayReconcile() {
+	go func() {
+		timer := time.NewTimer(preferredReconcileDelay)
+		defer timer.Stop()
+
+		select {
+		case <-timer.C:
+			m.reconcilePreferredHomeRelay()
+		case <-m.ctx.Done():
+		}
+	}()
+}
+
+func (m *Manager) reconcilePreferredHomeRelay() {
+	m.relayConfigMu.RLock()
+	effectiveURLs := m.effectiveRelayURLsLocked()
+	m.relayConfigMu.RUnlock()
+	if len(effectiveURLs) == 0 {
+		return
+	}
+
+	preferredURL := effectiveURLs[0]
+	if m.currentRelayURL() == preferredURL {
+		return
+	}
+
+	log.Infof("current home Relay server is not preferred, probing preferred Relay server: %s", preferredURL)
+	probeCtx, cancel := context.WithTimeout(m.ctx, preferredProbeTimeout)
+	defer cancel()
+
+	preferredClient := NewClient(preferredURL, m.tokenStore, m.peerID, m.mtu)
+	if err := preferredClient.Connect(probeCtx); err != nil {
+		log.Warnf("preferred Relay server probe failed for %s: %v", preferredURL, err)
+		return
+	}
+
+	if !m.replaceHomeRelayWithPreferred(preferredClient, preferredURL) {
+		if err := preferredClient.Close(); err != nil {
+			log.Warnf("failed to close unused preferred Relay server %s: %v", preferredURL, err)
+		}
+	}
+}
+
+func (m *Manager) replaceHomeRelayWithPreferred(preferredClient *Client, preferredURL string) bool {
+	m.switchMu.Lock()
+	defer m.switchMu.Unlock()
+
+	m.relayConfigMu.RLock()
+	effectiveURLs := m.effectiveRelayURLsLocked()
+	m.relayConfigMu.RUnlock()
+	if len(effectiveURLs) == 0 || effectiveURLs[0] != preferredURL {
+		return false
+	}
+
+	m.relayClientMu.Lock()
+	if !m.running || m.relayClient == nil || m.relayClient.connectionURL == preferredURL {
+		m.relayClientMu.Unlock()
+		return false
+	}
+
+	oldClient := m.relayClient
+	oldURL := oldClient.connectionURL
+	oldClient.SetOnDisconnectListener(nil)
+	m.relayClient = preferredClient
+	m.relayClient.SetOnDisconnectListener(m.onServerDisconnected)
+	m.relayClientMu.Unlock()
+
+	log.Infof("switching home Relay server from %s to preferred Relay server %s", oldURL, preferredURL)
+	if err := oldClient.Close(); err != nil {
+		log.Warnf("failed to close previous home Relay server %s: %v", oldURL, err)
+	}
+	m.onServerConnected()
+	return true
 }
 
 func (m *Manager) openConnVia(ctx context.Context, serverAddress, peerKey string, serverIP netip.Addr) (net.Conn, error) {
@@ -531,9 +650,11 @@ func (m *Manager) listenGuardEvent(ctx context.Context) {
 		select {
 		case <-m.reconnectGuard.OnReconnected:
 			m.onServerConnected()
+			m.schedulePreferredHomeRelayReconcile()
 		case rc := <-m.reconnectGuard.OnNewRelayClient:
 			m.storeClient(rc)
 			m.onServerConnected()
+			m.schedulePreferredHomeRelayReconcile()
 		case <-ctx.Done():
 			return
 		}

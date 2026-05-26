@@ -510,6 +510,74 @@ func TestSetForcedRelayReordersRelayList(t *testing.T) {
 	}
 }
 
+func TestReconcilePreferredHomeRelaySwitchesFromFallback(t *testing.T) {
+	ctx := context.Background()
+
+	srvCfg1 := server.ListenerConfig{
+		Address: "localhost:52413",
+	}
+	srv1, err := server.NewServer(newManagerTestServerConfig(srvCfg1.Address))
+	if err != nil {
+		t.Fatalf("failed to create first server: %s", err)
+	}
+	errChan1 := make(chan error, 1)
+	go func() {
+		if err := srv1.Listen(srvCfg1); err != nil {
+			errChan1 <- err
+		}
+	}()
+	defer func() {
+		if err := srv1.Shutdown(ctx); err != nil {
+			log.Errorf("failed to close first server: %s", err)
+		}
+	}()
+	if err := waitForServerToStart(errChan1); err != nil {
+		t.Fatalf("failed to start first server: %s", err)
+	}
+
+	srvCfg2 := server.ListenerConfig{
+		Address: "localhost:52414",
+	}
+	srv2, err := server.NewServer(newManagerTestServerConfig(srvCfg2.Address))
+	if err != nil {
+		t.Fatalf("failed to create second server: %s", err)
+	}
+	errChan2 := make(chan error, 1)
+	go func() {
+		if err := srv2.Listen(srvCfg2); err != nil {
+			errChan2 <- err
+		}
+	}()
+	defer func() {
+		if err := srv2.Shutdown(ctx); err != nil {
+			log.Errorf("failed to close second server: %s", err)
+		}
+	}()
+	if err := waitForServerToStart(errChan2); err != nil {
+		t.Fatalf("failed to start second server: %s", err)
+	}
+
+	mCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	fallbackURL := toURL(srvCfg1)[0]
+	preferredURL := toURL(srvCfg2)[0]
+	manager := NewManager(mCtx, []string{preferredURL, fallbackURL}, "alice", iface.DefaultMTU)
+
+	fallbackClient := NewClient(fallbackURL, manager.tokenStore, "alice", iface.DefaultMTU)
+	if err := fallbackClient.Connect(ctx); err != nil {
+		t.Fatalf("failed to connect fallback relay: %s", err)
+	}
+	manager.running = true
+	manager.storeClient(fallbackClient)
+
+	manager.reconcilePreferredHomeRelay()
+
+	if err := waitForRelayAddress(ctx, manager, preferredURL, 5*time.Second); err != nil {
+		t.Fatalf("manager did not reconcile to preferred relay: %s", err)
+	}
+}
+
 func waitForReady(ctx context.Context, m *Manager, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {

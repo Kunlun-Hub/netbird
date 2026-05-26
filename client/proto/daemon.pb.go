@@ -1946,6 +1946,8 @@ type RelayServer struct {
 	Preferred     bool                   `protobuf:"varint,3,opt,name=preferred,proto3" json:"preferred,omitempty"`
 	Forced        bool                   `protobuf:"varint,4,opt,name=forced,proto3" json:"forced,omitempty"`
 	Current       bool                   `protobuf:"varint,5,opt,name=current,proto3" json:"current,omitempty"`
+	Available     bool                   `protobuf:"varint,6,opt,name=available,proto3" json:"available,omitempty"`
+	Error         string                 `protobuf:"bytes,7,opt,name=error,proto3" json:"error,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2013,6 +2015,20 @@ func (x *RelayServer) GetCurrent() bool {
 		return x.Current
 	}
 	return false
+}
+
+func (x *RelayServer) GetAvailable() bool {
+	if x != nil {
+		return x.Available
+	}
+	return false
+}
+
+func (x *RelayServer) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
 }
 
 type ListRelaysResponse struct {
@@ -6682,13 +6698,15 @@ const file_daemon_proto_rawDesc = "" +
 	"RelayState\x12\x10\n" +
 	"\x03URI\x18\x01 \x01(\tR\x03URI\x12\x1c\n" +
 	"\tavailable\x18\x02 \x01(\bR\tavailable\x12\x14\n" +
-	"\x05error\x18\x03 \x01(\tR\x05error\"\x87\x01\n" +
+	"\x05error\x18\x03 \x01(\tR\x05error\"\xbb\x01\n" +
 	"\vRelayServer\x12\x10\n" +
 	"\x03uri\x18\x01 \x01(\tR\x03uri\x12\x16\n" +
 	"\x06weight\x18\x02 \x01(\x05R\x06weight\x12\x1c\n" +
 	"\tpreferred\x18\x03 \x01(\bR\tpreferred\x12\x16\n" +
 	"\x06forced\x18\x04 \x01(\bR\x06forced\x12\x18\n" +
-	"\acurrent\x18\x05 \x01(\bR\acurrent\"A\n" +
+	"\acurrent\x18\x05 \x01(\bR\acurrent\x12\x1c\n" +
+	"\tavailable\x18\x06 \x01(\bR\tavailable\x12\x14\n" +
+	"\x05error\x18\a \x01(\tR\x05error\"A\n" +
 	"\x12ListRelaysResponse\x12+\n" +
 	"\x06relays\x18\x01 \x03(\v2\x13.daemon.RelayServerR\x06relays\"'\n" +
 	"\x0fSetRelayRequest\x12\x14\n" +
