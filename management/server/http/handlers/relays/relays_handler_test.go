@@ -178,9 +178,9 @@ func TestSaveRelayPreferencesPushesOnlyChangedPeers(t *testing.T) {
 func TestPreferredRelayAddressesKeepsAllRelaysWithPreferredFirst(t *testing.T) {
 	config := &nbconfig.Relay{
 		Servers: []*nbconfig.RelayServer{
-			{ID: "relay-a", Address: "rels://relay-a.example.com:443"},
-			{ID: "relay-b", Address: "rels://relay-b.example.com:443"},
-			{ID: "relay-c", Address: "rels://relay-c.example.com:443"},
+			{ID: "relay-a", Address: "rels://relay-a.example.com:443", Priority: 40},
+			{ID: "relay-b", Address: "rels://relay-b.example.com:443", Priority: 30},
+			{ID: "relay-c", Address: "rels://relay-c.example.com:443", Priority: 50},
 		},
 	}
 	settings := &types.Settings{
@@ -195,9 +195,36 @@ func TestPreferredRelayAddressesKeepsAllRelaysWithPreferredFirst(t *testing.T) {
 
 	require.Equal(t, []string{
 		"rels://relay-b.example.com:443",
-		"rels://relay-a.example.com:443",
 		"rels://relay-c.example.com:443",
+		"rels://relay-a.example.com:443",
 	}, addresses)
+}
+
+func TestPreferredRelayServersIncludesPriorityAndPreferredFlag(t *testing.T) {
+	config := &nbconfig.Relay{
+		Servers: []*nbconfig.RelayServer{
+			{ID: "relay-a", Address: "rels://relay-a.example.com:443", Priority: 40},
+			{ID: "relay-b", Address: "rels://relay-b.example.com:443", Priority: 20},
+			{ID: "relay-c", Address: "rels://relay-c.example.com:443", Priority: 60},
+		},
+	}
+	settings := &types.Settings{
+		Extra: &types.ExtraSettings{
+			RelayPeerPreferences: map[string][]string{
+				"peer-a": {"relay-b"},
+			},
+		},
+	}
+
+	relays := PreferredRelayServers(config, "peer-a", nil, settings)
+
+	require.Len(t, relays, 3)
+	require.Equal(t, "relay-b", relays[0].ID)
+	require.Equal(t, preferredRelayPriority, relays[0].Priority)
+	require.True(t, relays[0].Preferred)
+	require.Equal(t, "relay-c", relays[1].ID)
+	require.Equal(t, 60, relays[1].Priority)
+	require.False(t, relays[1].Preferred)
 }
 
 func TestVerifyRelaySetupTokenAcceptsExpiredLegacyToken(t *testing.T) {

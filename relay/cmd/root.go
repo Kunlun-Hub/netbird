@@ -49,6 +49,7 @@ type Config struct {
 	AuthSecret               string
 	RelayID                  string
 	RelayName                string
+	RelayPriority            int
 	SetupKey                 string
 	ManagementURL            string
 	LogLevel                 string
@@ -164,6 +165,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&cobraConfig.AuthSecret, "auth-secret", "s", "", "auth secret")
 	rootCmd.PersistentFlags().StringVar(&cobraConfig.RelayID, "relay-id", "", "stable identifier of this relay instance")
 	rootCmd.PersistentFlags().StringVar(&cobraConfig.RelayName, "relay-name", "", "human readable name for this relay instance")
+	rootCmd.PersistentFlags().IntVar(&cobraConfig.RelayPriority, "relay-priority", 30, "relay selection priority advertised to management")
 	rootCmd.PersistentFlags().StringVar(&cobraConfig.SetupKey, "setup-key", "", "relay registration setup token")
 	rootCmd.PersistentFlags().StringVar(&cobraConfig.ManagementURL, "management-url", "", "management server URL for relay registration")
 	rootCmd.PersistentFlags().StringVar(&cobraConfig.LogLevel, "log-level", "info", "log level")
@@ -324,6 +326,7 @@ type relayRegistrationRequest struct {
 	ID               string `json:"id"`
 	Name             string `json:"name,omitempty"`
 	Address          string `json:"address"`
+	Priority         int    `json:"priority,omitempty"`
 	ManagementURL    string `json:"management_url,omitempty"`
 	Version          string `json:"version,omitempty"`
 	ConnectedClients *int   `json:"connected_clients,omitempty"`
@@ -370,6 +373,7 @@ func registerRelay(ctx context.Context, cfg *Config, srv *server.Server) {
 		SetupKey:         cfg.SetupKey,
 		ID:               relayID,
 		Name:             cfg.RelayName,
+		Priority:         cfg.RelayPriority,
 		Address:          instanceURL.String(),
 		ManagementURL:    cfg.ManagementURL,
 		ConnectedClients: &connectedClients,

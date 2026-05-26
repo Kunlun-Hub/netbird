@@ -510,6 +510,35 @@ func TestSetForcedRelayReordersRelayList(t *testing.T) {
 	}
 }
 
+func TestRelayServersUseDownloadedWeightsAndPreferredFlag(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	relayURLs := []string{
+		"rels://relay-b.example.com:12580",
+		"rels://relay-a.example.com:12580",
+	}
+	mgr := NewManager(ctx, nil, "alice", iface.DefaultMTU)
+	mgr.UpdateServerURLsWithWeights(relayURLs, map[string]int{
+		relayURLs[0]: 80,
+		relayURLs[1]: 45,
+	}, map[string]struct{}{
+		relayURLs[0]: {},
+	})
+
+	relays := mgr.RelayServers()
+
+	if len(relays) != 2 {
+		t.Fatalf("relay count = %d, want 2", len(relays))
+	}
+	if relays[0].Weight != 80 || !relays[0].Preferred {
+		t.Fatalf("first relay info = %+v", relays[0])
+	}
+	if relays[1].Weight != 45 || relays[1].Preferred {
+		t.Fatalf("second relay info = %+v", relays[1])
+	}
+}
+
 func TestReconcilePreferredHomeRelaySwitchesFromFallback(t *testing.T) {
 	ctx := context.Background()
 

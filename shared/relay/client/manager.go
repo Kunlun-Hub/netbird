@@ -4,6 +4,7 @@ import (
 	"container/list"
 	"context"
 	"fmt"
+	"maps"
 	"net"
 	"net/netip"
 	"net/url"
@@ -24,6 +25,8 @@ var (
 	preferredReconcileDelay = 5 * time.Second
 	preferredProbeTimeout   = 10 * time.Second
 	relayProbeTimeout       = 6 * time.Second
+	defaultRelayWeight      = 30
+	preferredRelayWeight    = 70
 
 	ErrRelayClientNotConnected = fmt.Errorf("relay client not connected")
 )
@@ -95,6 +98,8 @@ type Manager struct {
 	switchMu            sync.Mutex
 	relayConfigMu       sync.RWMutex
 	configuredRelayURLs []string
+	relayWeights        map[string]int
+	preferredRelays     map[string]struct{}
 	forcedRelayURL      string
 
 	cleanupInterval      time.Duration
@@ -126,6 +131,8 @@ func NewManager(ctx context.Context, serverURLs []string, peerID string, mtu uin
 		opt(m)
 	}
 	m.configuredRelayURLs = slices.Clone(serverURLs)
+	m.relayWeights = relayWeightsFromURLs(serverURLs)
+	m.preferredRelays = legacyPreferredRelays(serverURLs)
 	m.serverPicker.ServerURLs.Store(m.effectiveRelayURLsLocked())
 	m.reconnectGuard = NewGuard(m.serverPicker, m.maxBackoffInterval)
 	return m
@@ -264,9 +271,24 @@ func (m *Manager) HasRelayAddress() bool {
 }
 
 func (m *Manager) UpdateServerURLs(serverURLs []string) {
+	m.UpdateServerURLsWithWeights(serverURLs, nil, nil)
+}
+
+func (m *Manager) UpdateServerURLsWithWeights(serverURLs []string, relayWeights map[string]int, preferredRelays map[string]struct{}) {
 	log.Infof("update relay server URLs: %v", serverURLs)
 	m.relayConfigMu.Lock()
 	m.configuredRelayURLs = slices.Clone(serverURLs)
+	m.relayWeights = relayWeightsFromURLs(serverURLs)
+	m.preferredRelays = legacyPreferredRelays(serverURLs)
+	for relayURL, weight := range relayWeights {
+		if relayURL == "" || weight <= 0 {
+			continue
+		}
+		m.relayWeights[relayURL] = weight
+	}
+	if preferredRelays != nil {
+		m.preferredRelays = maps.Clone(preferredRelays)
+	}
 	if m.forcedRelayURL != "" && !slices.Contains(m.configuredRelayURLs, m.forcedRelayURL) {
 		log.Warnf("forced Relay server %s is no longer in the received Relay list, clearing override", m.forcedRelayURL)
 		m.forcedRelayURL = ""
@@ -287,6 +309,8 @@ func (m *Manager) UpdateToken(token *relayAuth.Token) error {
 func (m *Manager) RelayServers() []RelayServerInfo {
 	m.relayConfigMu.RLock()
 	configuredURLs := slices.Clone(m.configuredRelayURLs)
+	relayWeights := maps.Clone(m.relayWeights)
+	preferredRelays := maps.Clone(m.preferredRelays)
 	forcedURL := m.forcedRelayURL
 	effectiveURLs := m.effectiveRelayURLsLocked()
 	m.relayConfigMu.RUnlock()
@@ -299,14 +323,20 @@ func (m *Manager) RelayServers() []RelayServerInfo {
 
 	result := make([]RelayServerInfo, 0, len(configuredURLs))
 	for _, relayURL := range configuredURLs {
-		weight := 30
-		if relayURL == preferredURL {
-			weight = 70
+		weight := relayWeights[relayURL]
+		if weight <= 0 {
+			weight = defaultRelayWeight
+		}
+		if forcedURL != "" && relayURL != forcedURL && weight == preferredRelayWeight && containsRelay(preferredRelays, relayURL) {
+			weight = defaultRelayWeight
+		}
+		if relayURL == forcedURL && weight < preferredRelayWeight {
+			weight = preferredRelayWeight
 		}
 		result = append(result, RelayServerInfo{
 			URL:       relayURL,
 			Weight:    weight,
-			Preferred: len(configuredURLs) > 0 && relayURL == configuredURLs[0],
+			Preferred: relayURL == preferredURL && containsRelay(preferredRelays, relayURL),
 			Forced:    relayURL == forcedURL,
 			Current:   relayURL == currentURL,
 		})
@@ -393,6 +423,33 @@ func (m *Manager) effectiveRelayURLsLocked() []string {
 		result = append(result, relayURL)
 	}
 	return result
+}
+
+func relayWeightsFromURLs(relayURLs []string) map[string]int {
+	weights := make(map[string]int, len(relayURLs))
+	for idx, relayURL := range relayURLs {
+		if relayURL == "" {
+			continue
+		}
+		weight := defaultRelayWeight
+		if idx == 0 {
+			weight = preferredRelayWeight
+		}
+		weights[relayURL] = weight
+	}
+	return weights
+}
+
+func legacyPreferredRelays(relayURLs []string) map[string]struct{} {
+	if len(relayURLs) == 0 || relayURLs[0] == "" {
+		return nil
+	}
+	return map[string]struct{}{relayURLs[0]: {}}
+}
+
+func containsRelay(relays map[string]struct{}, relayURL string) bool {
+	_, ok := relays[relayURL]
+	return ok
 }
 
 func (m *Manager) currentRelayURL() string {

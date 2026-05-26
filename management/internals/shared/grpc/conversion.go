@@ -67,11 +67,9 @@ func toNetbirdConfig(config *nbconfig.Config, turnCredentials *Token, relayToken
 	}
 
 	var relayCfg *proto.RelayConfig
-	relayAddresses := relayhandler.PreferredRelayAddresses(config.Relay, peerID, peerGroups, settings)
-	if config.Relay != nil && len(relayAddresses) > 0 {
-		relayCfg = &proto.RelayConfig{
-			Urls: relayAddresses,
-		}
+	relays := relayhandler.PreferredRelayServers(config.Relay, peerID, peerGroups, settings)
+	if config.Relay != nil && len(relays) > 0 {
+		relayCfg = relayConfigFromDescriptors(relays)
 
 		if relayToken != nil {
 			relayCfg.TokenPayload = relayToken.Payload
@@ -100,6 +98,27 @@ func toNetbirdConfig(config *nbconfig.Config, turnCredentials *Token, relayToken
 	nbConfig.Flow = buildFlowConfig(config, relayToken, extraSettings)
 
 	return nbConfig
+}
+
+func relayConfigFromDescriptors(relays []relayhandler.RelayServerDescriptor) *proto.RelayConfig {
+	relayCfg := &proto.RelayConfig{
+		Urls:    make([]string, 0, len(relays)),
+		Servers: make([]*proto.RelayServerConfig, 0, len(relays)),
+	}
+	for _, relay := range relays {
+		if relay.Address == "" {
+			continue
+		}
+		relayCfg.Urls = append(relayCfg.Urls, relay.Address)
+		relayCfg.Servers = append(relayCfg.Servers, &proto.RelayServerConfig{
+			Url:       relay.Address,
+			Priority:  int32(relay.Priority),
+			Id:        relay.ID,
+			Name:      relay.Name,
+			Preferred: relay.Preferred,
+		})
+	}
+	return relayCfg
 }
 
 func buildFlowConfig(config *nbconfig.Config, relayToken *Token, extraSettings *types.ExtraSettings) *proto.FlowConfig {

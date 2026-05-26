@@ -40,6 +40,8 @@ const (
 	relaySetupTokenNeverExpires = 0
 	relayRegistrationTTL        = 2 * time.Minute
 	relaySetupTokenVersion      = "v1"
+	defaultRelayPriority        = 30
+	preferredRelayPriority      = 70
 )
 
 type Handler struct {
@@ -60,6 +62,7 @@ type RelayStatus struct {
 	Name              string    `json:"name,omitempty"`
 	ObservedID        string    `json:"observed_id,omitempty"`
 	Registered        bool      `json:"registered,omitempty"`
+	Priority          int       `json:"priority"`
 	Status            string    `json:"status"`
 	ConnectedClients  *int      `json:"connected_clients,omitempty"`
 	RegisteredClients int       `json:"registered_clients"`
@@ -81,6 +84,7 @@ type registerRelayRequest struct {
 	ID               string `json:"id"`
 	Name             string `json:"name,omitempty"`
 	Address          string `json:"address"`
+	Priority         int    `json:"priority,omitempty"`
 	ManagementURL    string `json:"management_url,omitempty"`
 	Version          string `json:"version,omitempty"`
 	ConnectedClients *int   `json:"connected_clients,omitempty"`
@@ -110,10 +114,19 @@ type registeredRelay struct {
 	ID               string
 	Name             string
 	Address          string
+	Priority         int
 	ManagementURL    string
 	Version          string
 	ConnectedClients *int
 	LastSeen         time.Time
+}
+
+type RelayServerDescriptor struct {
+	ID        string
+	Name      string
+	Address   string
+	Priority  int
+	Preferred bool
 }
 
 type relayRegistry struct {
@@ -126,13 +139,21 @@ var activeRelayRegistry = &relayRegistry{
 }
 
 func ActiveRelayAddresses(config *nbconfig.Relay) []string {
-	return relayAddresses(config, nil, nil)
+	return relayDescriptorAddresses(ActiveRelayServers(config))
+}
+
+func ActiveRelayServers(config *nbconfig.Relay) []RelayServerDescriptor {
+	return relayServers(config, nil, nil)
 }
 
 func PreferredRelayAddresses(config *nbconfig.Relay, peerID string, peerGroups []string, settings *types.Settings) []string {
+	return relayDescriptorAddresses(PreferredRelayServers(config, peerID, peerGroups, settings))
+}
+
+func PreferredRelayServers(config *nbconfig.Relay, peerID string, peerGroups []string, settings *types.Settings) []RelayServerDescriptor {
 	registeredRelays := registeredRelaysFromSettings(settings)
 	preferred := preferredRelayIDs(peerID, peerGroups, settings)
-	return relayAddresses(config, preferred, registeredRelays)
+	return relayServers(config, preferred, registeredRelays)
 }
 
 func preferredRelayIDs(peerID string, peerGroups []string, settings *types.Settings) []string {
@@ -158,20 +179,26 @@ func preferredRelayIDs(peerID string, peerGroups []string, settings *types.Setti
 	return relays
 }
 
-func relayAddresses(config *nbconfig.Relay, preferred []string, registeredRelays []registeredRelay) []string {
-	relayByPreference := make(map[string]string)
-	var allAddresses []string
+func relayServers(config *nbconfig.Relay, preferred []string, registeredRelays []registeredRelay) []RelayServerDescriptor {
+	relayByPreference := make(map[string]RelayServerDescriptor)
+	var allRelays []RelayServerDescriptor
 	seenAll := make(map[string]struct{})
-	addRelay := func(id, address string) {
+	addRelay := func(id, name, address string, priority int) {
 		if address == "" {
 			return
 		}
-		relayByPreference[relayKey(id, address)] = address
-		relayByPreference[address] = address
+		relay := RelayServerDescriptor{
+			ID:       id,
+			Name:     name,
+			Address:  address,
+			Priority: normalizeRelayPriority(priority),
+		}
+		relayByPreference[relayKey(id, address)] = relay
+		relayByPreference[address] = relay
 		if _, ok := seenAll[address]; ok {
 			return
 		}
-		allAddresses = append(allAddresses, address)
+		allRelays = append(allRelays, relay)
 		seenAll[address] = struct{}{}
 	}
 
@@ -180,7 +207,7 @@ func relayAddresses(config *nbconfig.Relay, preferred []string, registeredRelays
 			if server == nil {
 				continue
 			}
-			addRelay(server.ID, server.Address)
+			addRelay(server.ID, server.Name, server.Address, server.Priority)
 		}
 	}
 
@@ -188,41 +215,76 @@ func relayAddresses(config *nbconfig.Relay, preferred []string, registeredRelays
 		if time.Since(relay.LastSeen) > relayRegistrationTTL {
 			continue
 		}
-		addRelay(relay.ID, relay.Address)
+		addRelay(relay.ID, relay.Name, relay.Address, relay.Priority)
 	}
 
 	for _, relay := range activeRelayRegistry.list() {
 		if time.Since(relay.LastSeen) > relayRegistrationTTL {
 			continue
 		}
-		addRelay(relay.ID, relay.Address)
+		addRelay(relay.ID, relay.Name, relay.Address, relay.Priority)
 	}
 
 	if len(preferred) == 0 {
-		return allAddresses
+		sortRelayDescriptorsByPriority(allRelays)
+		return allRelays
 	}
 
-	addresses := make([]string, 0, len(allAddresses))
+	relays := make([]RelayServerDescriptor, 0, len(allRelays))
 	seenPreferred := make(map[string]struct{}, len(preferred))
 	for _, relayID := range preferred {
-		address := relayByPreference[relayID]
-		if address == "" {
+		relay, ok := relayByPreference[relayID]
+		if !ok || relay.Address == "" {
 			continue
 		}
-		if _, ok := seenPreferred[address]; ok {
+		if _, ok := seenPreferred[relay.Address]; ok {
 			continue
 		}
-		addresses = append(addresses, address)
-		seenPreferred[address] = struct{}{}
+		if relay.Priority < preferredRelayPriority {
+			relay.Priority = preferredRelayPriority
+		}
+		relay.Preferred = true
+		relays = append(relays, relay)
+		seenPreferred[relay.Address] = struct{}{}
 	}
 
-	for _, address := range allAddresses {
-		if _, ok := seenPreferred[address]; ok {
+	sortRelayDescriptorsByPriority(relays)
+	var fallbackRelays []RelayServerDescriptor
+	for _, relay := range allRelays {
+		if _, ok := seenPreferred[relay.Address]; ok {
 			continue
 		}
-		addresses = append(addresses, address)
+		fallbackRelays = append(fallbackRelays, relay)
+	}
+	sortRelayDescriptorsByPriority(fallbackRelays)
+	return append(relays, fallbackRelays...)
+}
+
+func relayDescriptorAddresses(relays []RelayServerDescriptor) []string {
+	addresses := make([]string, 0, len(relays))
+	for _, relay := range relays {
+		if relay.Address == "" {
+			continue
+		}
+		addresses = append(addresses, relay.Address)
 	}
 	return addresses
+}
+
+func normalizeRelayPriority(priority int) int {
+	if priority <= 0 {
+		return defaultRelayPriority
+	}
+	return priority
+}
+
+func sortRelayDescriptorsByPriority(relays []RelayServerDescriptor) {
+	slices.SortStableFunc(relays, func(left, right RelayServerDescriptor) int {
+		if left.Priority != right.Priority {
+			return right.Priority - left.Priority
+		}
+		return strings.Compare(relayKey(left.ID, left.Address), relayKey(right.ID, right.Address))
+	})
 }
 
 func AddEndpoints(accountManager account.Manager, config *nbconfig.Relay, geo geolocation.Geolocation, configPusher relayConfigPusher, router *mux.Router) {
@@ -271,7 +333,7 @@ func (h *Handler) getAllRelays(w http.ResponseWriter, r *http.Request) {
 		if _, ok := seen[relayKey(relay.ID, relay.Address)]; ok {
 			continue
 		}
-		relays = append(relays, h.registeredRelayStatus(relay, registeredClients))
+		relays = append(relays, h.registeredRelayStatus(ctx, relay, registeredClients))
 		seen[relayKey(relay.ID, relay.Address)] = struct{}{}
 	}
 
@@ -279,7 +341,7 @@ func (h *Handler) getAllRelays(w http.ResponseWriter, r *http.Request) {
 		if _, ok := seen[relayKey(relay.ID, relay.Address)]; ok {
 			continue
 		}
-		relays = append(relays, h.registeredRelayStatus(relay, registeredClients))
+		relays = append(relays, h.registeredRelayStatus(ctx, relay, registeredClients))
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -482,6 +544,7 @@ func (h *Handler) registerRelay(w http.ResponseWriter, r *http.Request) {
 		ID:               req.ID,
 		Name:             req.Name,
 		Address:          req.Address,
+		Priority:         normalizeRelayPriority(req.Priority),
 		ManagementURL:    req.ManagementURL,
 		Version:          req.Version,
 		ConnectedClients: req.ConnectedClients,
@@ -737,6 +800,7 @@ func registeredRelaysFromSettings(settings *types.Settings) []registeredRelay {
 			ID:               relay.ID,
 			Name:             relay.Name,
 			Address:          relay.Address,
+			Priority:         relay.Priority,
 			ManagementURL:    relay.ManagementURL,
 			Version:          relay.Version,
 			ConnectedClients: relay.ConnectedClients,
@@ -770,6 +834,7 @@ func (h *Handler) persistRegisteredRelay(ctx context.Context, accountID string, 
 			ID:               relay.ID,
 			Name:             relay.Name,
 			Address:          relay.Address,
+			Priority:         relay.Priority,
 			ManagementURL:    relay.ManagementURL,
 			Version:          relay.Version,
 			ConnectedClients: relay.ConnectedClients,
@@ -805,7 +870,7 @@ func (h *Handler) deleteStoredRelay(ctx context.Context, id string) bool {
 	return deleted
 }
 
-func (h *Handler) registeredRelayStatus(r registeredRelay, registeredClients int) RelayStatus {
+func (h *Handler) registeredRelayStatus(ctx context.Context, r registeredRelay, registeredClients int) RelayStatus {
 	status := "offline"
 	if time.Since(r.LastSeen) <= relayRegistrationTTL {
 		status = "online"
@@ -816,12 +881,28 @@ func (h *Handler) registeredRelayStatus(r registeredRelay, registeredClients int
 		Name:              r.Name,
 		ObservedID:        r.ID,
 		Registered:        true,
+		Priority:          normalizeRelayPriority(r.Priority),
 		Status:            status,
 		ConnectedClients:  r.ConnectedClients,
 		RegisteredClients: registeredClients,
 		LastChecked:       r.LastSeen,
 	}
 	h.enrichRelayLocation(&result)
+	if status != "online" {
+		return result
+	}
+	if err := probeRelayWebsocket(ctx, r.Address); err != nil {
+		result.Status = "offline"
+		result.Error = err.Error()
+		result.ConnectedClients = nil
+		return result
+	}
+	if health, err := fetchHealth(ctx, r.Address); err == nil {
+		result.ConnectedClients = health.ConnectedPeers
+		if health.RelayID != "" {
+			result.ObservedID = health.RelayID
+		}
+	}
 	return result
 }
 
@@ -883,6 +964,7 @@ func (h *Handler) probeRelay(ctx context.Context, server *nbconfig.RelayServer, 
 		Address:           server.Address,
 		ID:                server.ID,
 		Name:              server.Name,
+		Priority:          normalizeRelayPriority(server.Priority),
 		Status:            "offline",
 		RegisteredClients: registeredClients,
 		LastChecked:       time.Now(),

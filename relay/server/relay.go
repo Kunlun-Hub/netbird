@@ -206,5 +206,13 @@ func (r *Relay) InstanceID() string {
 }
 
 func (r *Relay) ConnectedPeerCount() int {
-	return r.store.Count()
+	count := 0
+	for _, peer := range r.store.Peers() {
+		peerID := peer.ID()
+		if peerid.IsHealthCheck(&peerID) {
+			continue
+		}
+		count++
+	}
+	return count
 }

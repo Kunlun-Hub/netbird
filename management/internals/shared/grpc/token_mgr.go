@@ -273,11 +273,7 @@ func (m *TimeBasedAuthSecretsManager) pushNewTURNAndRelayTokens(ctx context.Cont
 	if m.relayCfg != nil {
 		token, err := m.GenerateRelayToken()
 		if err == nil {
-			update.NetbirdConfig.Relay = &proto.RelayConfig{
-				Urls:           m.relayURLsForPeer(ctx, accountID, peerID),
-				TokenPayload:   token.Payload,
-				TokenSignature: token.Signature,
-			}
+			update.NetbirdConfig.Relay = m.relayConfigForPeer(ctx, accountID, peerID, token)
 		}
 	}
 
@@ -291,7 +287,7 @@ func (m *TimeBasedAuthSecretsManager) pushNewTURNAndRelayTokens(ctx context.Cont
 }
 
 func (m *TimeBasedAuthSecretsManager) pushNewRelayTokens(ctx context.Context, accountID, peerID string) {
-	relayToken, err := m.relayHmacToken.GenerateToken()
+	relayToken, err := m.GenerateRelayToken()
 	if err != nil {
 		log.Errorf("failed to generate relay token for peer '%s': %s", peerID, err)
 		return
@@ -299,11 +295,7 @@ func (m *TimeBasedAuthSecretsManager) pushNewRelayTokens(ctx context.Context, ac
 
 	update := &proto.SyncResponse{
 		NetbirdConfig: &proto.NetbirdConfig{
-			Relay: &proto.RelayConfig{
-				Urls:           m.relayURLsForPeer(ctx, accountID, peerID),
-				TokenPayload:   string(relayToken.Payload),
-				TokenSignature: base64.StdEncoding.EncodeToString(relayToken.Signature),
-			},
+			Relay: m.relayConfigForPeer(ctx, accountID, peerID, relayToken),
 			// omit Turns to avoid updates there
 		},
 	}
@@ -318,7 +310,7 @@ func (m *TimeBasedAuthSecretsManager) pushNewRelayTokens(ctx context.Context, ac
 }
 
 func (m *TimeBasedAuthSecretsManager) pushRelayList(ctx context.Context, accountID, peerID string) {
-	relayToken, err := m.relayHmacToken.GenerateToken()
+	relayToken, err := m.GenerateRelayToken()
 	if err != nil {
 		log.Errorf("failed to generate relay token for peer '%s': %s", peerID, err)
 		return
@@ -326,11 +318,7 @@ func (m *TimeBasedAuthSecretsManager) pushRelayList(ctx context.Context, account
 
 	update := &proto.SyncResponse{
 		NetbirdConfig: &proto.NetbirdConfig{
-			Relay: &proto.RelayConfig{
-				Urls:           m.relayURLsForPeer(ctx, accountID, peerID),
-				TokenPayload:   string(relayToken.Payload),
-				TokenSignature: base64.StdEncoding.EncodeToString(relayToken.Signature),
-			},
+			Relay: m.relayConfigForPeer(ctx, accountID, peerID, relayToken),
 			// omit Turns to avoid updates there
 		},
 	}
@@ -342,11 +330,21 @@ func (m *TimeBasedAuthSecretsManager) pushRelayList(ctx context.Context, account
 	})
 }
 
-func (m *TimeBasedAuthSecretsManager) relayURLsForPeer(ctx context.Context, accountID, peerID string) []string {
+func (m *TimeBasedAuthSecretsManager) relayConfigForPeer(ctx context.Context, accountID, peerID string, relayToken *Token) *proto.RelayConfig {
+	relays := m.relayServersForPeer(ctx, accountID, peerID)
+	relayCfg := relayConfigFromDescriptors(relays)
+	if relayToken != nil {
+		relayCfg.TokenPayload = relayToken.Payload
+		relayCfg.TokenSignature = relayToken.Signature
+	}
+	return relayCfg
+}
+
+func (m *TimeBasedAuthSecretsManager) relayServersForPeer(ctx context.Context, accountID, peerID string) []relayhandler.RelayServerDescriptor {
 	extraSettings, err := m.settingsManager.GetExtraSettings(ctx, accountID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get extra settings for relay preferences: %v", err)
-		return relayhandler.ActiveRelayAddresses(m.relayCfg)
+		return relayhandler.ActiveRelayServers(m.relayCfg)
 	}
 
 	peerGroups, err := m.groupsManager.GetPeerGroupIDs(ctx, accountID, peerID)
@@ -354,7 +352,7 @@ func (m *TimeBasedAuthSecretsManager) relayURLsForPeer(ctx context.Context, acco
 		log.WithContext(ctx).Errorf("failed to get peer groups for relay preferences: %v", err)
 	}
 
-	return relayhandler.PreferredRelayAddresses(m.relayCfg, peerID, peerGroups, &types.Settings{Extra: extraSettings})
+	return relayhandler.PreferredRelayServers(m.relayCfg, peerID, peerGroups, &types.Settings{Extra: extraSettings})
 }
 
 func (m *TimeBasedAuthSecretsManager) extendNetbirdConfig(ctx context.Context, peerID, accountID string, update *proto.SyncResponse) {

@@ -97,9 +97,10 @@ type Relay struct {
 }
 
 type RelayServer struct {
-	ID      string
-	Name    string
-	Address string
+	ID       string
+	Name     string
+	Address  string
+	Priority int
 }
 
 func (r *Relay) GetAddresses() []string {

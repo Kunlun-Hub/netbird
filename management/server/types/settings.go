@@ -223,6 +223,7 @@ type RegisteredRelay struct {
 	ID               string
 	Name             string
 	Address          string
+	Priority         int
 	ManagementURL    string
 	Version          string
 	ConnectedClients *int
