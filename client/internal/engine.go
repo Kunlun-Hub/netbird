@@ -949,14 +949,13 @@ func (e *Engine) handleRelayUpdate(update *mgmProto.RelayConfig) error {
 			}
 		}
 
-		urls, weights, preferredRelays := relayURLsAndWeights(update)
+		urls, weights := relayURLsAndWeights(update)
 		if override, ok := peer.OverrideRelayURLs(); ok {
 			log.Infof("overriding relay URLs from %s: %v", peer.EnvKeyNBHomeRelayServers, override)
 			urls = override
 			weights = nil
-			preferredRelays = nil
 		}
-		e.relayManager.UpdateServerURLsWithWeights(urls, weights, preferredRelays)
+		e.relayManager.UpdateServerURLsWithWeights(urls, weights, nil)
 
 		// Just in case the agent started with an MGM server where the relay was disabled but was later enabled.
 		// We can ignore all errors because the guard will manage the reconnection retries.
@@ -968,15 +967,14 @@ func (e *Engine) handleRelayUpdate(update *mgmProto.RelayConfig) error {
 	return nil
 }
 
-func relayURLsAndWeights(update *mgmProto.RelayConfig) ([]string, map[string]int, map[string]struct{}) {
+func relayURLsAndWeights(update *mgmProto.RelayConfig) ([]string, map[string]int) {
 	servers := update.GetServers()
 	if len(servers) == 0 {
-		return update.GetUrls(), nil, nil
+		return update.GetUrls(), nil
 	}
 
 	urls := make([]string, 0, len(servers))
 	weights := make(map[string]int, len(servers))
-	preferredRelays := make(map[string]struct{}, len(servers))
 	seen := make(map[string]struct{}, len(servers))
 	for _, server := range servers {
 		relayURL := server.GetUrl()
@@ -991,11 +989,8 @@ func relayURLsAndWeights(update *mgmProto.RelayConfig) ([]string, map[string]int
 		if server.GetPriority() > 0 {
 			weights[relayURL] = int(server.GetPriority())
 		}
-		if server.GetPreferred() {
-			preferredRelays[relayURL] = struct{}{}
-		}
 	}
-	return urls, weights, preferredRelays
+	return urls, weights
 }
 
 func (e *Engine) handleFlowUpdate(config *mgmProto.FlowConfig) error {
@@ -1019,23 +1014,23 @@ func toFlowLoggerConfig(config *mgmProto.FlowConfig) (*nftypes.FlowConfig, error
 		return nil, errors.New("flow interval is nil")
 	}
 	return &nftypes.FlowConfig{
-		Enabled:            config.GetEnabled(),
-		Counters:           config.GetCounters(),
-		URL:                config.GetUrl(),
-		TokenPayload:       config.GetTokenPayload(),
-		TokenSignature:     config.GetTokenSignature(),
-		Interval:           config.GetInterval().AsDuration(),
-		DNSCollection:      config.GetDnsCollection(),
-		ExitNodeCollection: config.GetExitNodeCollection(),
-		LocalStorageEnabled: config.GetFlowLocalStorageEnabled(),
-		LocalStoragePath:    config.GetFlowLocalStoragePath(),
+		Enabled:               config.GetEnabled(),
+		Counters:              config.GetCounters(),
+		URL:                   config.GetUrl(),
+		TokenPayload:          config.GetTokenPayload(),
+		TokenSignature:        config.GetTokenSignature(),
+		Interval:              config.GetInterval().AsDuration(),
+		DNSCollection:         config.GetDnsCollection(),
+		ExitNodeCollection:    config.GetExitNodeCollection(),
+		LocalStorageEnabled:   config.GetFlowLocalStorageEnabled(),
+		LocalStoragePath:      config.GetFlowLocalStoragePath(),
 		LocalStorageMaxSizeMB: int(config.GetFlowLocalStorageMaxSizeMb()),
-		LocalStorageMaxFiles: int(config.GetFlowLocalStorageMaxFiles()),
-		SyslogEnabled:    config.GetFlowSyslogEnabled(),
-		SyslogServer:     config.GetFlowSyslogServer(),
-		SyslogProtocol:   config.GetFlowSyslogProtocol(),
-		SyslogFacility:   config.GetFlowSyslogFacility(),
-		SyslogTag:        config.GetFlowSyslogTag(),
+		LocalStorageMaxFiles:  int(config.GetFlowLocalStorageMaxFiles()),
+		SyslogEnabled:         config.GetFlowSyslogEnabled(),
+		SyslogServer:          config.GetFlowSyslogServer(),
+		SyslogProtocol:        config.GetFlowSyslogProtocol(),
+		SyslogFacility:        config.GetFlowSyslogFacility(),
+		SyslogTag:             config.GetFlowSyslogTag(),
 	}, nil
 }
 

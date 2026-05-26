@@ -94,8 +94,8 @@ func TestTimeBasedAuthSecretsManager_PushRelayList(t *testing.T) {
 
 	rc := &config.Relay{
 		Servers: []*config.RelayServer{
-			{ID: "relay-a", Address: "rels://relay-a.example.com:443"},
-			{ID: "relay-b", Address: "rels://relay-b.example.com:443"},
+			{ID: "relay-a", Address: "rels://relay-a.example.com:443", Priority: 30},
+			{ID: "relay-b", Address: "rels://relay-b.example.com:443", Priority: 40},
 		},
 		CredentialsTTL: ttl,
 		Secret:         secret,
@@ -104,11 +104,7 @@ func TestTimeBasedAuthSecretsManager_PushRelayList(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
 	settingsMockManager := settings.NewMockManager(ctrl)
-	settingsMockManager.EXPECT().GetExtraSettings(gomock.Any(), accountID).Return(&types.ExtraSettings{
-		RelayPeerPreferences: map[string][]string{
-			peerA: {"relay-b"},
-		},
-	}, nil).AnyTimes()
+	settingsMockManager.EXPECT().GetExtraSettings(gomock.Any(), accountID).Return(&types.ExtraSettings{}, nil).AnyTimes()
 	groupsManager := groups.NewManagerMock()
 
 	tested, err := NewTimeBasedAuthSecretsManager(peersManager, &config.TURNConfig{

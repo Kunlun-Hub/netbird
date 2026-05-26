@@ -398,7 +398,7 @@ func TestAutoReconnect(t *testing.T) {
 	}
 }
 
-func TestUpdateServerURLsSwitchesHomeRelayToPreferred(t *testing.T) {
+func TestUpdateServerURLsSwitchesHomeRelayToHighestPriorityRelay(t *testing.T) {
 	ctx := context.Background()
 
 	srvCfg1 := server.ListenerConfig{
@@ -456,14 +456,24 @@ func TestUpdateServerURLsSwitchesHomeRelayToPreferred(t *testing.T) {
 		t.Fatalf("failed to serve manager: %s", err)
 	}
 
-	if err := waitForRelayAddress(ctx, clientAlice, url1, 5*time.Second); err != nil {
-		t.Fatalf("manager did not connect to initial relay: %s", err)
+	if err := waitForReady(ctx, clientAlice, 5*time.Second); err != nil {
+		t.Fatalf("manager did not connect to any initial relay: %s", err)
+	}
+	currentRelay, _, err := clientAlice.RelayInstanceAddress()
+	if err != nil {
+		t.Fatalf("failed to get current relay: %s", err)
+	}
+	if currentRelay != url1 && currentRelay != url2 {
+		t.Fatalf("initial relay = %s, want %s or %s", currentRelay, url1, url2)
 	}
 
-	clientAlice.UpdateServerURLs([]string{url2, url1})
+	clientAlice.UpdateServerURLsWithWeights([]string{url1, url2}, map[string]int{
+		url1: 30,
+		url2: 40,
+	}, nil)
 
 	if err := waitForRelayAddress(ctx, clientAlice, url2, 10*time.Second); err != nil {
-		t.Fatalf("manager did not switch to preferred relay: %s", err)
+		t.Fatalf("manager did not switch to highest priority relay: %s", err)
 	}
 }
 
@@ -495,7 +505,7 @@ func TestSetForcedRelayReordersRelayList(t *testing.T) {
 	if len(relays) != len(relayURLs) {
 		t.Fatalf("relay count = %d, want %d", len(relays), len(relayURLs))
 	}
-	if relays[1].URL != relayURLs[1] || !relays[1].Forced || relays[1].Weight != 70 {
+	if relays[1].URL != relayURLs[1] || !relays[1].Forced || relays[1].Weight != 30 {
 		t.Fatalf("forced relay info = %+v", relays[1])
 	}
 	if relays[0].Weight != 30 {
@@ -510,7 +520,7 @@ func TestSetForcedRelayReordersRelayList(t *testing.T) {
 	}
 }
 
-func TestRelayServersUseDownloadedWeightsAndPreferredFlag(t *testing.T) {
+func TestRelayServersUseDownloadedWeightsWithoutPreferredFlag(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -522,16 +532,14 @@ func TestRelayServersUseDownloadedWeightsAndPreferredFlag(t *testing.T) {
 	mgr.UpdateServerURLsWithWeights(relayURLs, map[string]int{
 		relayURLs[0]: 80,
 		relayURLs[1]: 45,
-	}, map[string]struct{}{
-		relayURLs[0]: {},
-	})
+	}, nil)
 
 	relays := mgr.RelayServers()
 
 	if len(relays) != 2 {
 		t.Fatalf("relay count = %d, want 2", len(relays))
 	}
-	if relays[0].Weight != 80 || !relays[0].Preferred {
+	if relays[0].Weight != 80 || relays[0].Preferred {
 		t.Fatalf("first relay info = %+v", relays[0])
 	}
 	if relays[1].Weight != 45 || relays[1].Preferred {
@@ -539,71 +547,58 @@ func TestRelayServersUseDownloadedWeightsAndPreferredFlag(t *testing.T) {
 	}
 }
 
-func TestReconcilePreferredHomeRelaySwitchesFromFallback(t *testing.T) {
-	ctx := context.Background()
-
-	srvCfg1 := server.ListenerConfig{
-		Address: "localhost:52413",
-	}
-	srv1, err := server.NewServer(newManagerTestServerConfig(srvCfg1.Address))
-	if err != nil {
-		t.Fatalf("failed to create first server: %s", err)
-	}
-	errChan1 := make(chan error, 1)
-	go func() {
-		if err := srv1.Listen(srvCfg1); err != nil {
-			errChan1 <- err
-		}
-	}()
-	defer func() {
-		if err := srv1.Shutdown(ctx); err != nil {
-			log.Errorf("failed to close first server: %s", err)
-		}
-	}()
-	if err := waitForServerToStart(errChan1); err != nil {
-		t.Fatalf("failed to start first server: %s", err)
-	}
-
-	srvCfg2 := server.ListenerConfig{
-		Address: "localhost:52414",
-	}
-	srv2, err := server.NewServer(newManagerTestServerConfig(srvCfg2.Address))
-	if err != nil {
-		t.Fatalf("failed to create second server: %s", err)
-	}
-	errChan2 := make(chan error, 1)
-	go func() {
-		if err := srv2.Listen(srvCfg2); err != nil {
-			errChan2 <- err
-		}
-	}()
-	defer func() {
-		if err := srv2.Shutdown(ctx); err != nil {
-			log.Errorf("failed to close second server: %s", err)
-		}
-	}()
-	if err := waitForServerToStart(errChan2); err != nil {
-		t.Fatalf("failed to start second server: %s", err)
-	}
-
-	mCtx, cancel := context.WithCancel(ctx)
+func TestUpdateServerURLsWithWeightsSortsByPriority(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	fallbackURL := toURL(srvCfg1)[0]
-	preferredURL := toURL(srvCfg2)[0]
-	manager := NewManager(mCtx, []string{preferredURL, fallbackURL}, "alice", iface.DefaultMTU)
-
-	fallbackClient := NewClient(fallbackURL, manager.tokenStore, "alice", iface.DefaultMTU)
-	if err := fallbackClient.Connect(ctx); err != nil {
-		t.Fatalf("failed to connect fallback relay: %s", err)
+	relayURLs := []string{
+		"rels://relay-a.example.com:12580",
+		"rels://relay-b.example.com:12580",
+		"rels://relay-c.example.com:12580",
 	}
-	manager.running = true
-	manager.storeClient(fallbackClient)
+	mgr := NewManager(ctx, nil, "alice", iface.DefaultMTU)
+	mgr.UpdateServerURLsWithWeights(relayURLs, map[string]int{
+		relayURLs[0]: 30,
+		relayURLs[1]: 50,
+		relayURLs[2]: 40,
+	}, nil)
 
-	manager.reconcilePreferredHomeRelay()
+	got := mgr.ServerURLs()
+	want := []string{relayURLs[1], relayURLs[2], relayURLs[0]}
+	if len(got) != len(want) {
+		t.Fatalf("relay count = %d, want %d", len(got), len(want))
+	}
+	for idx := range want {
+		if got[idx] != want[idx] {
+			t.Fatalf("relay URLs = %v, want %v", got, want)
+		}
+	}
+}
 
-	if err := waitForRelayAddress(ctx, manager, preferredURL, 5*time.Second); err != nil {
-		t.Fatalf("manager did not reconcile to preferred relay: %s", err)
+func TestCurrentRelayStillHighestPriority(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	relayURLs := []string{
+		"rels://relay-a.example.com:12580",
+		"rels://relay-b.example.com:12580",
+		"rels://relay-c.example.com:12580",
+	}
+	mgr := NewManager(ctx, relayURLs, "alice", iface.DefaultMTU)
+	mgr.relayClient = &Client{connectionURL: relayURLs[1]}
+	mgr.relayWeights = map[string]int{
+		relayURLs[0]: 40,
+		relayURLs[1]: 40,
+		relayURLs[2]: 30,
+	}
+
+	if !mgr.currentRelayStillHighestPriorityLocked(relayURLs) {
+		t.Fatalf("current relay should remain valid in highest priority group")
+	}
+
+	mgr.relayWeights[relayURLs[1]] = 30
+	if mgr.currentRelayStillHighestPriorityLocked(relayURLs) {
+		t.Fatalf("current relay should not remain valid after dropping priority")
 	}
 }
 

@@ -67,7 +67,7 @@ func toNetbirdConfig(config *nbconfig.Config, turnCredentials *Token, relayToken
 	}
 
 	var relayCfg *proto.RelayConfig
-	relays := relayhandler.PreferredRelayServers(config.Relay, peerID, peerGroups, settings)
+	relays := relayhandler.RelayServersForAccount(config.Relay, settings)
 	if config.Relay != nil && len(relays) > 0 {
 		relayCfg = relayConfigFromDescriptors(relays)
 
@@ -111,11 +111,10 @@ func relayConfigFromDescriptors(relays []relayhandler.RelayServerDescriptor) *pr
 		}
 		relayCfg.Urls = append(relayCfg.Urls, relay.Address)
 		relayCfg.Servers = append(relayCfg.Servers, &proto.RelayServerConfig{
-			Url:       relay.Address,
-			Priority:  int32(relay.Priority),
-			Id:        relay.ID,
-			Name:      relay.Name,
-			Preferred: relay.Preferred,
+			Url:      relay.Address,
+			Priority: int32(relay.Priority),
+			Id:       relay.ID,
+			Name:     relay.Name,
 		})
 	}
 	return relayCfg

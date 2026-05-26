@@ -20,13 +20,10 @@ import (
 )
 
 var (
-	relayCleanupInterval    = 60 * time.Second
-	keepUnusedServerTime    = 5 * time.Second
-	preferredReconcileDelay = 5 * time.Second
-	preferredProbeTimeout   = 10 * time.Second
-	relayProbeTimeout       = 6 * time.Second
-	defaultRelayWeight      = 30
-	preferredRelayWeight    = 70
+	relayCleanupInterval = 60 * time.Second
+	keepUnusedServerTime = 5 * time.Second
+	relayProbeTimeout    = 6 * time.Second
+	defaultRelayWeight   = 30
 
 	ErrRelayClientNotConnected = fmt.Errorf("relay client not connected")
 )
@@ -99,7 +96,6 @@ type Manager struct {
 	relayConfigMu       sync.RWMutex
 	configuredRelayURLs []string
 	relayWeights        map[string]int
-	preferredRelays     map[string]struct{}
 	forcedRelayURL      string
 
 	cleanupInterval      time.Duration
@@ -132,8 +128,8 @@ func NewManager(ctx context.Context, serverURLs []string, peerID string, mtu uin
 	}
 	m.configuredRelayURLs = slices.Clone(serverURLs)
 	m.relayWeights = relayWeightsFromURLs(serverURLs)
-	m.preferredRelays = legacyPreferredRelays(serverURLs)
 	m.serverPicker.ServerURLs.Store(m.effectiveRelayURLsLocked())
+	m.serverPicker.ServerWeights.Store(maps.Clone(m.relayWeights))
 	m.reconnectGuard = NewGuard(m.serverPicker, m.maxBackoffInterval)
 	return m
 }
@@ -154,7 +150,6 @@ func (m *Manager) Serve() error {
 		go m.reconnectGuard.StartReconnectTrys(m.ctx, nil)
 	} else {
 		m.storeClient(client)
-		m.schedulePreferredHomeRelayReconcile()
 	}
 
 	go m.listenGuardEvent(m.ctx)
@@ -274,21 +269,17 @@ func (m *Manager) UpdateServerURLs(serverURLs []string) {
 	m.UpdateServerURLsWithWeights(serverURLs, nil, nil)
 }
 
-func (m *Manager) UpdateServerURLsWithWeights(serverURLs []string, relayWeights map[string]int, preferredRelays map[string]struct{}) {
+func (m *Manager) UpdateServerURLsWithWeights(serverURLs []string, relayWeights map[string]int, _ map[string]struct{}) {
 	log.Infof("update relay server URLs: %v", serverURLs)
 	m.relayConfigMu.Lock()
-	m.configuredRelayURLs = slices.Clone(serverURLs)
 	m.relayWeights = relayWeightsFromURLs(serverURLs)
-	m.preferredRelays = legacyPreferredRelays(serverURLs)
 	for relayURL, weight := range relayWeights {
 		if relayURL == "" || weight <= 0 {
 			continue
 		}
 		m.relayWeights[relayURL] = weight
 	}
-	if preferredRelays != nil {
-		m.preferredRelays = maps.Clone(preferredRelays)
-	}
+	m.configuredRelayURLs = sortRelayURLsByWeight(serverURLs, m.relayWeights)
 	if m.forcedRelayURL != "" && !slices.Contains(m.configuredRelayURLs, m.forcedRelayURL) {
 		log.Warnf("forced Relay server %s is no longer in the received Relay list, clearing override", m.forcedRelayURL)
 		m.forcedRelayURL = ""
@@ -297,8 +288,8 @@ func (m *Manager) UpdateServerURLsWithWeights(serverURLs []string, relayWeights 
 	m.relayConfigMu.Unlock()
 
 	m.serverPicker.ServerURLs.Store(effectiveURLs)
+	m.serverPicker.ServerWeights.Store(maps.Clone(m.relayWeights))
 	go m.switchHomeRelayIfNeeded(effectiveURLs)
-	m.schedulePreferredHomeRelayReconcile()
 }
 
 // UpdateToken updates the token in the token store.
@@ -310,16 +301,10 @@ func (m *Manager) RelayServers() []RelayServerInfo {
 	m.relayConfigMu.RLock()
 	configuredURLs := slices.Clone(m.configuredRelayURLs)
 	relayWeights := maps.Clone(m.relayWeights)
-	preferredRelays := maps.Clone(m.preferredRelays)
 	forcedURL := m.forcedRelayURL
-	effectiveURLs := m.effectiveRelayURLsLocked()
 	m.relayConfigMu.RUnlock()
 
 	currentURL := m.currentRelayURL()
-	preferredURL := ""
-	if len(effectiveURLs) > 0 {
-		preferredURL = effectiveURLs[0]
-	}
 
 	result := make([]RelayServerInfo, 0, len(configuredURLs))
 	for _, relayURL := range configuredURLs {
@@ -327,16 +312,10 @@ func (m *Manager) RelayServers() []RelayServerInfo {
 		if weight <= 0 {
 			weight = defaultRelayWeight
 		}
-		if forcedURL != "" && relayURL != forcedURL && weight == preferredRelayWeight && containsRelay(preferredRelays, relayURL) {
-			weight = defaultRelayWeight
-		}
-		if relayURL == forcedURL && weight < preferredRelayWeight {
-			weight = preferredRelayWeight
-		}
 		result = append(result, RelayServerInfo{
 			URL:       relayURL,
 			Weight:    weight,
-			Preferred: relayURL == preferredURL && containsRelay(preferredRelays, relayURL),
+			Preferred: false,
 			Forced:    relayURL == forcedURL,
 			Current:   relayURL == currentURL,
 		})
@@ -427,29 +406,29 @@ func (m *Manager) effectiveRelayURLsLocked() []string {
 
 func relayWeightsFromURLs(relayURLs []string) map[string]int {
 	weights := make(map[string]int, len(relayURLs))
-	for idx, relayURL := range relayURLs {
+	for _, relayURL := range relayURLs {
 		if relayURL == "" {
 			continue
 		}
-		weight := defaultRelayWeight
-		if idx == 0 {
-			weight = preferredRelayWeight
-		}
-		weights[relayURL] = weight
+		weights[relayURL] = defaultRelayWeight
 	}
 	return weights
 }
 
-func legacyPreferredRelays(relayURLs []string) map[string]struct{} {
-	if len(relayURLs) == 0 || relayURLs[0] == "" {
-		return nil
-	}
-	return map[string]struct{}{relayURLs[0]: {}}
-}
-
-func containsRelay(relays map[string]struct{}, relayURL string) bool {
-	_, ok := relays[relayURL]
-	return ok
+func sortRelayURLsByWeight(relayURLs []string, relayWeights map[string]int) []string {
+	urls := slices.Clone(relayURLs)
+	slices.SortStableFunc(urls, func(left, right string) int {
+		leftWeight := relayWeights[left]
+		if leftWeight <= 0 {
+			leftWeight = defaultRelayWeight
+		}
+		rightWeight := relayWeights[right]
+		if rightWeight <= 0 {
+			rightWeight = defaultRelayWeight
+		}
+		return rightWeight - leftWeight
+	})
+	return urls
 }
 
 func (m *Manager) currentRelayURL() string {
@@ -502,7 +481,7 @@ func (m *Manager) switchHomeRelayIfNeeded(serverURLs []string) {
 	defer m.switchMu.Unlock()
 
 	m.relayClientMu.Lock()
-	if !m.running || m.relayClient == nil || m.relayClient.connectionURL == serverURLs[0] {
+	if !m.running || m.relayClient == nil || m.currentRelayStillHighestPriorityLocked(serverURLs) {
 		m.relayClientMu.Unlock()
 		return
 	}
@@ -513,7 +492,7 @@ func (m *Manager) switchHomeRelayIfNeeded(serverURLs []string) {
 	m.relayClient = nil
 	m.relayClientMu.Unlock()
 
-	log.Infof("preferred Relay server changed from %s to %s, switching home Relay server", oldURL, serverURLs[0])
+	log.Infof("relay server order changed from %s to %s, switching home Relay server", oldURL, serverURLs[0])
 	if err := oldClient.Close(); err != nil {
 		log.Warnf("failed to close previous home Relay server %s: %v", oldURL, err)
 	}
@@ -527,82 +506,21 @@ func (m *Manager) switchHomeRelayIfNeeded(serverURLs []string) {
 
 	m.storeClient(newClient)
 	m.onServerConnected()
-	m.schedulePreferredHomeRelayReconcile()
 }
 
-func (m *Manager) schedulePreferredHomeRelayReconcile() {
-	go func() {
-		timer := time.NewTimer(preferredReconcileDelay)
-		defer timer.Stop()
-
-		select {
-		case <-timer.C:
-			m.reconcilePreferredHomeRelay()
-		case <-m.ctx.Done():
-		}
-	}()
-}
-
-func (m *Manager) reconcilePreferredHomeRelay() {
+func (m *Manager) currentRelayStillHighestPriorityLocked(serverURLs []string) bool {
+	currentURL := m.relayClient.connectionURL
 	m.relayConfigMu.RLock()
-	effectiveURLs := m.effectiveRelayURLsLocked()
+	currentWeight := m.relayWeights[currentURL]
+	if currentWeight <= 0 {
+		currentWeight = defaultRelayWeight
+	}
+	topWeight := m.relayWeights[serverURLs[0]]
+	if topWeight <= 0 {
+		topWeight = defaultRelayWeight
+	}
 	m.relayConfigMu.RUnlock()
-	if len(effectiveURLs) == 0 {
-		return
-	}
-
-	preferredURL := effectiveURLs[0]
-	if m.currentRelayURL() == preferredURL {
-		return
-	}
-
-	log.Infof("current home Relay server is not preferred, probing preferred Relay server: %s", preferredURL)
-	probeCtx, cancel := context.WithTimeout(m.ctx, preferredProbeTimeout)
-	defer cancel()
-
-	preferredClient := NewClient(preferredURL, m.tokenStore, m.peerID, m.mtu)
-	if err := preferredClient.Connect(probeCtx); err != nil {
-		log.Warnf("preferred Relay server probe failed for %s: %v", preferredURL, err)
-		return
-	}
-
-	if !m.replaceHomeRelayWithPreferred(preferredClient, preferredURL) {
-		if err := preferredClient.Close(); err != nil {
-			log.Warnf("failed to close unused preferred Relay server %s: %v", preferredURL, err)
-		}
-	}
-}
-
-func (m *Manager) replaceHomeRelayWithPreferred(preferredClient *Client, preferredURL string) bool {
-	m.switchMu.Lock()
-	defer m.switchMu.Unlock()
-
-	m.relayConfigMu.RLock()
-	effectiveURLs := m.effectiveRelayURLsLocked()
-	m.relayConfigMu.RUnlock()
-	if len(effectiveURLs) == 0 || effectiveURLs[0] != preferredURL {
-		return false
-	}
-
-	m.relayClientMu.Lock()
-	if !m.running || m.relayClient == nil || m.relayClient.connectionURL == preferredURL {
-		m.relayClientMu.Unlock()
-		return false
-	}
-
-	oldClient := m.relayClient
-	oldURL := oldClient.connectionURL
-	oldClient.SetOnDisconnectListener(nil)
-	m.relayClient = preferredClient
-	m.relayClient.SetOnDisconnectListener(m.onServerDisconnected)
-	m.relayClientMu.Unlock()
-
-	log.Infof("switching home Relay server from %s to preferred Relay server %s", oldURL, preferredURL)
-	if err := oldClient.Close(); err != nil {
-		log.Warnf("failed to close previous home Relay server %s: %v", oldURL, err)
-	}
-	m.onServerConnected()
-	return true
+	return currentWeight == topWeight && slices.Contains(serverURLs, currentURL)
 }
 
 func (m *Manager) openConnVia(ctx context.Context, serverAddress, peerKey string, serverIP netip.Addr) (net.Conn, error) {
@@ -707,11 +625,9 @@ func (m *Manager) listenGuardEvent(ctx context.Context) {
 		select {
 		case <-m.reconnectGuard.OnReconnected:
 			m.onServerConnected()
-			m.schedulePreferredHomeRelayReconcile()
 		case rc := <-m.reconnectGuard.OnNewRelayClient:
 			m.storeClient(rc)
 			m.onServerConnected()
-			m.schedulePreferredHomeRelayReconcile()
 		case <-ctx.Done():
 			return
 		}

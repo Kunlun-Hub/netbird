@@ -15,7 +15,6 @@ import (
 const (
 	maxConcurrentServers     = 7
 	defaultConnectionTimeout = 30 * time.Second
-	preferredConnectionDelay = 1500 * time.Millisecond
 )
 
 type connResult struct {
@@ -27,6 +26,7 @@ type connResult struct {
 type ServerPicker struct {
 	TokenStore        *auth.TokenStore
 	ServerURLs        atomic.Value
+	ServerWeights     atomic.Value
 	PeerID            string
 	MTU               uint16
 	ConnectionTimeout time.Duration
@@ -69,24 +69,11 @@ func (sp *ServerPicker) PickServer(parentCtx context.Context) (*Client, error) {
 		}
 	}
 
-	startFallbacks := func() {
-		for _, url := range serverURLs[1:] {
-			startConnection(url)
-		}
-	}
-
 	log.Debugf("pick server from list: %v", serverURLs)
-	startConnection(serverURLs[0])
-
-	fallbacksStarted := totalServers == 1
-	preferredTimer := time.NewTimer(preferredConnectionDelay)
-	defer preferredTimer.Stop()
-	if fallbacksStarted {
-		preferredTimer.Stop()
-	}
+	startedUpTo := sp.startNextPriorityGroup(serverURLs, startedServers, startConnection)
 
 	receivedResults := 0
-	for receivedResults < startedServers || !fallbacksStarted {
+	for receivedResults < startedServers || startedUpTo < totalServers {
 		select {
 		case cr := <-connResultChan:
 			receivedResults++
@@ -98,16 +85,8 @@ func (sp *ServerPicker) PickServer(parentCtx context.Context) (*Client, error) {
 			}
 
 			log.Tracef("failed to connect to Relay server: %s: %v", cr.Url, cr.Err)
-			if !fallbacksStarted {
-				fallbacksStarted = true
-				preferredTimer.Stop()
-				startFallbacks()
-			}
-		case <-preferredTimer.C:
-			if !fallbacksStarted {
-				log.Tracef("preferred Relay server did not connect within %s, trying fallback servers", preferredConnectionDelay)
-				fallbacksStarted = true
-				startFallbacks()
+			if receivedResults == startedServers && startedUpTo < totalServers {
+				startedUpTo = sp.startNextPriorityGroup(serverURLs, startedUpTo, startConnection)
 			}
 		case <-ctx.Done():
 			cancelConnectionsExcept("")
@@ -117,6 +96,33 @@ func (sp *ServerPicker) PickServer(parentCtx context.Context) (*Client, error) {
 
 	cancelConnectionsExcept("")
 	return nil, errors.New("failed to connect to any relay server: all attempts failed")
+}
+
+func (sp *ServerPicker) startNextPriorityGroup(serverURLs []string, startAt int, startConnection func(string)) int {
+	if startAt >= len(serverURLs) {
+		return startAt
+	}
+	remainingCapacity := maxConcurrentServers
+	weight := sp.relayURLWeight(serverURLs[startAt])
+	idx := startAt
+	for idx < len(serverURLs) && sp.relayURLWeight(serverURLs[idx]) == weight && remainingCapacity > 0 {
+		startConnection(serverURLs[idx])
+		idx++
+		remainingCapacity--
+	}
+	return idx
+}
+
+func (sp *ServerPicker) relayURLWeight(relayURL string) int {
+	weights, ok := sp.ServerWeights.Load().(map[string]int)
+	if !ok {
+		return defaultRelayWeight
+	}
+	weight := weights[relayURL]
+	if weight <= 0 {
+		return defaultRelayWeight
+	}
+	return weight
 }
 
 func (sp *ServerPicker) startConnection(ctx context.Context, resultChan chan connResult, url string) {

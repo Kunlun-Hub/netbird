@@ -836,7 +836,7 @@ func (s *Server) prepareLoginResponse(ctx context.Context, peer *nbpeer.Peer, ne
 	}
 
 	var relayToken *Token
-	if s.config.Relay != nil && len(relayhandler.PreferredRelayAddresses(s.config.Relay, peer.ID, peerGroups, settings)) > 0 {
+	if s.config.Relay != nil && len(relayhandler.RelayAddressesForAccount(s.config.Relay, settings)) > 0 {
 		relayToken, err = s.secretsManager.GenerateRelayToken()
 		if err != nil {
 			log.Errorf("failed generating Relay token: %v", err)
@@ -931,7 +931,7 @@ func (s *Server) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer 
 	}
 
 	var relayToken *Token
-	if s.config.Relay != nil && len(relayhandler.PreferredRelayAddresses(s.config.Relay, peer.ID, peerGroups, settings)) > 0 {
+	if s.config.Relay != nil && len(relayhandler.RelayAddressesForAccount(s.config.Relay, settings)) > 0 {
 		relayToken, err = s.secretsManager.GenerateRelayToken()
 		if err != nil {
 			log.Errorf("failed generating Relay token: %v", err)

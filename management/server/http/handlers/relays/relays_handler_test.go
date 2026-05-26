@@ -9,12 +9,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/require"
 
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/auth"
 )
@@ -32,12 +34,6 @@ func (m *relayConfigPusherMock) PushRelayList(_ context.Context, accountID strin
 	m.pushedAccountID = accountID
 	m.pushedPeerIDs = append([]string(nil), peerIDs...)
 	return m.count
-}
-
-func (m *relayConfigPusherMock) PushRelayTokens(_ context.Context, accountID string, peerIDs []string) int {
-	m.pushedAccountID = accountID
-	m.pushedPeerIDs = append([]string(nil), peerIDs...)
-	return m.pushedPeerCount
 }
 
 func TestApplyRelayConfigPushesGlobalRelayList(t *testing.T) {
@@ -92,90 +88,114 @@ func TestApplyRelayConfigPushesGlobalRelayList(t *testing.T) {
 	}, response)
 }
 
-func TestSaveRelayPreferencesPushesOnlyChangedPeers(t *testing.T) {
+func TestUpdateRelayPriorityUpdatesConfigAndPushesRelayList(t *testing.T) {
 	const (
 		accountID = "account-id"
 		userID    = "user-id"
 	)
 
-	oldSettings := &types.Settings{
-		Extra: &types.ExtraSettings{
-			RelayGroupPreferences: map[string][]string{
-				"group-a": {"relay-a"},
-			},
+	configPusher := &relayConfigPusherMock{count: 2}
+	config := &nbconfig.Relay{
+		Servers: []*nbconfig.RelayServer{
+			{ID: "relay-a", Address: "rels://relay-a.example.com:443", Priority: 30},
 		},
 	}
-	account := relayPreferenceTestAccount(accountID)
-	configPusher := &relayConfigPusherMock{pushedPeerCount: 1}
-
 	handler := &Handler{
-		config: &nbconfig.Relay{
-			Servers: []*nbconfig.RelayServer{
-				{ID: "relay-a", Address: "rels://relay-a.example.com:443"},
-				{ID: "relay-b", Address: "rels://relay-b.example.com:443"},
-			},
-		},
+		config: config,
 		accountManager: &mock_server.MockAccountManager{
-			GetAccountSettingsFunc: func(_ context.Context, requestedAccountID, requestedUserID string) (*types.Settings, error) {
-				require.Equal(t, accountID, requestedAccountID)
-				require.Equal(t, userID, requestedUserID)
-				return oldSettings, nil
+			GetStoreFunc: func() store.Store {
+				return nil
 			},
 			GetPeersFunc: func(_ context.Context, requestedAccountID, requestedUserID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error) {
 				require.Equal(t, accountID, requestedAccountID)
 				require.Equal(t, userID, requestedUserID)
 				require.Empty(t, nameFilter)
 				require.Empty(t, ipFilter)
-				return account.GetPeers(), nil
-			},
-			GetAllGroupsFunc: func(_ context.Context, requestedAccountID, requestedUserID string) ([]*types.Group, error) {
-				require.Equal(t, accountID, requestedAccountID)
-				require.Equal(t, userID, requestedUserID)
-				return []*types.Group{account.Groups["group-a"], account.Groups["group-b"]}, nil
-			},
-			GetAccountFunc: func(_ context.Context, requestedAccountID string) (*types.Account, error) {
-				require.Equal(t, accountID, requestedAccountID)
-				return account, nil
-			},
-			UpdateAccountSettingsFunc: func(_ context.Context, requestedAccountID, requestedUserID string, newSettings *types.Settings) (*types.Settings, error) {
-				require.Equal(t, accountID, requestedAccountID)
-				require.Equal(t, userID, requestedUserID)
-				require.Equal(t, map[string][]string{"group-a": {"relay-b"}}, newSettings.Extra.RelayGroupPreferences)
-				require.Empty(t, newSettings.Extra.RelayPeerPreferences)
-				return newSettings, nil
+				return []*nbpeer.Peer{
+					{ID: "peer-a", AccountID: accountID},
+					{ID: "embedded-peer", AccountID: accountID, ProxyMeta: nbpeer.ProxyMeta{Embedded: true}},
+					{ID: "peer-b", AccountID: accountID},
+				}, nil
 			},
 		},
 		configPusher: configPusher,
 	}
 
-	payload := relayPreferencesResponse{
-		GroupPreferences: map[string][]string{"group-a": {"relay-b"}},
-		PeerPreferences:  map[string][]string{},
-	}
-	body, err := json.Marshal(payload)
+	body, err := json.Marshal(updateRelayRequest{Priority: 80})
 	require.NoError(t, err)
-
-	req := httptest.NewRequest(http.MethodPut, "/api/relays/preferences", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPut, "/api/relays/relay-a", bytes.NewReader(body))
 	req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{
 		AccountId: accountID,
 		UserId:    userID,
 	})
+	req = mux.SetURLVars(req, map[string]string{"id": "relay-a"})
 
 	recorder := httptest.NewRecorder()
-	handler.saveRelayPreferences(recorder, req)
+	handler.updateRelay(recorder, req)
 
 	require.Equal(t, http.StatusOK, recorder.Code)
-	require.Equal(t, accountID, configPusher.pushedAccountID)
-	require.Equal(t, []string{"peer-a"}, configPusher.pushedPeerIDs)
+	require.Equal(t, 80, config.Servers[0].Priority)
+	require.True(t, configPusher.called)
+	require.Equal(t, []string{"peer-a", "peer-b"}, configPusher.pushedPeerIDs)
 
-	var response relayPreferencesResponse
+	var response applyRelayConfigResponse
 	require.NoError(t, json.NewDecoder(recorder.Body).Decode(&response))
-	require.Equal(t, 1, response.AppliedPeers)
-	require.Equal(t, payload.GroupPreferences, response.GroupPreferences)
-	require.Empty(t, response.PeerPreferences)
+	require.Equal(t, applyRelayConfigResponse{
+		Status:      "ok",
+		TargetPeers: 2,
+	}, response)
 }
 
-func TestPreferredRelayAddressesKeepsAllRelaysWithPreferredFirst(t *testing.T) {
+func TestUpdateRelayPriorityUsesGeneratedIDForAddressOnlyRelay(t *testing.T) {
+	const (
+		accountID    = "account-id"
+		userID       = "user-id"
+		relayAddress = "rels://auto.relay.01012388.xyz:12580"
+	)
+
+	config := &nbconfig.Relay{
+		Servers: []*nbconfig.RelayServer{
+			{Address: relayAddress, Priority: 30},
+		},
+	}
+	handler := &Handler{
+		config: config,
+		accountManager: &mock_server.MockAccountManager{
+			GetStoreFunc: func() store.Store {
+				return nil
+			},
+			GetPeersFunc: func(_ context.Context, requestedAccountID, requestedUserID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error) {
+				require.Equal(t, accountID, requestedAccountID)
+				require.Equal(t, userID, requestedUserID)
+				require.Empty(t, nameFilter)
+				require.Empty(t, ipFilter)
+				return []*nbpeer.Peer{{ID: "peer-a", AccountID: accountID}}, nil
+			},
+		},
+		configPusher: &relayConfigPusherMock{count: 1},
+	}
+
+	relayID := relayKey("", relayAddress)
+	require.NotEqual(t, relayAddress, relayID)
+	require.NotEmpty(t, relayID)
+
+	body, err := json.Marshal(updateRelayRequest{Priority: 55})
+	require.NoError(t, err)
+	req := httptest.NewRequest(http.MethodPut, "/api/relays/"+relayID, bytes.NewReader(body))
+	req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{
+		AccountId: accountID,
+		UserId:    userID,
+	})
+	req = mux.SetURLVars(req, map[string]string{"id": relayID})
+
+	recorder := httptest.NewRecorder()
+	handler.updateRelay(recorder, req)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	require.Equal(t, 55, config.Servers[0].Priority)
+}
+
+func TestRelayAddressesForAccountSortsByGlobalPriority(t *testing.T) {
 	config := &nbconfig.Relay{
 		Servers: []*nbconfig.RelayServer{
 			{ID: "relay-a", Address: "rels://relay-a.example.com:443", Priority: 40},
@@ -183,24 +203,16 @@ func TestPreferredRelayAddressesKeepsAllRelaysWithPreferredFirst(t *testing.T) {
 			{ID: "relay-c", Address: "rels://relay-c.example.com:443", Priority: 50},
 		},
 	}
-	settings := &types.Settings{
-		Extra: &types.ExtraSettings{
-			RelayPeerPreferences: map[string][]string{
-				"peer-a": {"relay-b"},
-			},
-		},
-	}
-
-	addresses := PreferredRelayAddresses(config, "peer-a", nil, settings)
+	addresses := RelayAddressesForAccount(config, nil)
 
 	require.Equal(t, []string{
-		"rels://relay-b.example.com:443",
 		"rels://relay-c.example.com:443",
 		"rels://relay-a.example.com:443",
+		"rels://relay-b.example.com:443",
 	}, addresses)
 }
 
-func TestPreferredRelayServersIncludesPriorityAndPreferredFlag(t *testing.T) {
+func TestRelayServersForAccountIncludesPriorityWithoutPreferredFlag(t *testing.T) {
 	config := &nbconfig.Relay{
 		Servers: []*nbconfig.RelayServer{
 			{ID: "relay-a", Address: "rels://relay-a.example.com:443", Priority: 40},
@@ -208,23 +220,44 @@ func TestPreferredRelayServersIncludesPriorityAndPreferredFlag(t *testing.T) {
 			{ID: "relay-c", Address: "rels://relay-c.example.com:443", Priority: 60},
 		},
 	}
+	relays := RelayServersForAccount(config, nil)
+
+	require.Len(t, relays, 3)
+	require.Equal(t, "relay-c", relays[0].ID)
+	require.Equal(t, 60, relays[0].Priority)
+	require.Equal(t, "relay-a", relays[1].ID)
+	require.Equal(t, 40, relays[1].Priority)
+	require.Equal(t, "relay-b", relays[2].ID)
+	require.Equal(t, 20, relays[2].Priority)
+}
+
+func TestRelayServersForAccountKeepsHighestPriorityForDuplicateAddress(t *testing.T) {
+	const relayAddress = "rels://auto.relay.01012388.xyz:12580"
+
+	config := &nbconfig.Relay{
+		Servers: []*nbconfig.RelayServer{
+			{Address: relayAddress, Priority: 30},
+		},
+	}
 	settings := &types.Settings{
 		Extra: &types.ExtraSettings{
-			RelayPeerPreferences: map[string][]string{
-				"peer-a": {"relay-b"},
+			RegisteredRelays: map[string]types.RegisteredRelay{
+				"relay-auto": {
+					ID:       "relay-auto",
+					Address:  relayAddress,
+					Priority: 40,
+					LastSeen: time.Now(),
+				},
 			},
 		},
 	}
 
-	relays := PreferredRelayServers(config, "peer-a", nil, settings)
+	relays := RelayServersForAccount(config, settings)
 
-	require.Len(t, relays, 3)
-	require.Equal(t, "relay-b", relays[0].ID)
-	require.Equal(t, preferredRelayPriority, relays[0].Priority)
-	require.True(t, relays[0].Preferred)
-	require.Equal(t, "relay-c", relays[1].ID)
-	require.Equal(t, 60, relays[1].Priority)
-	require.False(t, relays[1].Preferred)
+	require.Len(t, relays, 1)
+	require.Equal(t, "relay-auto", relays[0].ID)
+	require.Equal(t, relayAddress, relays[0].Address)
+	require.Equal(t, 40, relays[0].Priority)
 }
 
 func TestVerifyRelaySetupTokenAcceptsExpiredLegacyToken(t *testing.T) {
@@ -239,122 +272,4 @@ func TestVerifyRelaySetupTokenAcceptsExpiredLegacyToken(t *testing.T) {
 	actualAccountID, err := verifyRelaySetupToken(token, secret)
 	require.NoError(t, err)
 	require.Equal(t, accountID, actualAccountID)
-}
-
-func TestSaveRelayPreferencesSkipsPushWhenEffectiveRelayOrderDoesNotChange(t *testing.T) {
-	const (
-		accountID = "account-id"
-		userID    = "user-id"
-	)
-
-	oldSettings := &types.Settings{
-		Extra: &types.ExtraSettings{
-			RelayGroupPreferences: map[string][]string{
-				"group-a": {"relay-a"},
-				"group-b": {"relay-b"},
-			},
-		},
-	}
-	account := relayPreferenceTestAccount(accountID)
-	configPusher := &relayConfigPusherMock{pushedPeerCount: 1}
-
-	handler := &Handler{
-		config: &nbconfig.Relay{
-			Servers: []*nbconfig.RelayServer{
-				{ID: "relay-a", Address: "rels://relay-a.example.com:443"},
-				{ID: "relay-b", Address: "rels://relay-b.example.com:443"},
-			},
-		},
-		accountManager: &mock_server.MockAccountManager{
-			GetAccountSettingsFunc: func(_ context.Context, requestedAccountID, requestedUserID string) (*types.Settings, error) {
-				require.Equal(t, accountID, requestedAccountID)
-				require.Equal(t, userID, requestedUserID)
-				return oldSettings, nil
-			},
-			GetPeersFunc: func(_ context.Context, requestedAccountID, requestedUserID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error) {
-				require.Equal(t, accountID, requestedAccountID)
-				require.Equal(t, userID, requestedUserID)
-				require.Empty(t, nameFilter)
-				require.Empty(t, ipFilter)
-				return account.GetPeers(), nil
-			},
-			GetAllGroupsFunc: func(_ context.Context, requestedAccountID, requestedUserID string) ([]*types.Group, error) {
-				require.Equal(t, accountID, requestedAccountID)
-				require.Equal(t, userID, requestedUserID)
-				return []*types.Group{account.Groups["group-a"], account.Groups["group-b"]}, nil
-			},
-			GetAccountFunc: func(_ context.Context, requestedAccountID string) (*types.Account, error) {
-				require.Equal(t, accountID, requestedAccountID)
-				return account, nil
-			},
-			UpdateAccountSettingsFunc: func(_ context.Context, requestedAccountID, requestedUserID string, newSettings *types.Settings) (*types.Settings, error) {
-				require.Equal(t, accountID, requestedAccountID)
-				require.Equal(t, userID, requestedUserID)
-				return newSettings, nil
-			},
-		},
-		configPusher: configPusher,
-	}
-
-	payload := relayPreferencesResponse{
-		GroupPreferences: map[string][]string{
-			"group-a": {"relay-a"},
-			"group-b": {"relay-b"},
-		},
-		PeerPreferences: map[string][]string{},
-	}
-	body, err := json.Marshal(payload)
-	require.NoError(t, err)
-
-	req := httptest.NewRequest(http.MethodPut, "/api/relays/preferences", bytes.NewReader(body))
-	req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{
-		AccountId: accountID,
-		UserId:    userID,
-	})
-
-	recorder := httptest.NewRecorder()
-	handler.saveRelayPreferences(recorder, req)
-
-	require.Equal(t, http.StatusOK, recorder.Code)
-	require.Empty(t, configPusher.pushedAccountID)
-	require.Empty(t, configPusher.pushedPeerIDs)
-
-	var response relayPreferencesResponse
-	require.NoError(t, json.NewDecoder(recorder.Body).Decode(&response))
-	require.Equal(t, 0, response.AppliedPeers)
-	require.Equal(t, payload.GroupPreferences, response.GroupPreferences)
-	require.Empty(t, response.PeerPreferences)
-}
-
-func relayPreferenceTestAccount(accountID string) *types.Account {
-	return &types.Account{
-		Id: accountID,
-		Peers: map[string]*nbpeer.Peer{
-			"peer-a": {
-				ID:        "peer-a",
-				AccountID: accountID,
-			},
-			"peer-b": {
-				ID:        "peer-b",
-				AccountID: accountID,
-			},
-			"embedded-peer": {
-				ID:        "embedded-peer",
-				AccountID: accountID,
-				ProxyMeta: nbpeer.ProxyMeta{Embedded: true},
-			},
-		},
-		Groups: map[string]*types.Group{
-			"group-a": {
-				ID:        "group-a",
-				AccountID: accountID,
-				Peers:     []string{"peer-a", "embedded-peer"},
-			},
-			"group-b": {
-				ID:        "group-b",
-				AccountID: accountID,
-				Peers:     []string{"peer-b"},
-			},
-		},
-	}
 }

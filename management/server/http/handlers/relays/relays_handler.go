@@ -41,7 +41,6 @@ const (
 	relayRegistrationTTL        = 2 * time.Minute
 	relaySetupTokenVersion      = "v1"
 	defaultRelayPriority        = 30
-	preferredRelayPriority      = 70
 )
 
 type Handler struct {
@@ -53,7 +52,6 @@ type Handler struct {
 
 type relayConfigPusher interface {
 	PushRelayList(ctx context.Context, accountID string, peerIDs []string) int
-	PushRelayTokens(ctx context.Context, accountID string, peerIDs []string) int
 }
 
 type RelayStatus struct {
@@ -94,15 +92,13 @@ type registerRelayResponse struct {
 	Status string `json:"status"`
 }
 
+type updateRelayRequest struct {
+	Priority int `json:"priority"`
+}
+
 type applyRelayConfigResponse struct {
 	Status      string `json:"status"`
 	TargetPeers int    `json:"target_peers"`
-}
-
-type relayPreferencesResponse struct {
-	PeerPreferences  map[string][]string `json:"peer_preferences"`
-	GroupPreferences map[string][]string `json:"group_preferences"`
-	AppliedPeers     int                 `json:"applied_peers,omitempty"`
 }
 
 type healthResponse struct {
@@ -122,11 +118,10 @@ type registeredRelay struct {
 }
 
 type RelayServerDescriptor struct {
-	ID        string
-	Name      string
-	Address   string
-	Priority  int
-	Preferred bool
+	ID       string
+	Name     string
+	Address  string
+	Priority int
 }
 
 type relayRegistry struct {
@@ -143,63 +138,51 @@ func ActiveRelayAddresses(config *nbconfig.Relay) []string {
 }
 
 func ActiveRelayServers(config *nbconfig.Relay) []RelayServerDescriptor {
-	return relayServers(config, nil, nil)
+	return relayServers(config, nil)
 }
 
-func PreferredRelayAddresses(config *nbconfig.Relay, peerID string, peerGroups []string, settings *types.Settings) []string {
-	return relayDescriptorAddresses(PreferredRelayServers(config, peerID, peerGroups, settings))
+func RelayAddressesForAccount(config *nbconfig.Relay, settings *types.Settings) []string {
+	return relayDescriptorAddresses(RelayServersForAccount(config, settings))
 }
 
-func PreferredRelayServers(config *nbconfig.Relay, peerID string, peerGroups []string, settings *types.Settings) []RelayServerDescriptor {
-	registeredRelays := registeredRelaysFromSettings(settings)
-	preferred := preferredRelayIDs(peerID, peerGroups, settings)
-	return relayServers(config, preferred, registeredRelays)
+func RelayServersForAccount(config *nbconfig.Relay, settings *types.Settings) []RelayServerDescriptor {
+	return relayServers(config, registeredRelaysFromSettings(settings))
 }
 
-func preferredRelayIDs(peerID string, peerGroups []string, settings *types.Settings) []string {
-	if settings == nil || settings.Extra == nil {
-		return nil
-	}
-	if relays := settings.Extra.RelayPeerPreferences[peerID]; len(relays) > 0 {
-		return relays
-	}
-	peerGroups = slices.Clone(peerGroups)
-	slices.Sort(peerGroups)
-	seen := make(map[string]struct{})
-	var relays []string
-	for _, groupID := range peerGroups {
-		for _, relayID := range settings.Extra.RelayGroupPreferences[groupID] {
-			if _, ok := seen[relayID]; ok {
-				continue
-			}
-			relays = append(relays, relayID)
-			seen[relayID] = struct{}{}
-		}
-	}
-	return relays
-}
-
-func relayServers(config *nbconfig.Relay, preferred []string, registeredRelays []registeredRelay) []RelayServerDescriptor {
-	relayByPreference := make(map[string]RelayServerDescriptor)
+func relayServers(config *nbconfig.Relay, registeredRelays []registeredRelay) []RelayServerDescriptor {
 	var allRelays []RelayServerDescriptor
-	seenAll := make(map[string]struct{})
+	seenAll := make(map[string]int)
 	addRelay := func(id, name, address string, priority int) {
 		if address == "" {
 			return
 		}
-		relay := RelayServerDescriptor{
-			ID:       id,
-			Name:     name,
-			Address:  address,
-			Priority: normalizeRelayPriority(priority),
-		}
-		relayByPreference[relayKey(id, address)] = relay
-		relayByPreference[address] = relay
-		if _, ok := seenAll[address]; ok {
+		priority = normalizeRelayPriority(priority)
+		if idx, ok := seenAll[address]; ok {
+			existing := &allRelays[idx]
+			if priority > existing.Priority {
+				existing.ID = relayKey(id, address)
+				existing.Name = name
+				existing.Priority = priority
+				return
+			}
+			if priority == existing.Priority {
+				if existing.Name == "" {
+					existing.Name = name
+				}
+				if id != "" && strings.HasPrefix(existing.ID, "relay_") {
+					existing.ID = relayKey(id, address)
+				}
+			}
 			return
 		}
+		relay := RelayServerDescriptor{
+			ID:       relayKey(id, address),
+			Name:     name,
+			Address:  address,
+			Priority: priority,
+		}
+		seenAll[address] = len(allRelays)
 		allRelays = append(allRelays, relay)
-		seenAll[address] = struct{}{}
 	}
 
 	if config != nil {
@@ -225,39 +208,8 @@ func relayServers(config *nbconfig.Relay, preferred []string, registeredRelays [
 		addRelay(relay.ID, relay.Name, relay.Address, relay.Priority)
 	}
 
-	if len(preferred) == 0 {
-		sortRelayDescriptorsByPriority(allRelays)
-		return allRelays
-	}
-
-	relays := make([]RelayServerDescriptor, 0, len(allRelays))
-	seenPreferred := make(map[string]struct{}, len(preferred))
-	for _, relayID := range preferred {
-		relay, ok := relayByPreference[relayID]
-		if !ok || relay.Address == "" {
-			continue
-		}
-		if _, ok := seenPreferred[relay.Address]; ok {
-			continue
-		}
-		if relay.Priority < preferredRelayPriority {
-			relay.Priority = preferredRelayPriority
-		}
-		relay.Preferred = true
-		relays = append(relays, relay)
-		seenPreferred[relay.Address] = struct{}{}
-	}
-
-	sortRelayDescriptorsByPriority(relays)
-	var fallbackRelays []RelayServerDescriptor
-	for _, relay := range allRelays {
-		if _, ok := seenPreferred[relay.Address]; ok {
-			continue
-		}
-		fallbackRelays = append(fallbackRelays, relay)
-	}
-	sortRelayDescriptorsByPriority(fallbackRelays)
-	return append(relays, fallbackRelays...)
+	sortRelayDescriptorsByPriority(allRelays)
+	return allRelays
 }
 
 func relayDescriptorAddresses(relays []RelayServerDescriptor) []string {
@@ -291,10 +243,9 @@ func AddEndpoints(accountManager account.Manager, config *nbconfig.Relay, geo ge
 	handler := &Handler{accountManager: accountManager, config: config, geo: geo, configPusher: configPusher}
 	router.HandleFunc("/relays", handler.getAllRelays).Methods("GET", "OPTIONS")
 	router.HandleFunc("/relays/apply", handler.applyRelayConfig).Methods("POST", "OPTIONS")
-	router.HandleFunc("/relays/preferences", handler.getRelayPreferences).Methods("GET", "OPTIONS")
-	router.HandleFunc("/relays/preferences", handler.saveRelayPreferences).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/relays/setup-token", handler.createSetupToken).Methods("POST", "OPTIONS")
 	router.HandleFunc("/relays/register", handler.registerRelay).Methods("POST", "OPTIONS")
+	router.HandleFunc("/relays/{id}", handler.updateRelay).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/relays/{id}", handler.deleteRelay).Methods("DELETE", "OPTIONS")
 }
 
@@ -377,34 +328,6 @@ func (h *Handler) createSetupToken(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (h *Handler) getRelayPreferences(w http.ResponseWriter, r *http.Request) {
-	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
-	settings, err := h.accountManager.GetAccountSettings(r.Context(), userAuth.AccountId, userAuth.UserId)
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
-	response := relayPreferencesResponse{
-		PeerPreferences:  map[string][]string{},
-		GroupPreferences: map[string][]string{},
-	}
-	if settings != nil && settings.Extra != nil {
-		response.PeerPreferences = clonePreferences(settings.Extra.RelayPeerPreferences)
-		response.GroupPreferences = clonePreferences(settings.Extra.RelayGroupPreferences)
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		log.WithContext(r.Context()).Errorf("failed to encode relay preferences response: %v", err)
-	}
-}
-
 func (h *Handler) applyRelayConfig(w http.ResponseWriter, r *http.Request) {
 	if h.configPusher == nil {
 		util.WriteErrorResponse("relay config pusher is not configured", http.StatusPreconditionFailed, w)
@@ -422,21 +345,11 @@ func (h *Handler) applyRelayConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	peers, err := h.accountManager.GetPeers(r.Context(), userAuth.AccountId, userAuth.UserId, "", "")
+	targetPeers, err := h.pushRelayListToAccount(r.Context(), userAuth.AccountId, userAuth.UserId)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
-
-	peerIDs := make([]string, 0, len(peers))
-	for _, peer := range peers {
-		if peer == nil || peer.ProxyMeta.Embedded {
-			continue
-		}
-		peerIDs = append(peerIDs, peer.ID)
-	}
-
-	targetPeers := h.configPusher.PushRelayList(r.Context(), userAuth.AccountId, peerIDs)
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(applyRelayConfigResponse{
@@ -444,64 +357,6 @@ func (h *Handler) applyRelayConfig(w http.ResponseWriter, r *http.Request) {
 		TargetPeers: targetPeers,
 	}); err != nil {
 		log.WithContext(r.Context()).Errorf("failed to encode relay config apply response: %v", err)
-	}
-}
-
-func (h *Handler) saveRelayPreferences(w http.ResponseWriter, r *http.Request) {
-	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
-	var req relayPreferencesResponse
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
-		return
-	}
-
-	settings, err := h.accountManager.GetAccountSettings(r.Context(), userAuth.AccountId, userAuth.UserId)
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
-	oldSettings := settings.Copy()
-	newSettings := settings.Copy()
-	if newSettings.Extra == nil {
-		newSettings.Extra = &types.ExtraSettings{}
-	}
-	newSettings.Extra.RelayPeerPreferences = sanitizePreferences(req.PeerPreferences)
-	newSettings.Extra.RelayGroupPreferences = sanitizePreferences(req.GroupPreferences)
-	if err := h.validateRelayPreferences(r.Context(), userAuth.AccountId, userAuth.UserId, newSettings.Extra.RelayPeerPreferences, newSettings.Extra.RelayGroupPreferences); err != nil {
-		util.WriteErrorResponse(err.Error(), http.StatusBadRequest, w)
-		return
-	}
-
-	affectedPeers, err := h.affectedRelayPreferencePeers(r.Context(), userAuth.AccountId, oldSettings, newSettings)
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
-	if _, err := h.accountManager.UpdateAccountSettings(r.Context(), userAuth.AccountId, userAuth.UserId, newSettings); err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
-	appliedPeers := 0
-	if h.configPusher != nil && len(affectedPeers) > 0 {
-		appliedPeers = h.configPusher.PushRelayTokens(r.Context(), userAuth.AccountId, affectedPeers)
-	}
-
-	response := relayPreferencesResponse{
-		PeerPreferences:  newSettings.Extra.RelayPeerPreferences,
-		GroupPreferences: newSettings.Extra.RelayGroupPreferences,
-		AppliedPeers:     appliedPeers,
-	}
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		log.WithContext(r.Context()).Errorf("failed to encode relay preferences response: %v", err)
 	}
 }
 
@@ -540,11 +395,20 @@ func (h *Handler) registerRelay(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	priority := normalizeRelayPriority(req.Priority)
+	if accountID != "" {
+		if storedPriority, ok := h.storedRelayPriority(r.Context(), accountID, req.ID, req.Address); ok {
+			priority = storedPriority
+		}
+	} else if activePriority, ok := activeRelayRegistry.priorityFor(req.ID, req.Address); ok {
+		priority = activePriority
+	}
+
 	relay := registeredRelay{
 		ID:               req.ID,
 		Name:             req.Name,
 		Address:          req.Address,
-		Priority:         normalizeRelayPriority(req.Priority),
+		Priority:         priority,
 		ManagementURL:    req.ManagementURL,
 		Version:          req.Version,
 		ConnectedClients: req.ConnectedClients,
@@ -563,8 +427,54 @@ func (h *Handler) registerRelay(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (h *Handler) updateRelay(w http.ResponseWriter, r *http.Request) {
+	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	var req updateRelayRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
+		return
+	}
+
+	id := relayIDFromRequest(r)
+	if id == "" {
+		util.WriteErrorResponse("relay ID is required", http.StatusBadRequest, w)
+		return
+	}
+
+	priority := normalizeRelayPriority(req.Priority)
+	updatedConfigured := h.updateConfiguredRelayPriority(id, priority)
+	updatedActive := activeRelayRegistry.updatePriority(id, priority)
+	updatedStored := h.updateStoredRelayPriority(r.Context(), userAuth.AccountId, id, priority)
+	if !updatedConfigured && !updatedActive && !updatedStored {
+		util.WriteErrorResponse("relay not found", http.StatusNotFound, w)
+		return
+	}
+
+	targetPeers := 0
+	if h.configPusher != nil {
+		targetPeers, err = h.pushRelayListToAccount(r.Context(), userAuth.AccountId, userAuth.UserId)
+		if err != nil {
+			util.WriteError(r.Context(), err, w)
+			return
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(applyRelayConfigResponse{
+		Status:      "ok",
+		TargetPeers: targetPeers,
+	}); err != nil {
+		log.WithContext(r.Context()).Errorf("failed to encode relay update response: %v", err)
+	}
+}
+
 func (h *Handler) deleteRelay(w http.ResponseWriter, r *http.Request) {
-	id := strings.TrimSpace(mux.Vars(r)["id"])
+	id := relayIDFromRequest(r)
 	if id == "" {
 		util.WriteErrorResponse("relay ID is required", http.StatusBadRequest, w)
 		return
@@ -578,6 +488,37 @@ func (h *Handler) deleteRelay(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func relayIDFromRequest(r *http.Request) string {
+	id := strings.TrimSpace(mux.Vars(r)["id"])
+	if id == "" {
+		return ""
+	}
+	decoded, err := url.PathUnescape(id)
+	if err != nil {
+		return id
+	}
+	return strings.TrimSpace(decoded)
+}
+
+func (h *Handler) pushRelayListToAccount(ctx context.Context, accountID, userID string) (int, error) {
+	if h.configPusher == nil {
+		return 0, nil
+	}
+	peers, err := h.accountManager.GetPeers(ctx, accountID, userID, "", "")
+	if err != nil {
+		return 0, err
+	}
+
+	peerIDs := make([]string, 0, len(peers))
+	for _, peer := range peers {
+		if peer == nil || peer.ProxyMeta.Embedded {
+			continue
+		}
+		peerIDs = append(peerIDs, peer.ID)
+	}
+	return h.configPusher.PushRelayList(ctx, accountID, peerIDs), nil
 }
 
 func (h *Handler) registeredClients(ctx context.Context, accountID, userID string) (int, error) {
@@ -596,157 +537,6 @@ func (h *Handler) registeredClients(ctx context.Context, accountID, userID strin
 	return count, nil
 }
 
-func (h *Handler) validateRelayPreferences(ctx context.Context, accountID, userID string, peerPreferences, groupPreferences map[string][]string) error {
-	validRelays := h.relayPreferenceKeys(ctx, accountID)
-	for targetID, relayIDs := range peerPreferences {
-		for _, relayID := range relayIDs {
-			if _, ok := validRelays[relayID]; !ok {
-				return fmt.Errorf("unknown relay %q for peer %q", relayID, targetID)
-			}
-		}
-	}
-	for targetID, relayIDs := range groupPreferences {
-		for _, relayID := range relayIDs {
-			if _, ok := validRelays[relayID]; !ok {
-				return fmt.Errorf("unknown relay %q for group %q", relayID, targetID)
-			}
-		}
-	}
-
-	peers, err := h.accountManager.GetPeers(ctx, accountID, userID, "", "")
-	if err != nil {
-		return err
-	}
-	validPeers := make(map[string]struct{}, len(peers))
-	for _, peer := range peers {
-		validPeers[peer.ID] = struct{}{}
-	}
-	for peerID := range peerPreferences {
-		if _, ok := validPeers[peerID]; !ok {
-			return fmt.Errorf("unknown peer %q", peerID)
-		}
-	}
-
-	groups, err := h.accountManager.GetAllGroups(ctx, accountID, userID)
-	if err != nil {
-		return err
-	}
-	validGroups := make(map[string]struct{}, len(groups))
-	for _, group := range groups {
-		validGroups[group.ID] = struct{}{}
-	}
-	for groupID := range groupPreferences {
-		if _, ok := validGroups[groupID]; !ok {
-			return fmt.Errorf("unknown group %q", groupID)
-		}
-	}
-
-	return nil
-}
-
-func (h *Handler) affectedRelayPreferencePeers(ctx context.Context, accountID string, oldSettings, newSettings *types.Settings) ([]string, error) {
-	account, err := h.accountManager.GetAccount(ctx, accountID)
-	if err != nil {
-		return nil, err
-	}
-
-	var affected []string
-	for _, peer := range account.GetPeers() {
-		if peer == nil || peer.ProxyMeta.Embedded {
-			continue
-		}
-
-		peerGroups := account.GetPeerGroupsList(peer.ID)
-		oldRelays := PreferredRelayAddresses(h.config, peer.ID, peerGroups, oldSettings)
-		newRelays := PreferredRelayAddresses(h.config, peer.ID, peerGroups, newSettings)
-		if !stringSlicesEqual(oldRelays, newRelays) {
-			affected = append(affected, peer.ID)
-		}
-	}
-
-	slices.Sort(affected)
-	return affected, nil
-}
-
-func (h *Handler) relayPreferenceKeys(ctx context.Context, accountID string) map[string]struct{} {
-	keys := make(map[string]struct{})
-	add := func(id, address string) {
-		if id != "" {
-			keys[id] = struct{}{}
-		}
-		if address != "" {
-			keys[address] = struct{}{}
-		}
-		if key := relayKey(id, address); key != "" {
-			keys[key] = struct{}{}
-		}
-	}
-	if h.config != nil {
-		for _, server := range h.config.GetServers() {
-			if server == nil {
-				continue
-			}
-			add(server.ID, server.Address)
-		}
-	}
-	for _, relay := range activeRelayRegistry.list() {
-		add(relay.ID, relay.Address)
-	}
-	for _, relay := range h.storedRegisteredRelays(ctx, accountID) {
-		add(relay.ID, relay.Address)
-	}
-	return keys
-}
-
-func clonePreferences(source map[string][]string) map[string][]string {
-	if source == nil {
-		return map[string][]string{}
-	}
-	result := make(map[string][]string, len(source))
-	for targetID, relayIDs := range source {
-		result[targetID] = append([]string(nil), relayIDs...)
-	}
-	return result
-}
-
-func sanitizePreferences(source map[string][]string) map[string][]string {
-	result := make(map[string][]string, len(source))
-	for targetID, relayIDs := range source {
-		targetID = strings.TrimSpace(targetID)
-		if targetID == "" {
-			continue
-		}
-		seen := make(map[string]struct{}, len(relayIDs))
-		for _, relayID := range relayIDs {
-			relayID = strings.TrimSpace(relayID)
-			if relayID == "" {
-				continue
-			}
-			if _, ok := seen[relayID]; ok {
-				continue
-			}
-			result[targetID] = append(result[targetID], relayID)
-			seen[relayID] = struct{}{}
-		}
-		if len(result[targetID]) == 0 {
-			delete(result, targetID)
-		}
-	}
-	return result
-}
-
-func stringSlicesEqual(left, right []string) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for i := range left {
-		if left[i] != right[i] {
-			return false
-		}
-	}
-	return true
-}
-
 func (r *relayRegistry) upsert(relay registeredRelay) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -761,6 +551,34 @@ func (r *relayRegistry) delete(id string) bool {
 	}
 	delete(r.relays, id)
 	return true
+}
+
+func (r *relayRegistry) updatePriority(id string, priority int) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	for key, relay := range r.relays {
+		if !matchesRelay(id, key, relay.ID, relay.Address) {
+			continue
+		}
+		relay.Priority = priority
+		r.relays[key] = relay
+		return true
+	}
+	return false
+}
+
+func (r *relayRegistry) priorityFor(id, address string) (int, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	for key, relay := range r.relays {
+		if !matchesRelay(relayKey(id, address), key, relay.ID, relay.Address) {
+			continue
+		}
+		return normalizeRelayPriority(relay.Priority), true
+	}
+	return 0, false
 }
 
 func (r *relayRegistry) list() []registeredRelay {
@@ -815,6 +633,85 @@ func sortRegisteredRelays(relays []registeredRelay) {
 	slices.SortFunc(relays, func(left, right registeredRelay) int {
 		return strings.Compare(relayKey(left.ID, left.Address), relayKey(right.ID, right.Address))
 	})
+}
+
+func (h *Handler) updateConfiguredRelayPriority(id string, priority int) bool {
+	if h.config == nil {
+		return false
+	}
+	if len(h.config.Servers) == 0 && len(h.config.Addresses) > 0 {
+		h.config.Servers = h.config.GetServers()
+	}
+
+	updated := false
+	for _, server := range h.config.Servers {
+		if server == nil || !matchesRelay(id, relayKey(server.ID, server.Address), server.ID, server.Address) {
+			continue
+		}
+		server.Priority = priority
+		updated = true
+	}
+	return updated
+}
+
+func (h *Handler) updateStoredRelayPriority(ctx context.Context, accountID, id string, priority int) bool {
+	if accountID == "" || h.accountManager == nil {
+		return false
+	}
+	storeManager := h.accountManager.GetStore()
+	if storeManager == nil {
+		return false
+	}
+
+	updated := false
+	if err := storeManager.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		settings, err := transaction.GetAccountSettings(ctx, store.LockingStrengthUpdate, accountID)
+		if err != nil {
+			return err
+		}
+		if settings == nil || settings.Extra == nil || len(settings.Extra.RegisteredRelays) == 0 {
+			return nil
+		}
+
+		settings = settings.Copy()
+		for key, relay := range settings.Extra.RegisteredRelays {
+			if !matchesRelay(id, key, relay.ID, relay.Address) {
+				continue
+			}
+			relay.Priority = priority
+			settings.Extra.RegisteredRelays[key] = relay
+			updated = true
+		}
+		if !updated {
+			return nil
+		}
+		return transaction.SaveAccountSettings(ctx, accountID, settings)
+	}); err != nil {
+		log.WithContext(ctx).Warnf("failed to update stored relay %s priority for account %s: %v", id, accountID, err)
+	}
+	return updated
+}
+
+func (h *Handler) storedRelayPriority(ctx context.Context, accountID, id, address string) (int, bool) {
+	if accountID == "" || h.accountManager == nil {
+		return 0, false
+	}
+	storeManager := h.accountManager.GetStore()
+	if storeManager == nil {
+		return 0, false
+	}
+	settings, err := storeManager.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
+	if err != nil || settings == nil || settings.Extra == nil {
+		return 0, false
+	}
+	searchID := relayKey(id, address)
+	for key, relay := range settings.Extra.RegisteredRelays {
+		if !matchesRelay(searchID, key, relay.ID, relay.Address) {
+			continue
+		}
+		return normalizeRelayPriority(relay.Priority), true
+	}
+	return 0, false
 }
 
 func (h *Handler) persistRegisteredRelay(ctx context.Context, accountID string, relay registeredRelay) error {
@@ -877,7 +774,7 @@ func (h *Handler) registeredRelayStatus(ctx context.Context, r registeredRelay, 
 	}
 	result := RelayStatus{
 		Address:           r.Address,
-		ID:                r.ID,
+		ID:                relayKey(r.ID, r.Address),
 		Name:              r.Name,
 		ObservedID:        r.ID,
 		Registered:        true,
@@ -907,10 +804,20 @@ func (h *Handler) registeredRelayStatus(ctx context.Context, r registeredRelay, 
 }
 
 func relayKey(id, address string) string {
+	id = strings.TrimSpace(id)
 	if id != "" {
 		return id
 	}
-	return address
+	address = strings.TrimSpace(address)
+	if address == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(address))
+	return "relay_" + base64.RawURLEncoding.EncodeToString(sum[:])[:16]
+}
+
+func matchesRelay(searchID, key, id, address string) bool {
+	return searchID == key || searchID == id || searchID == address || searchID == relayKey(id, address)
 }
 
 func signRelaySetupToken(secret string, expiresAt int64, accountID string) (string, error) {
@@ -962,7 +869,7 @@ func relaySetupTokenSignature(secret, payload string) []byte {
 func (h *Handler) probeRelay(ctx context.Context, server *nbconfig.RelayServer, registeredClients int) RelayStatus {
 	result := RelayStatus{
 		Address:           server.Address,
-		ID:                server.ID,
+		ID:                relayKey(server.ID, server.Address),
 		Name:              server.Name,
 		Priority:          normalizeRelayPriority(server.Priority),
 		Status:            "offline",
