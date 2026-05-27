@@ -11,6 +11,7 @@ concurrency:
 
 jobs:
   trigger_sync_main:
+    if: ${{ vars.ENABLE_UPSTREAM_SYNC == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Trigger main branch sync

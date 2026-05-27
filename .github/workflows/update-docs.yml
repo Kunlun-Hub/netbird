@@ -10,7 +10,7 @@ on:
 jobs:
   trigger_docs_api_update:
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
+    if: vars.ENABLE_UPSTREAM_SYNC == 'true' && startsWith(github.ref, 'refs/tags/')
     steps:
       - name: Trigger API pages generation
         uses: benc-uk/workflow-dispatch@v1

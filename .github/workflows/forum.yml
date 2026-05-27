@@ -6,6 +6,7 @@ on:
 
 jobs:
   post:
+    if: ${{ vars.ENABLE_DISCOURSE_RELEASE_POST == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: roots/discourse-topic-github-release-action@main

@@ -240,7 +240,6 @@ jobs:
           cache: false
 
       - name: Install dependencies
-        if: steps.cache.outputs.cache-hit != 'true'
         run: sudo apt update && sudo apt install -y gcc-multilib g++-multilib libc6-dev-i386
 
       - name: Get Go environment
@@ -337,7 +336,6 @@ jobs:
           cache: false
 
       - name: Install dependencies
-        if: steps.cache.outputs.cache-hit != 'true'
         run: sudo apt update && sudo apt install -y gcc-multilib g++-multilib libc6-dev-i386
 
       - name: Get Go environment
@@ -409,14 +407,14 @@ jobs:
         run: git --no-pager diff --exit-code
 
       - name: Login to Docker hub
-        if: github.event.pull_request && github.event.pull_request.head.repo && github.event.pull_request.head.repo.full_name == '' || github.repository == github.event.pull_request.head.repo.full_name || !github.head_ref
+        if: vars.ENABLE_DOCKERHUB_LOGIN == 'true'
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USER }}
           password: ${{ secrets.DOCKER_TOKEN }}
 
       - name: docker login for root user
-        if: github.event.pull_request && github.event.pull_request.head.repo && github.event.pull_request.head.repo.full_name == '' || github.repository == github.event.pull_request.head.repo.full_name || !github.head_ref
+        if: vars.ENABLE_DOCKERHUB_LOGIN == 'true'
         env:
           DOCKER_USER: ${{ secrets.DOCKER_USER }}
           DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
@@ -438,7 +436,7 @@ jobs:
   benchmark:
     name: "Management / Benchmark"
     needs: [ build-cache ]
-    if: ${{ needs.build-cache.outputs.management == 'true' || github.event_name != 'pull_request' }}
+    if: ${{ vars.ENABLE_BENCHMARK_CI == 'true' && (needs.build-cache.outputs.management == 'true' || github.event_name != 'pull_request') }}
     strategy:
       fail-fast: false
       matrix:
@@ -504,14 +502,14 @@ jobs:
         run: git --no-pager diff --exit-code
 
       - name: Login to Docker hub
-        if: github.event.pull_request && github.event.pull_request.head.repo && github.event.pull_request.head.repo.full_name == '' || github.repository == github.event.pull_request.head.repo.full_name || !github.head_ref
+        if: vars.ENABLE_DOCKERHUB_LOGIN == 'true'
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USER }}
           password: ${{ secrets.DOCKER_TOKEN }}
 
       - name: docker login for root user
-        if: github.event.pull_request && github.event.pull_request.head.repo && github.event.pull_request.head.repo.full_name == '' || github.repository == github.event.pull_request.head.repo.full_name || !github.head_ref
+        if: vars.ENABLE_DOCKERHUB_LOGIN == 'true'
         env:
           DOCKER_USER: ${{ secrets.DOCKER_USER }}
           DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
@@ -530,7 +528,7 @@ jobs:
   api_benchmark:
     name: "Management / Benchmark (API)"
     needs: [ build-cache ]
-    if: ${{ needs.build-cache.outputs.management == 'true' || github.event_name != 'pull_request' }}
+    if: ${{ vars.ENABLE_BENCHMARK_CI == 'true' && (needs.build-cache.outputs.management == 'true' || github.event_name != 'pull_request') }}
     strategy:
       fail-fast: false
       matrix:
@@ -596,14 +594,14 @@ jobs:
         run: git --no-pager diff --exit-code
 
       - name: Login to Docker hub
-        if: github.event.pull_request && github.event.pull_request.head.repo && github.event.pull_request.head.repo.full_name == '' || github.repository == github.event.pull_request.head.repo.full_name || !github.head_ref
+        if: vars.ENABLE_DOCKERHUB_LOGIN == 'true'
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USER }}
           password: ${{ secrets.DOCKER_TOKEN }}
 
       - name: docker login for root user
-        if: github.event.pull_request && github.event.pull_request.head.repo && github.event.pull_request.head.repo.full_name == '' || github.repository == github.event.pull_request.head.repo.full_name || !github.head_ref
+        if: vars.ENABLE_DOCKERHUB_LOGIN == 'true'
         env:
           DOCKER_USER: ${{ secrets.DOCKER_USER }}
           DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
