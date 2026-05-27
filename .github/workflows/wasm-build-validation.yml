@@ -48,7 +48,7 @@ jobs:
         with:
           go-version-file: "go.mod"
       - name: Build Wasm client
-        run: GOOS=js GOARCH=wasm go build -o netbird.wasm ./client/wasm/cmd
+        run: GOOS=js GOARCH=wasm go build -trimpath -ldflags="-s -w" -o netbird.wasm ./client/wasm/cmd
         env:
           CGO_ENABLED: 0
       - name: Check Wasm build size
@@ -65,4 +65,3 @@ jobs:
             echo "Wasm binary size (${SIZE_MB}MB) exceeds 56MB limit!"
             exit 1
           fi
-
