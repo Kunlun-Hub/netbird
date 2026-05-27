@@ -45,8 +45,8 @@ while getopts ":v:ph" opt; do
   esac
 done
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SERVER_DIR="${ROOT_DIR}/netbird"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SERVER_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 TAGGED_IMAGE="${IMAGE_NAME}:${VERSION}"
 
 if ! command -v docker >/dev/null 2>&1; then

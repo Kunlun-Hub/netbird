@@ -4,6 +4,14 @@
 
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+NETBIRD_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+WORKSPACE_DIR="$(cd "${NETBIRD_DIR}/.." && pwd)"
+if [[ -d "${WORKSPACE_DIR}/go/bin" ]]; then
+    export PATH="${WORKSPACE_DIR}/go/bin:${PATH}"
+fi
+cd "${NETBIRD_DIR}"
+
 # 颜色输出
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -344,4 +352,3 @@ else
     echo "要推送镜像，使用: docker push $FULL_IMAGE_NAME"
 fi
 echo ""
-

@@ -3,8 +3,13 @@
 
 set -e
 
-# 添加 Go 到 PATH
-export PATH=/root/cloink/go/bin:$PATH
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+NETBIRD_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+WORKSPACE_DIR="$(cd "${NETBIRD_DIR}/.." && pwd)"
+if [[ -d "${WORKSPACE_DIR}/go/bin" ]]; then
+    export PATH="${WORKSPACE_DIR}/go/bin:${PATH}"
+fi
+cd "${NETBIRD_DIR}"
 
 echo "=== NetBird Windows AMD64 GUI 构建脚本 ==="
 
@@ -120,11 +125,11 @@ echo "清理并创建输出目录: dist/netbird_windows_amd64"
 
 # 复制指定版本的 opengl32.dll
 echo "=== 准备 opengl32.dll ==="
-if [ -f "/root/cloink/netbird/opengl32/opengl32.dll" ]; then
-    cp /root/cloink/netbird/opengl32/opengl32.dll dist/netbird_windows_amd64/opengl32.dll
+if [ -f "${NETBIRD_DIR}/opengl32/opengl32.dll" ]; then
+    cp "${NETBIRD_DIR}/opengl32/opengl32.dll" dist/netbird_windows_amd64/opengl32.dll
     echo "opengl32.dll 已复制到输出目录"
 else
-    echo "错误: 未找到 /root/cloink/netbird/opengl32/opengl32.dll"
+    echo "错误: 未找到 ${NETBIRD_DIR}/opengl32/opengl32.dll"
     exit 1
 fi
 

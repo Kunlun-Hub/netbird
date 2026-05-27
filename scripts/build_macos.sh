@@ -3,6 +3,10 @@
 
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+NETBIRD_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+cd "${NETBIRD_DIR}"
+
 echo "=== NetBird macOS GUI 构建脚本 ==="
 
 # 显示帮助信息

@@ -47,8 +47,8 @@ while getopts ":v:ph" opt; do
   esac
 done
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-NETBIRD_DIR="${ROOT_DIR}/netbird"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+NETBIRD_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 TAGGED_IMAGE="${IMAGE_NAME}:${VERSION}"
 BUILD_DIR="$(mktemp -d -t cloink-relay.XXXXXX)"
 

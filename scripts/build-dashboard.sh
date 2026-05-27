@@ -45,8 +45,20 @@ while getopts ":v:ph" opt; do
   esac
 done
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DASHBOARD_DIR="${ROOT_DIR}/dashboard"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+NETBIRD_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+WORKSPACE_DIR="$(cd "${NETBIRD_DIR}/.." && pwd)"
+
+if [[ -d "${WORKSPACE_DIR}/dashboard" ]]; then
+  DASHBOARD_DIR="${WORKSPACE_DIR}/dashboard"
+elif [[ -d "${NETBIRD_DIR}/dashboard" ]]; then
+  DASHBOARD_DIR="${NETBIRD_DIR}/dashboard"
+else
+  echo "未找到 dashboard 目录。已尝试:" >&2
+  echo "  - ${WORKSPACE_DIR}/dashboard" >&2
+  echo "  - ${NETBIRD_DIR}/dashboard" >&2
+  exit 1
+fi
 TAGGED_IMAGE="${IMAGE_NAME}:${VERSION}"
 
 copy_dashboard_assets() {
