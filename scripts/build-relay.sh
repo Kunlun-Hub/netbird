@@ -2,23 +2,25 @@
 
 set -euo pipefail
 
-IMAGE_NAME="ohoimager/cloink-server"
+IMAGE_NAME="ohoimager/cloink-relay"
 VERSION="latest"
 PUSH=false
 
 show_help() {
   cat <<'EOF'
 用法:
-  build-server.sh -v <version> [-p]
+  build-relay.sh -v <version> [-p]
 
 选项:
-  -v <version>   镜像版本标签，例如 2.38.0
+  -v <version>   镜像版本标签，例如 flow-dev
   -p             构建完成后推送到 Docker Hub
   -h             显示帮助
 
 示例:
-  ./scripts/build-server.sh -v 2.38.0
-  ./scripts/build-server.sh -v 2.38.0 -p
+  ./scripts/build-relay.sh -v flow-dev
+  ./scripts/build-relay.sh -v flow-dev -p
+
+部署时可通过 NB_RELAY_ID 标识具体节点，例如 NB_RELAY_ID=hk-01。
 EOF
 }
 
@@ -46,21 +48,32 @@ while getopts ":v:ph" opt; do
 done
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SERVER_DIR="${ROOT_DIR}/netbird"
+NETBIRD_DIR="${ROOT_DIR}/netbird"
 TAGGED_IMAGE="${IMAGE_NAME}:${VERSION}"
+BUILD_DIR="$(mktemp -d -t cloink-relay.XXXXXX)"
+
+cleanup() {
+  rm -rf "${BUILD_DIR}"
+}
+trap cleanup EXIT
 
 if ! command -v docker >/dev/null 2>&1; then
   echo "未找到 docker 命令" >&2
   exit 1
 fi
 
-echo "==> 构建 server 镜像 ${TAGGED_IMAGE}"
-cd "${SERVER_DIR}"
+if ! command -v go >/dev/null 2>&1; then
+  echo "未找到 go 命令" >&2
+  exit 1
+fi
 
-docker build \
-  -f "${SERVER_DIR}/combined/Dockerfile.multistage" \
-  -t "${TAGGED_IMAGE}" \
-  "${SERVER_DIR}"
+echo "==> 编译 Relay 二进制"
+cd "${NETBIRD_DIR}"
+CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "${BUILD_DIR}/netbird-relay" ./relay
+
+echo "==> 构建 Relay 镜像 ${TAGGED_IMAGE}"
+cp "${NETBIRD_DIR}/relay/Dockerfile" "${BUILD_DIR}/Dockerfile"
+docker build -t "${TAGGED_IMAGE}" "${BUILD_DIR}"
 
 if [[ "${PUSH}" == "true" ]]; then
   echo "==> 推送镜像 ${TAGGED_IMAGE}"
