@@ -35,7 +35,7 @@ const (
 	// DefaultManagementURL points to the NetBird's cloud management endpoint
 	DefaultManagementURL = "https://cloink.4w.ink:443"
 	// oldDefaultManagementURL points to the NetBird's old cloud management endpoint
-	oldDefaultManagementURL = "https://cloink.4w.ink:443"
+	oldDefaultManagementURL = "https://api.wiretrustee.com:33073"
 	// DefaultAdminURL points to NetBird's cloud management console
 	DefaultAdminURL = "https://cloink.4w.ink:443"
 )
