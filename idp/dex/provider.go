@@ -3,6 +3,8 @@ package dex
 
 import (
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -10,6 +12,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -569,16 +572,296 @@ func (p *Provider) SetClientsMFAChain(ctx context.Context, clientIDs []string, m
 // The handler expects requests with path prefix "/oauth2/".
 func (p *Provider) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Dex's /logout endpoint requires id_token_hint for RP-initiated logout with
-		// post_logout_redirect_uri. If the dashboard calls logout without one, avoid
-		// rendering Dex's non-actionable Bad Request page and send the user home.
-		if strings.HasSuffix(r.URL.Path, "/logout") && r.FormValue("id_token_hint") == "" {
-			http.Redirect(w, r, "/", http.StatusSeeOther)
+		if strings.HasSuffix(r.URL.Path, "/logout") {
+			p.handleLocalLogout(w, r)
 			return
 		}
 
 		p.dexServer.ServeHTTP(w, r)
 	})
+}
+
+func (p *Provider) handleLocalLogout(w http.ResponseWriter, r *http.Request) {
+	p.clearSessionFromCookie(w, r)
+
+	clientID, err := parseLogoutClientID(r.FormValue("id_token_hint"))
+	if err != nil {
+		p.logger.Debug("failed to parse logout id_token_hint", "err", err)
+	}
+	if clientID == "" {
+		clientID = r.FormValue("client_id")
+	}
+
+	http.Redirect(w, r, p.logoutRedirectURL(r, clientID, r.FormValue("state")), http.StatusSeeOther)
+}
+
+func parseLogoutClientID(idTokenHint string) (string, error) {
+	if idTokenHint == "" {
+		return "", nil
+	}
+
+	parts := strings.Split(idTokenHint, ".")
+	if len(parts) < 2 {
+		return "", errors.New("invalid JWT")
+	}
+
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return "", fmt.Errorf("decode JWT payload: %w", err)
+	}
+
+	var claims struct {
+		Audience         any    `json:"aud"`
+		AuthorizingParty string `json:"azp"`
+	}
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return "", fmt.Errorf("decode JWT claims: %w", err)
+	}
+
+	if claims.AuthorizingParty != "" {
+		return claims.AuthorizingParty, nil
+	}
+	return firstAudience(claims.Audience), nil
+}
+
+func firstAudience(audience any) string {
+	switch aud := audience.(type) {
+	case string:
+		return aud
+	case []any:
+		if len(aud) == 1 {
+			if value, ok := aud[0].(string); ok {
+				return value
+			}
+		}
+	}
+	return ""
+}
+
+func (p *Provider) clearSessionFromCookie(w http.ResponseWriter, r *http.Request) {
+	defer p.clearSessionCookie(w)
+
+	cookie, err := r.Cookie(p.sessionCookieName())
+	if err != nil || cookie.Value == "" {
+		return
+	}
+
+	userID, connectorID, nonce, err := p.parseSessionCookie(cookie.Value)
+	if err != nil {
+		p.logger.Debug("failed to parse logout session cookie", "err", err)
+		return
+	}
+
+	session, err := p.storage.GetAuthSession(r.Context(), userID, connectorID)
+	if err != nil {
+		if !errors.Is(err, storage.ErrNotFound) {
+			p.logger.Warn("failed to get auth session on logout", "err", err)
+		}
+		return
+	}
+	if session.Nonce != nonce {
+		p.logger.Warn("logout session cookie nonce mismatch", "user_id", userID, "connector_id", connectorID)
+		return
+	}
+
+	p.revokeRefreshTokens(r.Context(), userID, connectorID)
+	if err := p.storage.DeleteAuthSession(r.Context(), userID, connectorID); err != nil && !errors.Is(err, storage.ErrNotFound) {
+		p.logger.Warn("failed to delete auth session on logout", "err", err, "user_id", userID, "connector_id", connectorID)
+	}
+}
+
+func (p *Provider) parseSessionCookie(value string) (userID, connectorID, nonce string, err error) {
+	if key := p.sessionCookieEncryptionKey(); len(key) > 0 {
+		value, err = decryptSessionCookieValue(value, key)
+		if err != nil {
+			return "", "", "", err
+		}
+	}
+
+	fields, err := parseProtoStringFields(value)
+	if err != nil {
+		return "", "", "", err
+	}
+	return fields[1], fields[2], fields[3], nil
+}
+
+func parseProtoStringFields(encoded string) (map[int]string, error) {
+	buf, err := base64.RawURLEncoding.DecodeString(encoded)
+	if err != nil {
+		return nil, err
+	}
+
+	fields := make(map[int]string)
+	for i := 0; i < len(buf); {
+		tag, err := readProtoVarint(buf, &i)
+		if err != nil {
+			return nil, err
+		}
+
+		fieldNum := int(tag >> 3)
+		wireType := tag & 0x07
+		if wireType != 2 {
+			return nil, fmt.Errorf("unexpected wire type %d", wireType)
+		}
+
+		length, err := readProtoVarint(buf, &i)
+		if err != nil {
+			return nil, err
+		}
+		if length > uint64(len(buf)-i) {
+			return nil, errors.New("truncated string field")
+		}
+
+		fields[fieldNum] = string(buf[i : i+int(length)])
+		i += int(length)
+	}
+	return fields, nil
+}
+
+func readProtoVarint(buf []byte, pos *int) (uint64, error) {
+	var value uint64
+	for shift := uint(0); shift < 64; shift += 7 {
+		if *pos >= len(buf) {
+			return 0, errors.New("truncated varint")
+		}
+		b := buf[*pos]
+		*pos = *pos + 1
+		value |= uint64(b&0x7f) << shift
+		if b < 0x80 {
+			return value, nil
+		}
+	}
+	return 0, errors.New("varint overflow")
+}
+
+func decryptSessionCookieValue(encrypted string, key []byte) (string, error) {
+	data, err := base64.RawURLEncoding.DecodeString(encrypted)
+	if err != nil {
+		return "", err
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return "", err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+	nonceSize := gcm.NonceSize()
+	if len(data) < nonceSize {
+		return "", errors.New("session cookie ciphertext too short")
+	}
+	plaintext, err := gcm.Open(nil, data[:nonceSize], data[nonceSize:], nil)
+	if err != nil {
+		return "", err
+	}
+	return string(plaintext), nil
+}
+
+func (p *Provider) revokeRefreshTokens(ctx context.Context, userID, connectorID string) {
+	offlineSessions, err := p.storage.GetOfflineSessions(ctx, userID, connectorID)
+	if err != nil {
+		if !errors.Is(err, storage.ErrNotFound) {
+			p.logger.Warn("failed to get offline sessions on logout", "err", err)
+		}
+		return
+	}
+
+	tokenIDs := make(map[string]struct{}, len(offlineSessions.Refresh))
+	for _, ref := range offlineSessions.Refresh {
+		tokenIDs[ref.ID] = struct{}{}
+	}
+
+	if err := p.storage.UpdateOfflineSessions(ctx, userID, connectorID, func(old storage.OfflineSessions) (storage.OfflineSessions, error) {
+		for clientID, ref := range old.Refresh {
+			if _, ok := tokenIDs[ref.ID]; ok {
+				delete(old.Refresh, clientID)
+			}
+		}
+		return old, nil
+	}); err != nil && !errors.Is(err, storage.ErrNotFound) {
+		p.logger.Warn("failed to update offline sessions on logout", "err", err)
+	}
+
+	for tokenID := range tokenIDs {
+		if err := p.storage.DeleteRefresh(ctx, tokenID); err != nil && !errors.Is(err, storage.ErrNotFound) {
+			p.logger.Warn("failed to delete refresh token on logout", "err", err, "token_id", tokenID)
+		}
+	}
+}
+
+func (p *Provider) logoutRedirectURL(r *http.Request, clientID, state string) string {
+	redirectURI := r.FormValue("post_logout_redirect_uri")
+	if redirectURI == "" {
+		return "/"
+	}
+	if clientID == "" {
+		clientID = defaultDashboardClientID
+	}
+
+	client, err := p.storage.GetClient(r.Context(), clientID)
+	if err != nil || !containsString(client.PostLogoutRedirectURIs, redirectURI) {
+		return "/"
+	}
+
+	u, err := url.Parse(redirectURI)
+	if err != nil {
+		return "/"
+	}
+	if state != "" {
+		q := u.Query()
+		q.Set("state", state)
+		u.RawQuery = q.Encode()
+	}
+	return u.String()
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
+func (p *Provider) clearSessionCookie(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     p.sessionCookieName(),
+		Value:    "",
+		Path:     p.sessionCookiePath(),
+		HttpOnly: true,
+		Secure:   p.sessionCookieSecure(),
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   -1,
+	})
+}
+
+func (p *Provider) sessionCookieName() string {
+	if p.yamlConfig != nil && p.yamlConfig.Sessions != nil && p.yamlConfig.Sessions.CookieName != "" {
+		return p.yamlConfig.Sessions.CookieName
+	}
+	return "dex_session"
+}
+
+func (p *Provider) sessionCookieEncryptionKey() []byte {
+	if p.yamlConfig != nil && p.yamlConfig.Sessions != nil && p.yamlConfig.Sessions.CookieEncryptionKey != "" {
+		return []byte(p.yamlConfig.Sessions.CookieEncryptionKey)
+	}
+	return nil
+}
+
+func (p *Provider) sessionCookiePath() string {
+	issuerURL, err := url.Parse(p.GetIssuer())
+	if err != nil || issuerURL.Path == "" {
+		return "/"
+	}
+	return issuerURL.Path
+}
+
+func (p *Provider) sessionCookieSecure() bool {
+	issuerURL, err := url.Parse(p.GetIssuer())
+	return err == nil && issuerURL.Scheme == "https"
 }
 
 // CreateUser creates a new user with the given email, username, and password.

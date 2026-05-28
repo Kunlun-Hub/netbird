@@ -2,10 +2,12 @@ package dex
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -168,6 +170,89 @@ func TestHandlerRedirectsLogoutWithoutIDTokenHint(t *testing.T) {
 
 	require.Equal(t, http.StatusSeeOther, rec.Code)
 	require.Equal(t, "/", rec.Header().Get("Location"))
+}
+
+func TestHandlerLogoutClearsLocalSession(t *testing.T) {
+	ctx := context.Background()
+
+	tmpDir, err := os.MkdirTemp("", "dex-local-logout-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	provider, err := NewProvider(ctx, &Config{
+		Issuer:  "https://cloink.example.com/oauth2",
+		Port:    5556,
+		DataDir: tmpDir,
+	})
+	require.NoError(t, err)
+	defer func() { _ = provider.Stop(ctx) }()
+
+	const (
+		userID      = "7aad8c05-3287-473f-b42a-365504bf25e7"
+		connectorID = "local"
+		nonce       = "logout-nonce"
+		redirectURI = "https://cloink.example.com/"
+	)
+
+	require.NoError(t, provider.storage.CreateClient(ctx, storage.Client{
+		ID:                     defaultDashboardClientID,
+		Name:                   "dashboard",
+		Public:                 true,
+		PostLogoutRedirectURIs: []string{redirectURI},
+	}))
+	require.NoError(t, provider.storage.CreateAuthSession(ctx, storage.AuthSession{
+		UserID:      userID,
+		ConnectorID: connectorID,
+		Nonce:       nonce,
+	}))
+
+	idTokenHint := testLogoutIDTokenHint(EncodeDexUserID(userID, connectorID), defaultDashboardClientID)
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/oauth2/logout?id_token_hint="+url.QueryEscape(idTokenHint)+"&post_logout_redirect_uri="+url.QueryEscape(redirectURI),
+		nil,
+	)
+	req.AddCookie(&http.Cookie{
+		Name:  "dex_session",
+		Value: testSessionCookieValue(userID, connectorID, nonce),
+		Path:  "/oauth2",
+	})
+	rec := httptest.NewRecorder()
+
+	provider.Handler().ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusSeeOther, rec.Code)
+	require.Equal(t, redirectURI, rec.Header().Get("Location"))
+	_, err = provider.storage.GetAuthSession(ctx, userID, connectorID)
+	require.ErrorIs(t, err, storage.ErrNotFound)
+
+	cookies := rec.Result().Cookies()
+	require.Len(t, cookies, 1)
+	assert.Equal(t, "dex_session", cookies[0].Name)
+	assert.Equal(t, -1, cookies[0].MaxAge)
+	assert.Equal(t, "/oauth2", cookies[0].Path)
+	assert.True(t, cookies[0].Secure)
+}
+
+func testLogoutIDTokenHint(subject, clientID string) string {
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none"}`))
+	payload := base64.RawURLEncoding.EncodeToString([]byte(`{"sub":"` + subject + `","aud":"` + clientID + `"}`))
+	return header + "." + payload + "."
+}
+
+func testSessionCookieValue(userID, connectorID, nonce string) string {
+	var buf []byte
+	buf = appendTestProtoString(buf, 1, userID)
+	buf = appendTestProtoString(buf, 2, connectorID)
+	buf = appendTestProtoString(buf, 3, nonce)
+	return base64.RawURLEncoding.EncodeToString(buf)
+}
+
+func appendTestProtoString(buf []byte, fieldNum int, value string) []byte {
+	buf = append(buf, byte(fieldNum<<3|2))
+	buf = append(buf, byte(len(value)))
+	buf = append(buf, []byte(value)...)
+	return buf
 }
 
 func TestCreateUserInTempDB(t *testing.T) {
