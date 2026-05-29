@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang/mock/gomock"
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/require"
 
@@ -193,6 +194,91 @@ func TestUpdateRelayPriorityUsesGeneratedIDForAddressOnlyRelay(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, recorder.Code)
 	require.Equal(t, 55, config.Servers[0].Priority)
+}
+
+func TestRegisterRelayKeepsStoredPriorityForSameAddressWhenIDChanges(t *testing.T) {
+	const (
+		accountID    = "account-id"
+		secret       = "relay-secret"
+		oldRelayID   = "relay-old"
+		newRelayID   = "relay-new"
+		relayAddress = "rels://relay.example.com:443"
+	)
+
+	activeRelayRegistry = &relayRegistry{relays: make(map[string]registeredRelay)}
+	t.Cleanup(func() {
+		activeRelayRegistry = &relayRegistry{relays: make(map[string]registeredRelay)}
+	})
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	settings := &types.Settings{
+		Extra: &types.ExtraSettings{
+			RegisteredRelays: map[string]types.RegisteredRelay{
+				oldRelayID: {
+					ID:       oldRelayID,
+					Address:  relayAddress,
+					Priority: 80,
+					LastSeen: time.Now(),
+				},
+			},
+		},
+	}
+	storeMock := store.NewMockStore(ctrl)
+	var savedSettings *types.Settings
+	gomock.InOrder(
+		storeMock.EXPECT().
+			GetAccountSettings(gomock.Any(), store.LockingStrengthNone, accountID).
+			Return(settings, nil),
+		storeMock.EXPECT().
+			ExecuteInTransaction(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(ctx context.Context, f func(store.Store) error) error {
+				return f(storeMock)
+			}),
+		storeMock.EXPECT().
+			GetAccountSettings(gomock.Any(), store.LockingStrengthUpdate, accountID).
+			Return(settings, nil),
+		storeMock.EXPECT().
+			SaveAccountSettings(gomock.Any(), accountID, gomock.Any()).
+			DoAndReturn(func(_ context.Context, _ string, settings *types.Settings) error {
+				savedSettings = settings
+				return nil
+			}),
+	)
+
+	handler := &Handler{
+		config: &nbconfig.Relay{Secret: secret},
+		accountManager: &mock_server.MockAccountManager{
+			GetStoreFunc: func() store.Store {
+				return storeMock
+			},
+		},
+	}
+
+	setupKey, err := signRelaySetupToken(secret, relaySetupTokenNeverExpires, accountID)
+	require.NoError(t, err)
+	body, err := json.Marshal(registerRelayRequest{
+		SetupKey: setupKey,
+		ID:       newRelayID,
+		Address:  relayAddress,
+		Priority: 30,
+	})
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/relays/register", bytes.NewReader(body))
+	recorder := httptest.NewRecorder()
+	handler.registerRelay(recorder, req)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	require.NotNil(t, savedSettings)
+	require.NotContains(t, savedSettings.Extra.RegisteredRelays, oldRelayID)
+	require.Contains(t, savedSettings.Extra.RegisteredRelays, newRelayID)
+	require.Equal(t, 80, savedSettings.Extra.RegisteredRelays[newRelayID].Priority)
+
+	activePriority, ok := activeRelayRegistry.priorityFor(newRelayID, relayAddress)
+	require.True(t, ok)
+	require.Equal(t, 80, activePriority)
 }
 
 func TestRelayAddressesForAccountSortsByGlobalPriority(t *testing.T) {

@@ -572,8 +572,9 @@ func (r *relayRegistry) priorityFor(id, address string) (int, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
+	searchID := relayKey(id, address)
 	for key, relay := range r.relays {
-		if !matchesRelay(relayKey(id, address), key, relay.ID, relay.Address) {
+		if !matchesRelayIdentity(searchID, address, key, relay.ID, relay.Address) {
 			continue
 		}
 		return normalizeRelayPriority(relay.Priority), true
@@ -704,11 +705,7 @@ func (h *Handler) storedRelayPriority(ctx context.Context, accountID, id, addres
 	if err != nil || settings == nil || settings.Extra == nil {
 		return 0, false
 	}
-	searchID := relayKey(id, address)
-	for key, relay := range settings.Extra.RegisteredRelays {
-		if !matchesRelay(searchID, key, relay.ID, relay.Address) {
-			continue
-		}
+	if relay, ok := findStoredRelay(settings.Extra.RegisteredRelays, id, address); ok {
 		return normalizeRelayPriority(relay.Priority), true
 	}
 	return 0, false
@@ -727,7 +724,15 @@ func (h *Handler) persistRegisteredRelay(ctx context.Context, accountID string, 
 		if settings.Extra.RegisteredRelays == nil {
 			settings.Extra.RegisteredRelays = make(map[string]types.RegisteredRelay)
 		}
-		settings.Extra.RegisteredRelays[relayKey(relay.ID, relay.Address)] = types.RegisteredRelay{
+		key := relayKey(relay.ID, relay.Address)
+		if existingKey, _, ok := findStoredRelayWithKey(settings.Extra.RegisteredRelays, relay.ID, relay.Address); ok {
+			key = existingKey
+		}
+		if newKey := relayKey(relay.ID, relay.Address); newKey != "" && newKey != key {
+			delete(settings.Extra.RegisteredRelays, key)
+			key = newKey
+		}
+		settings.Extra.RegisteredRelays[key] = types.RegisteredRelay{
 			ID:               relay.ID,
 			Name:             relay.Name,
 			Address:          relay.Address,
@@ -818,6 +823,29 @@ func relayKey(id, address string) string {
 
 func matchesRelay(searchID, key, id, address string) bool {
 	return searchID == key || searchID == id || searchID == address || searchID == relayKey(id, address)
+}
+
+func matchesRelayIdentity(searchID, searchAddress, key, id, address string) bool {
+	if matchesRelay(searchID, key, id, address) {
+		return true
+	}
+	return searchAddress != "" && strings.TrimSpace(searchAddress) == strings.TrimSpace(address)
+}
+
+func findStoredRelay(relays map[string]types.RegisteredRelay, id, address string) (types.RegisteredRelay, bool) {
+	_, relay, ok := findStoredRelayWithKey(relays, id, address)
+	return relay, ok
+}
+
+func findStoredRelayWithKey(relays map[string]types.RegisteredRelay, id, address string) (string, types.RegisteredRelay, bool) {
+	searchID := relayKey(id, address)
+	for key, relay := range relays {
+		if !matchesRelayIdentity(searchID, address, key, relay.ID, relay.Address) {
+			continue
+		}
+		return key, relay, true
+	}
+	return "", types.RegisteredRelay{}, false
 }
 
 func signRelaySetupToken(secret string, expiresAt int64, accountID string) (string, error) {
