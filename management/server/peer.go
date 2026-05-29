@@ -339,7 +339,7 @@ func (am *DefaultAccountManager) CreatePeerJob(ctx context.Context, accountID, p
 	// atomically check for pending jobs and send the job
 	if err := am.jobManager.TrySendJob(ctx, accountID, peerID, jobStream); err != nil {
 		if err.Error() == "peer already has pending job" {
-			return status.Errorf(status.BadRequest, err.Error())
+			return status.Errorf(status.BadRequest, "%s", err.Error())
 		}
 		return status.Errorf(status.Internal, "failed to send job: %v", err)
 	}

@@ -177,7 +177,8 @@ type Server struct {
 	jwtExtractor *jwt.ClaimsExtractor
 	jwtConfig    *JWTConfig
 
-	authorizer *sshauth.Authorizer
+	authorizer    *sshauth.Authorizer
+	auditReporter SSHAuditReporter
 
 	suSupportsPty    bool
 	loginIsUtilLinux bool
@@ -197,6 +198,9 @@ type Config struct {
 
 	// HostKey is the SSH server host key in PEM format
 	HostKeyPEM []byte
+
+	// AuditReporter receives SSH session lifecycle events. If nil, audit reporting is disabled.
+	AuditReporter SSHAuditReporter
 }
 
 // SessionInfo contains information about an active SSH session
@@ -221,6 +225,7 @@ func New(config *Config) *Server {
 		jwtEnabled:             config.JWT != nil,
 		jwtConfig:              config.JWT,
 		authorizer:             sshauth.NewAuthorizer(), // Initialize with empty config
+		auditReporter:          config.AuditReporter,
 	}
 
 	return s
@@ -651,18 +656,26 @@ func (s *Server) passwordHandler(ctx ssh.Context, password string) bool {
 
 	if err := s.ensureJWTValidator(); err != nil {
 		logger.Errorf("JWT validator initialization failed: %v", err)
+		event := auditEventFromContext(ctx, SSHActivityAuthFailed, "", SSHResultFailed, err.Error())
+		s.reportSSHEvent(ctx, event)
 		return false
 	}
 
 	token, err := s.validateJWTToken(password)
 	if err != nil {
 		logger.Warnf("JWT authentication failed: %v", err)
+		event := auditEventFromContext(ctx, SSHActivityAuthFailed, "", SSHResultFailed, err.Error())
+		event.ActorUserID = extractUserID(token)
+		s.reportSSHEvent(ctx, event)
 		return false
 	}
 
 	userAuth, err := s.extractAndValidateUser(token)
 	if err != nil {
 		logger.Warnf("user validation failed: %v", err)
+		event := auditEventFromContext(ctx, SSHActivityAuthFailed, "", SSHResultFailed, err.Error())
+		event.ActorUserID = extractUserID(token)
+		s.reportSSHEvent(ctx, event)
 		return false
 	}
 
@@ -675,6 +688,10 @@ func (s *Server) passwordHandler(ctx ssh.Context, password string) bool {
 	msg, err := authorizer.Authorize(userAuth.UserId, osUsername)
 	if err != nil {
 		logger.Warnf("SSH auth denied: %v", err)
+		event := auditEventFromContext(ctx, SSHActivityPolicyDenied, "", SSHResultDenied, err.Error())
+		event.ActorUserID = userAuth.UserId
+		event.ActorUserEmail = userAuth.Email
+		s.reportSSHEvent(ctx, event)
 		return false
 	}
 
@@ -804,6 +821,12 @@ func (s *Server) connectionValidator(_ ssh.Context, conn net.Conn) net.Conn {
 	tcpAddr, ok := remoteAddr.(*net.TCPAddr)
 	if !ok {
 		log.Warnf("SSH connection rejected: non-TCP address %s", remoteAddr)
+		s.reportSSHEvent(context.Background(), SSHAuditEvent{
+			ActivityCode: SSHActivitySessionDenied,
+			SourcePeerIP: peerIPFromAddr(remoteAddr),
+			Result:       SSHResultDenied,
+			Reason:       "non-TCP remote address",
+		})
 		return nil
 	}
 
@@ -817,6 +840,12 @@ func (s *Server) connectionValidator(_ ssh.Context, conn net.Conn) net.Conn {
 	// Block connections from our own IP (prevent local apps from connecting to ourselves)
 	if remoteIP == wgAddr.IP || wgAddr.IPv6.IsValid() && remoteIP == wgAddr.IPv6 {
 		log.Warnf("SSH connection rejected from own IP %s", remoteIP)
+		s.reportSSHEvent(context.Background(), SSHAuditEvent{
+			ActivityCode: SSHActivitySessionDenied,
+			SourcePeerIP: remoteIP.String(),
+			Result:       SSHResultDenied,
+			Reason:       "connection from own peer IP",
+		})
 		return nil
 	}
 
@@ -824,6 +853,12 @@ func (s *Server) connectionValidator(_ ssh.Context, conn net.Conn) net.Conn {
 	inV6 := wgAddr.IPv6Net.IsValid() && wgAddr.IPv6Net.Contains(remoteIP)
 	if !inV4 && !inV6 {
 		log.Warnf("SSH connection rejected from non-Cloink IP %s", remoteIP)
+		s.reportSSHEvent(context.Background(), SSHAuditEvent{
+			ActivityCode: SSHActivitySessionDenied,
+			SourcePeerIP: remoteIP.String(),
+			Result:       SSHResultDenied,
+			Reason:       "non-Cloink source IP",
+		})
 		return nil
 	}
 
@@ -923,12 +958,18 @@ func (s *Server) directTCPIPHandler(srv *ssh.Server, conn *cryptossh.ServerConn,
 
 	if !allowLocal {
 		logger.Warnf("local port forwarding denied for %s: disabled", net.JoinHostPort(payload.Host, strconv.Itoa(int(payload.Port))))
+		event := auditEventFromContext(ctx, SSHActivitySessionDenied, SSHSessionTypePortForward, SSHResultDenied, "local port forwarding disabled")
+		event.ActorUserID = s.jwtUserForContext(ctx)
+		s.reportSSHEvent(ctx, event)
 		_ = newChan.Reject(cryptossh.Prohibited, "local port forwarding disabled")
 		return
 	}
 
 	if err := s.checkPortForwardingPrivileges(ctx, "local", payload.Port); err != nil {
 		logger.Warnf("local port forwarding denied for %s: %v", net.JoinHostPort(payload.Host, strconv.Itoa(int(payload.Port))), err)
+		event := auditEventFromContext(ctx, SSHActivitySessionDenied, SSHSessionTypePortForward, SSHResultDenied, err.Error())
+		event.ActorUserID = s.jwtUserForContext(ctx)
+		s.reportSSHEvent(ctx, event)
 		_ = newChan.Reject(cryptossh.Prohibited, "insufficient privileges")
 		return
 	}
@@ -937,6 +978,20 @@ func (s *Server) directTCPIPHandler(srv *ssh.Server, conn *cryptossh.ServerConn,
 	forwardAddr := "-L " + hostPort
 	s.addConnectionPortForward(ctx.User(), ctx.RemoteAddr(), forwardAddr)
 	logger.Infof("local port forwarding: %s", hostPort)
+
+	sessionStart := time.Now()
+	startEvent := auditEventFromContext(ctx, SSHActivitySessionStart, SSHSessionTypePortForward, SSHResultAllowed, "")
+	startEvent.ActorUserID = s.jwtUserForContext(ctx)
+	startEvent.StartedAt = sessionStart
+	s.reportSSHEvent(ctx, startEvent)
+	defer func() {
+		endEvent := auditEventFromContext(ctx, SSHActivitySessionEnd, SSHSessionTypePortForward, SSHResultAllowed, "")
+		endEvent.ActorUserID = s.jwtUserForContext(ctx)
+		endEvent.StartedAt = sessionStart
+		endEvent.EndedAt = time.Now()
+		endEvent.Duration = endEvent.EndedAt.Sub(sessionStart).Round(time.Millisecond)
+		s.reportSSHEvent(ctx, endEvent)
+	}()
 
 	s.relayDirectTCPIP(ctx, newChan, payload.Host, int(payload.Port), logger)
 }

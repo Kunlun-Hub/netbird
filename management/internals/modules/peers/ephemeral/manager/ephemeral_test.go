@@ -208,6 +208,113 @@ func TestNewManagerPeerDisconnected(t *testing.T) {
 	}
 }
 
+func TestPeerDisconnectedCleanupIgnoresCanceledRequestContext(t *testing.T) {
+	const testLifeTime = time.Millisecond
+
+	t.Cleanup(func() {
+		timeNow = time.Now
+	})
+	startTime := time.Now()
+	timeNow = func() time.Time {
+		return startTime
+	}
+
+	mockStore := &MockStore{}
+	account := newAccountWithId(context.Background(), "account", "", "", false)
+	peer := &nbpeer.Peer{ID: "ephemeral-peer", AccountID: account.Id, Ephemeral: true}
+	account.Peers[peer.ID] = peer
+	mockStore.account = account
+
+	deleted := make(chan struct{})
+	ctrl := gomock.NewController(t)
+	peersManager := peers.NewMockManager(ctrl)
+	peersManager.EXPECT().
+		DeletePeers(gomock.Any(), account.Id, []string{peer.ID}, gomock.Any(), true).
+		DoAndReturn(func(ctx context.Context, accountID string, peerIDs []string, userID string, checkConnected bool) error {
+			assert.NoError(t, ctx.Err(), "ephemeral cleanup must not use a canceled request context")
+			delete(mockStore.account.Peers, peer.ID)
+			close(deleted)
+			return nil
+		}).
+		Times(1)
+
+	mgr := NewEphemeralManager(mockStore, peersManager)
+	mgr.lifeTime = testLifeTime
+	mgr.cleanupWindow = 0
+
+	ctx, cancel := context.WithCancel(context.Background())
+	mgr.OnPeerDisconnected(ctx, peer)
+	cancel()
+	startTime = startTime.Add(testLifeTime + time.Millisecond)
+
+	select {
+	case <-deleted:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for ephemeral peer cleanup")
+	}
+}
+
+func TestLoadInitialPeersUsesLastActivityDeadline(t *testing.T) {
+	const (
+		testLifeTime      = time.Minute
+		testCleanupWindow = time.Millisecond
+	)
+
+	t.Cleanup(func() {
+		timeNow = time.Now
+	})
+	startTime := time.Now()
+	timeNow = func() time.Time {
+		return startTime
+	}
+
+	mockStore := &MockStore{}
+	account := newAccountWithId(context.Background(), "account", "", "", false)
+	expiredPeer := &nbpeer.Peer{
+		ID:        "expired-peer",
+		AccountID: account.Id,
+		Ephemeral: true,
+		CreatedAt: startTime.Add(-2 * testLifeTime),
+		Status:    &nbpeer.PeerStatus{LastSeen: startTime.Add(-2 * testLifeTime)},
+	}
+	activePeer := &nbpeer.Peer{
+		ID:        "active-peer",
+		AccountID: account.Id,
+		Ephemeral: true,
+		CreatedAt: startTime,
+		Status:    &nbpeer.PeerStatus{LastSeen: startTime},
+	}
+	account.Peers[expiredPeer.ID] = expiredPeer
+	account.Peers[activePeer.ID] = activePeer
+	mockStore.account = account
+
+	deleted := make(chan []string, 1)
+	ctrl := gomock.NewController(t)
+	peersManager := peers.NewMockManager(ctrl)
+	peersManager.EXPECT().
+		DeletePeers(gomock.Any(), account.Id, []string{expiredPeer.ID}, gomock.Any(), true).
+		DoAndReturn(func(ctx context.Context, accountID string, peerIDs []string, userID string, checkConnected bool) error {
+			delete(mockStore.account.Peers, expiredPeer.ID)
+			deleted <- peerIDs
+			return nil
+		}).
+		Times(1)
+
+	mgr := NewEphemeralManager(mockStore, peersManager)
+	mgr.lifeTime = testLifeTime
+	mgr.cleanupWindow = testCleanupWindow
+	mgr.LoadInitialPeers(context.Background())
+
+	select {
+	case <-deleted:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for stale initial ephemeral peer cleanup")
+	}
+
+	assert.Contains(t, mockStore.account.Peers, activePeer.ID)
+	assert.NotContains(t, mockStore.account.Peers, expiredPeer.ID)
+}
+
 func TestCleanupSchedulingBehaviorIsBatched(t *testing.T) {
 	const (
 		ephemeralPeers    = 10

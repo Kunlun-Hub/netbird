@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"sync"
 	"time"
@@ -73,7 +74,7 @@ func NewClient(addr, payload, signature string, interval time.Duration) (*GRPCCl
 		grpc.WithDefaultServiceConfig(`{"healthCheckConfig": {"serviceName": ""}}`),
 	)
 
-	target := parsedURL.Host
+	target := withDefaultPort(parsedURL)
 	conn, err := grpc.NewClient(target, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("creating new grpc client: %w", err)
@@ -85,6 +86,26 @@ func NewClient(addr, payload, signature string, interval time.Duration) (*GRPCCl
 		target:     target,
 		opts:       opts,
 	}, nil
+}
+
+func withDefaultPort(parsedURL *url.URL) string {
+	if parsedURL.Port() != "" {
+		return parsedURL.Host
+	}
+
+	host := parsedURL.Hostname()
+	if host == "" {
+		host = parsedURL.Host
+	}
+
+	switch parsedURL.Scheme {
+	case "https":
+		return net.JoinHostPort(host, "443")
+	case "http":
+		return net.JoinHostPort(host, "80")
+	default:
+		return parsedURL.Host
+	}
 }
 
 func (c *GRPCClient) Close() error {

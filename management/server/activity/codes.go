@@ -241,6 +241,17 @@ const (
 	// AccountLocalMfaDisabled indicates that a user disabled TOTP MFA for local users
 	AccountLocalMfaDisabled Activity = 124
 
+	// PeerSSHSessionStarted indicates that an SSH session started on a peer
+	PeerSSHSessionStarted Activity = 125
+	// PeerSSHSessionEnded indicates that an SSH session ended on a peer
+	PeerSSHSessionEnded Activity = 126
+	// PeerSSHSessionDenied indicates that an SSH session was denied on a peer
+	PeerSSHSessionDenied Activity = 127
+	// PeerSSHAuthFailed indicates that SSH authentication failed on a peer
+	PeerSSHAuthFailed Activity = 128
+	// PeerSSHPolicyDenied indicates that an SSH policy denied access to a peer
+	PeerSSHPolicyDenied Activity = 129
+
 	AccountDeleted Activity = 99999
 )
 
@@ -278,6 +289,11 @@ var activityMap = map[Activity]Code{
 	RouteUpdated:                             {"Route updated", "route.update"},
 	PeerSSHEnabled:                           {"Peer SSH server enabled", "peer.ssh.enable"},
 	PeerSSHDisabled:                          {"Peer SSH server disabled", "peer.ssh.disable"},
+	PeerSSHSessionStarted:                    {"Peer SSH session started", "peer.ssh.session.start"},
+	PeerSSHSessionEnded:                      {"Peer SSH session ended", "peer.ssh.session.end"},
+	PeerSSHSessionDenied:                     {"Peer SSH session denied", "peer.ssh.session.denied"},
+	PeerSSHAuthFailed:                        {"Peer SSH authentication failed", "peer.ssh.auth.failed"},
+	PeerSSHPolicyDenied:                      {"Peer SSH policy denied", "peer.ssh.policy.denied"},
 	PeerRenamed:                              {"Peer renamed", "peer.rename"},
 	PeerLoginExpirationEnabled:               {"Peer login expiration enabled", "peer.login.expiration.enable"},
 	PeerLoginExpirationDisabled:              {"Peer login expiration disabled", "peer.login.expiration.disable"},

@@ -58,6 +58,9 @@ type ManagementServiceClient interface {
 	RenewExpose(ctx context.Context, in *EncryptedMessage, opts ...grpc.CallOption) (*EncryptedMessage, error)
 	// StopExpose terminates an active expose session
 	StopExpose(ctx context.Context, in *EncryptedMessage, opts ...grpc.CallOption) (*EncryptedMessage, error)
+	// ReportSSHSessionEvent reports a target-side SSH session lifecycle event.
+	// EncryptedMessage of the request has a body of SSHSessionEvent.
+	ReportSSHSessionEvent(ctx context.Context, in *EncryptedMessage, opts ...grpc.CallOption) (*Empty, error)
 }
 
 type managementServiceClient struct {
@@ -221,6 +224,15 @@ func (c *managementServiceClient) StopExpose(ctx context.Context, in *EncryptedM
 	return out, nil
 }
 
+func (c *managementServiceClient) ReportSSHSessionEvent(ctx context.Context, in *EncryptedMessage, opts ...grpc.CallOption) (*Empty, error) {
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, "/management.ManagementService/ReportSSHSessionEvent", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ManagementServiceServer is the server API for ManagementService service.
 // All implementations must embed UnimplementedManagementServiceServer
 // for forward compatibility
@@ -265,6 +277,9 @@ type ManagementServiceServer interface {
 	RenewExpose(context.Context, *EncryptedMessage) (*EncryptedMessage, error)
 	// StopExpose terminates an active expose session
 	StopExpose(context.Context, *EncryptedMessage) (*EncryptedMessage, error)
+	// ReportSSHSessionEvent reports a target-side SSH session lifecycle event.
+	// EncryptedMessage of the request has a body of SSHSessionEvent.
+	ReportSSHSessionEvent(context.Context, *EncryptedMessage) (*Empty, error)
 	mustEmbedUnimplementedManagementServiceServer()
 }
 
@@ -307,6 +322,9 @@ func (UnimplementedManagementServiceServer) RenewExpose(context.Context, *Encryp
 }
 func (UnimplementedManagementServiceServer) StopExpose(context.Context, *EncryptedMessage) (*EncryptedMessage, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method StopExpose not implemented")
+}
+func (UnimplementedManagementServiceServer) ReportSSHSessionEvent(context.Context, *EncryptedMessage) (*Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ReportSSHSessionEvent not implemented")
 }
 func (UnimplementedManagementServiceServer) mustEmbedUnimplementedManagementServiceServer() {}
 
@@ -548,6 +566,24 @@ func _ManagementService_StopExpose_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ManagementService_ReportSSHSessionEvent_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(EncryptedMessage)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ManagementServiceServer).ReportSSHSessionEvent(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/management.ManagementService/ReportSSHSessionEvent",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ManagementServiceServer).ReportSSHSessionEvent(ctx, req.(*EncryptedMessage))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ManagementService_ServiceDesc is the grpc.ServiceDesc for ManagementService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -594,6 +630,10 @@ var ManagementService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "StopExpose",
 			Handler:    _ManagementService_StopExpose_Handler,
+		},
+		{
+			MethodName: "ReportSSHSessionEvent",
+			Handler:    _ManagementService_ReportSSHSessionEvent_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

@@ -60,6 +60,10 @@ service ManagementService {
 
   // StopExpose terminates an active expose session
   rpc StopExpose(EncryptedMessage) returns (EncryptedMessage) {}
+
+  // ReportSSHSessionEvent reports a target-side SSH session lifecycle event.
+  // EncryptedMessage of the request has a body of SSHSessionEvent.
+  rpc ReportSSHSessionEvent(EncryptedMessage) returns (Empty) {}
 }
 
 message EncryptedMessage {
@@ -731,3 +735,20 @@ message StopExposeRequest {
 }
 
 message StopExposeResponse {}
+
+message SSHSessionEvent {
+  string session_id = 1;
+  string activity_code = 2;
+  string actor_user_id = 3;
+  string actor_user_email = 4;
+  string source_peer_ip = 5;
+  string destination_local_user = 6;
+  string access_method = 7;
+  string session_type = 8;
+  string result = 9;
+  string reason = 10;
+  string client_version = 11;
+  google.protobuf.Timestamp started_at = 12;
+  google.protobuf.Timestamp ended_at = 13;
+  google.protobuf.Duration duration = 14;
+}

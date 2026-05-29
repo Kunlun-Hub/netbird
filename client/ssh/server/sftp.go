@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/gliderlabs/ssh"
 	"github.com/pkg/sftp"
@@ -36,6 +37,10 @@ func (s *Server) sftpSubsystemHandler(sess ssh.Session) {
 
 	if !allowSFTP {
 		logger.Debug("SFTP subsystem request denied: SFTP disabled")
+		event := auditEventFromContext(sess.Context(), SSHActivitySessionDenied, SSHSessionTypeSFTP, SSHResultDenied, "SFTP disabled")
+		event.SessionID = string(sessionKey)
+		event.ActorUserID = jwtUsername
+		s.reportSSHEvent(sess.Context(), event)
 		if err := sess.Exit(1); err != nil {
 			logger.Debugf("SFTP session exit: %v", err)
 		}
@@ -50,11 +55,31 @@ func (s *Server) sftpSubsystemHandler(sess ssh.Session) {
 
 	if !result.Allowed {
 		logger.Warnf("SFTP access denied: %v", result.Error)
+		event := auditEventFromContext(sess.Context(), SSHActivitySessionDenied, SSHSessionTypeSFTP, SSHResultDenied, result.Error.Error())
+		event.SessionID = string(sessionKey)
+		event.ActorUserID = jwtUsername
+		s.reportSSHEvent(sess.Context(), event)
 		if err := sess.Exit(1); err != nil {
 			logger.Debugf("exit SFTP session: %v", err)
 		}
 		return
 	}
+
+	sessionStart := time.Now()
+	startEvent := auditEventFromContext(sess.Context(), SSHActivitySessionStart, SSHSessionTypeSFTP, SSHResultAllowed, "")
+	startEvent.SessionID = string(sessionKey)
+	startEvent.ActorUserID = jwtUsername
+	startEvent.StartedAt = sessionStart
+	s.reportSSHEvent(sess.Context(), startEvent)
+	defer func() {
+		endEvent := auditEventFromContext(sess.Context(), SSHActivitySessionEnd, SSHSessionTypeSFTP, SSHResultAllowed, "")
+		endEvent.SessionID = string(sessionKey)
+		endEvent.ActorUserID = jwtUsername
+		endEvent.StartedAt = sessionStart
+		endEvent.EndedAt = time.Now()
+		endEvent.Duration = endEvent.EndedAt.Sub(sessionStart).Round(time.Millisecond)
+		s.reportSSHEvent(sess.Context(), endEvent)
+	}()
 
 	if !result.RequiresUserSwitching {
 		if err := s.executeSftpDirect(sess); err != nil {

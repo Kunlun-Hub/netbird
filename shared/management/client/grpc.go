@@ -716,6 +716,35 @@ func (c *GrpcClient) SyncMeta(sysInfo *system.Info) error {
 	return err
 }
 
+func (c *GrpcClient) ReportSSHSessionEvent(ctx context.Context, event *proto.SSHSessionEvent) error {
+	if !c.ready() {
+		return errors.New(errMsgNoMgmtConnection)
+	}
+
+	serverPubKey, err := c.getServerPublicKey()
+	if err != nil {
+		log.Debugf(errMsgMgmtPublicKey, err)
+		return err
+	}
+
+	encryptedEvent, err := encryption.EncryptMessage(*serverPubKey, c.key, event)
+	if err != nil {
+		return fmt.Errorf("encrypt SSH session event: %w", err)
+	}
+
+	if ctx == nil {
+		ctx = c.ctx
+	}
+	mgmCtx, cancel := context.WithTimeout(ctx, ConnectTimeout)
+	defer cancel()
+
+	_, err = c.realClient.ReportSSHSessionEvent(mgmCtx, &proto.EncryptedMessage{
+		WgPubKey: c.key.PublicKey().String(),
+		Body:     encryptedEvent,
+	})
+	return err
+}
+
 func (c *GrpcClient) notifyDisconnected(err error) {
 	c.connStateCallbackLock.RLock()
 	defer c.connStateCallbackLock.RUnlock()
