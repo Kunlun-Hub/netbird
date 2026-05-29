@@ -69,9 +69,11 @@ type Event struct {
 }
 
 type SummaryPoint struct {
-	Timestamp time.Time
-	RxBytes   int64
-	TxBytes   int64
+	Timestamp   time.Time
+	BucketStart time.Time
+	BucketEnd   time.Time
+	RxBytes     int64
+	TxBytes     int64
 }
 
 func FormatAddress(ip net.IP, port uint32) string {

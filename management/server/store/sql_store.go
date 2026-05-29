@@ -5710,10 +5710,14 @@ func (s *SqlStore) GetAccountNetworkTrafficSummary(ctx context.Context, accountI
 
 	points := make([]networktraffic.SummaryPoint, 0, len(rows))
 	for _, row := range rows {
+		bucketStart := time.Unix(row.Bucket*int64(bucketSeconds), 0).UTC()
+		bucketEnd := bucketStart.Add(time.Duration(bucketSeconds) * time.Second)
 		points = append(points, networktraffic.SummaryPoint{
-			Timestamp: time.Unix(row.Bucket*int64(bucketSeconds), 0).UTC(),
-			RxBytes:   row.RxBytes,
-			TxBytes:   row.TxBytes,
+			Timestamp:   bucketStart,
+			BucketStart: bucketStart,
+			BucketEnd:   bucketEnd,
+			RxBytes:     row.RxBytes,
+			TxBytes:     row.TxBytes,
 		})
 	}
 	return points, nil

@@ -161,9 +161,11 @@ func aggregateNetworkTrafficFlowEvents(events []api.NetworkTrafficEvent) []api.N
 }
 
 type networkTrafficSummaryPoint struct {
-	Timestamp string `json:"timestamp"`
-	RxBytes   int64  `json:"rx_bytes"`
-	TxBytes   int64  `json:"tx_bytes"`
+	Timestamp   string `json:"timestamp"`
+	BucketStart string `json:"bucket_start"`
+	BucketEnd   string `json:"bucket_end"`
+	RxBytes     int64  `json:"rx_bytes"`
+	TxBytes     int64  `json:"tx_bytes"`
 }
 
 type networkTrafficSummaryResponse struct {
@@ -195,9 +197,11 @@ func (h *handler) getNetworkTrafficSummary(w http.ResponseWriter, r *http.Reques
 	response := networkTrafficSummaryResponse{Data: make([]networkTrafficSummaryPoint, 0, len(points))}
 	for _, point := range points {
 		response.Data = append(response.Data, networkTrafficSummaryPoint{
-			Timestamp: point.Timestamp.Format("2006-01-02T15:04:05.000Z07:00"),
-			RxBytes:   point.RxBytes,
-			TxBytes:   point.TxBytes,
+			Timestamp:   point.Timestamp.Format("2006-01-02T15:04:05.000Z07:00"),
+			BucketStart: point.BucketStart.Format("2006-01-02T15:04:05.000Z07:00"),
+			BucketEnd:   point.BucketEnd.Format("2006-01-02T15:04:05.000Z07:00"),
+			RxBytes:     point.RxBytes,
+			TxBytes:     point.TxBytes,
 		})
 	}
 	util.WriteJSONObject(r.Context(), w, response)
