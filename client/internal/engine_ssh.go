@@ -8,8 +8,6 @@ import (
 	"strings"
 
 	log "github.com/sirupsen/logrus"
-	"google.golang.org/protobuf/types/known/durationpb"
-	"google.golang.org/protobuf/types/known/timestamppb"
 
 	firewallManager "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface/netstack"
@@ -17,7 +15,6 @@ import (
 	sshauth "github.com/netbirdio/netbird/client/ssh/auth"
 	sshconfig "github.com/netbirdio/netbird/client/ssh/config"
 	sshserver "github.com/netbirdio/netbird/client/ssh/server"
-	mgm "github.com/netbirdio/netbird/shared/management/client"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 	sshuserhash "github.com/netbirdio/netbird/shared/sshauth"
 )
@@ -27,41 +24,6 @@ type sshServer interface {
 	Stop() error
 	GetStatus() (bool, []sshserver.SessionInfo)
 	UpdateSSHAuth(config *sshauth.Config)
-}
-
-type managementSSHAuditReporter struct {
-	client mgm.Client
-}
-
-func (r managementSSHAuditReporter) ReportSSHSessionEvent(ctx context.Context, event sshserver.SSHAuditEvent) error {
-	if r.client == nil {
-		return nil
-	}
-
-	protoEvent := &mgmProto.SSHSessionEvent{
-		SessionId:            event.SessionID,
-		ActivityCode:         event.ActivityCode,
-		ActorUserId:          event.ActorUserID,
-		ActorUserEmail:       event.ActorUserEmail,
-		SourcePeerIp:         event.SourcePeerIP,
-		DestinationLocalUser: event.DestinationLocalUser,
-		AccessMethod:         event.AccessMethod,
-		SessionType:          event.SessionType,
-		Result:               event.Result,
-		Reason:               event.Reason,
-		ClientVersion:        event.ClientVersion,
-	}
-	if !event.StartedAt.IsZero() {
-		protoEvent.StartedAt = timestamppb.New(event.StartedAt)
-	}
-	if !event.EndedAt.IsZero() {
-		protoEvent.EndedAt = timestamppb.New(event.EndedAt)
-	}
-	if event.Duration > 0 {
-		protoEvent.Duration = durationpb.New(event.Duration)
-	}
-
-	return r.client.ReportSSHSessionEvent(ctx, protoEvent)
 }
 
 func (e *Engine) setupSSHPortRedirection() error {
@@ -276,9 +238,8 @@ func (e *Engine) startSSHServer(jwtConfig *sshserver.JWTConfig) error {
 	}
 
 	serverConfig := &sshserver.Config{
-		HostKeyPEM:    e.config.SSHKey,
-		JWT:           jwtConfig,
-		AuditReporter: managementSSHAuditReporter{client: e.mgmClient},
+		HostKeyPEM: e.config.SSHKey,
+		JWT:        jwtConfig,
 	}
 	server := sshserver.New(serverConfig)
 

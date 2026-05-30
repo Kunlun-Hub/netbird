@@ -64,13 +64,14 @@ func NewEphemeralManager(store store.Store, peersManager peers.Manager) *Ephemer
 // of the linked list (to the most deprecated peer). At the end of cleanup it schedules the next cleanup to the new
 // head.
 func (e *EphemeralManager) LoadInitialPeers(ctx context.Context) {
-	ctx = context.WithoutCancel(ctx)
 	e.peersLock.Lock()
 	defer e.peersLock.Unlock()
 
 	e.loadEphemeralPeers(ctx)
 	if e.headPeer != nil {
-		e.scheduleCleanupLocked(ctx)
+		e.timer = time.AfterFunc(e.lifeTime, func() {
+			e.cleanup(ctx)
+		})
 	}
 }
 
@@ -111,7 +112,6 @@ func (e *EphemeralManager) OnPeerDisconnected(ctx context.Context, peer *nbpeer.
 	if !peer.Ephemeral {
 		return
 	}
-	ctx = context.WithoutCancel(ctx)
 
 	log.WithContext(ctx).Tracef("add peer to ephemeral list: %s", peer.ID)
 
@@ -124,7 +124,13 @@ func (e *EphemeralManager) OnPeerDisconnected(ctx context.Context, peer *nbpeer.
 
 	e.addPeer(peer.AccountID, peer.ID, e.newDeadLine())
 	if e.timer == nil {
-		e.scheduleCleanupLocked(ctx)
+		delay := e.headPeer.deadline.Sub(timeNow()) + e.cleanupWindow
+		if delay < 0 {
+			delay = 0
+		}
+		e.timer = time.AfterFunc(delay, func() {
+			e.cleanup(ctx)
+		})
 	}
 }
 
@@ -135,8 +141,9 @@ func (e *EphemeralManager) loadEphemeralPeers(ctx context.Context) {
 		return
 	}
 
+	t := e.newDeadLine()
 	for _, p := range peers {
-		e.addPeer(p.AccountID, p.ID, e.deadlineFromPeer(p))
+		e.addPeer(p.AccountID, p.ID, t)
 	}
 
 	log.WithContext(ctx).Debugf("loaded ephemeral peer(s): %d", len(peers))
@@ -161,7 +168,13 @@ func (e *EphemeralManager) cleanup(ctx context.Context) {
 	}
 
 	if e.headPeer != nil {
-		e.scheduleCleanupLocked(ctx)
+		delay := e.headPeer.deadline.Sub(timeNow()) + e.cleanupWindow
+		if delay < 0 {
+			delay = 0
+		}
+		e.timer = time.AfterFunc(delay, func() {
+			e.cleanup(ctx)
+		})
 	} else {
 		e.timer = nil
 	}
@@ -189,50 +202,13 @@ func (e *EphemeralManager) addPeer(accountID string, peerID string, deadline tim
 		deadline:  deadline,
 	}
 
-	if e.headPeer == nil || deadline.Before(e.headPeer.deadline) {
-		ep.next = e.headPeer
-		e.headPeer = ep
-		if e.tailPeer == nil {
-			e.tailPeer = ep
-		}
-		return
-	}
-
-	for p := e.headPeer; p != nil; p = p.next {
-		if p.next == nil || deadline.Before(p.next.deadline) {
-			ep.next = p.next
-			p.next = ep
-			if ep.next == nil {
-				e.tailPeer = ep
-			}
-			return
-		}
-	}
-}
-
-func (e *EphemeralManager) scheduleCleanupLocked(ctx context.Context) {
 	if e.headPeer == nil {
-		return
+		e.headPeer = ep
 	}
-
-	delay := e.headPeer.deadline.Sub(timeNow()) + e.cleanupWindow
-	if delay < 0 {
-		delay = 0
+	if e.tailPeer != nil {
+		e.tailPeer.next = ep
 	}
-	e.timer = time.AfterFunc(delay, func() {
-		e.cleanup(ctx)
-	})
-}
-
-func (e *EphemeralManager) deadlineFromPeer(peer *nbpeer.Peer) time.Time {
-	lastActivity := peer.CreatedAt
-	if peer.Status != nil && !peer.Status.LastSeen.IsZero() && peer.Status.LastSeen.After(lastActivity) {
-		lastActivity = peer.Status.LastSeen
-	}
-	if lastActivity.IsZero() {
-		lastActivity = timeNow()
-	}
-	return lastActivity.Add(e.lifeTime)
+	e.tailPeer = ep
 }
 
 func (e *EphemeralManager) removePeer(id string) {

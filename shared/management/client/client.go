@@ -27,7 +27,6 @@ type Client interface {
 	// Used to validate connectivity before committing configuration changes.
 	HealthCheck() error
 	SyncMeta(sysInfo *system.Info) error
-	ReportSSHSessionEvent(ctx context.Context, event *proto.SSHSessionEvent) error
 	Logout() error
 	CreateExpose(ctx context.Context, req ExposeRequest) (*ExposeResponse, error)
 	RenewExpose(ctx context.Context, domain string) error

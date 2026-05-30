@@ -12,7 +12,6 @@ import (
 	"net"
 	"runtime"
 	"strconv"
-	"time"
 
 	"github.com/gliderlabs/ssh"
 	log "github.com/sirupsen/logrus"
@@ -58,17 +57,11 @@ func (s *Server) configurePortForwarding(server *ssh.Server) {
 		logger := s.getRequestLogger(ctx)
 		if !allowLocal {
 			logger.Warnf("local port forwarding denied for %s: disabled", net.JoinHostPort(dstHost, strconv.Itoa(int(dstPort))))
-			event := auditEventFromContext(ctx, SSHActivitySessionDenied, SSHSessionTypePortForward, SSHResultDenied, "local port forwarding disabled")
-			event.ActorUserID = s.jwtUserForContext(ctx)
-			s.reportSSHEvent(ctx, event)
 			return false
 		}
 
 		if err := s.checkPortForwardingPrivileges(ctx, "local", dstPort); err != nil {
 			logger.Warnf("local port forwarding denied for %s: %v", net.JoinHostPort(dstHost, strconv.Itoa(int(dstPort))), err)
-			event := auditEventFromContext(ctx, SSHActivitySessionDenied, SSHSessionTypePortForward, SSHResultDenied, err.Error())
-			event.ActorUserID = s.jwtUserForContext(ctx)
-			s.reportSSHEvent(ctx, event)
 			return false
 		}
 
@@ -79,17 +72,11 @@ func (s *Server) configurePortForwarding(server *ssh.Server) {
 		logger := s.getRequestLogger(ctx)
 		if !allowRemote {
 			logger.Warnf("remote port forwarding denied for %s: disabled", net.JoinHostPort(bindHost, strconv.Itoa(int(bindPort))))
-			event := auditEventFromContext(ctx, SSHActivitySessionDenied, SSHSessionTypePortForward, SSHResultDenied, "remote port forwarding disabled")
-			event.ActorUserID = s.jwtUserForContext(ctx)
-			s.reportSSHEvent(ctx, event)
 			return false
 		}
 
 		if err := s.checkPortForwardingPrivileges(ctx, "remote", bindPort); err != nil {
 			logger.Warnf("remote port forwarding denied for %s: %v", net.JoinHostPort(bindHost, strconv.Itoa(int(bindPort))), err)
-			event := auditEventFromContext(ctx, SSHActivitySessionDenied, SSHSessionTypePortForward, SSHResultDenied, err.Error())
-			event.ActorUserID = s.jwtUserForContext(ctx)
-			s.reportSSHEvent(ctx, event)
 			return false
 		}
 
@@ -163,9 +150,6 @@ func (s *Server) tcpipForwardHandler(ctx ssh.Context, _ *ssh.Server, req *crypto
 
 	if !s.isRemotePortForwardingAllowed() {
 		logger.Warnf("tcpip-forward request denied: remote port forwarding disabled")
-		event := auditEventFromContext(ctx, SSHActivitySessionDenied, SSHSessionTypePortForward, SSHResultDenied, "remote port forwarding disabled")
-		event.ActorUserID = s.jwtUserForContext(ctx)
-		s.reportSSHEvent(ctx, event)
 		return false, nil
 	}
 
@@ -177,9 +161,6 @@ func (s *Server) tcpipForwardHandler(ctx ssh.Context, _ *ssh.Server, req *crypto
 
 	if err := s.checkPortForwardingPrivileges(ctx, "tcpip-forward", payload.Port); err != nil {
 		logger.Warnf("tcpip-forward denied: %v", err)
-		event := auditEventFromContext(ctx, SSHActivitySessionDenied, SSHSessionTypePortForward, SSHResultDenied, err.Error())
-		event.ActorUserID = s.jwtUserForContext(ctx)
-		s.reportSSHEvent(ctx, event)
 		return false, nil
 	}
 
@@ -218,18 +199,11 @@ func (s *Server) cancelTcpipForwardHandler(ctx ssh.Context, _ *ssh.Server, req *
 // handleRemoteForwardListener handles incoming connections for remote port forwarding.
 func (s *Server) handleRemoteForwardListener(ctx ssh.Context, ln net.Listener, host string, port uint32) {
 	logger := s.getRequestLogger(ctx)
-	sessionStart := time.Now()
 
 	defer func() {
 		if err := ln.Close(); err != nil {
 			logger.Debugf("remote forward listener close error for %s: %v", net.JoinHostPort(host, strconv.Itoa(int(port))), err)
 		}
-		endEvent := auditEventFromContext(ctx, SSHActivitySessionEnd, SSHSessionTypePortForward, SSHResultAllowed, "")
-		endEvent.ActorUserID = s.jwtUserForContext(ctx)
-		endEvent.StartedAt = sessionStart
-		endEvent.EndedAt = time.Now()
-		endEvent.Duration = endEvent.EndedAt.Sub(sessionStart).Round(time.Millisecond)
-		s.reportSSHEvent(ctx, endEvent)
 	}()
 
 	acceptChan := make(chan acceptResult, 1)
@@ -343,10 +317,6 @@ func (s *Server) setupDirectForward(ctx ssh.Context, logger *log.Entry, sshConn 
 
 	forwardAddr := "-R " + net.JoinHostPort(payload.Host, strconv.Itoa(int(actualPort)))
 	s.addConnectionPortForward(ctx.User(), ctx.RemoteAddr(), forwardAddr)
-	startEvent := auditEventFromContext(ctx, SSHActivitySessionStart, SSHSessionTypePortForward, SSHResultAllowed, "")
-	startEvent.ActorUserID = s.jwtUserForContext(ctx)
-	startEvent.StartedAt = time.Now()
-	s.reportSSHEvent(ctx, startEvent)
 	go s.handleRemoteForwardListener(ctx, ln, payload.Host, actualPort)
 
 	response := make([]byte, 4)

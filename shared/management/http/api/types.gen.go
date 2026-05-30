@@ -186,13 +186,8 @@ const (
 	EventActivityCodePeerLoginExpire                               EventActivityCode = "peer.login.expire"
 	EventActivityCodePeerRename                                    EventActivityCode = "peer.rename"
 	EventActivityCodePeerSetupkeyAdd                               EventActivityCode = "peer.setupkey.add"
-	EventActivityCodePeerSshAuthFailed                             EventActivityCode = "peer.ssh.auth.failed"
 	EventActivityCodePeerSshDisable                                EventActivityCode = "peer.ssh.disable"
 	EventActivityCodePeerSshEnable                                 EventActivityCode = "peer.ssh.enable"
-	EventActivityCodePeerSshPolicyDenied                           EventActivityCode = "peer.ssh.policy.denied"
-	EventActivityCodePeerSshSessionDenied                          EventActivityCode = "peer.ssh.session.denied"
-	EventActivityCodePeerSshSessionEnd                             EventActivityCode = "peer.ssh.session.end"
-	EventActivityCodePeerSshSessionStart                           EventActivityCode = "peer.ssh.session.start"
 	EventActivityCodePeerUserAdd                                   EventActivityCode = "peer.user.add"
 	EventActivityCodePersonalAccessTokenCreate                     EventActivityCode = "personal.access.token.create"
 	EventActivityCodePersonalAccessTokenDelete                     EventActivityCode = "personal.access.token.delete"
@@ -370,19 +365,9 @@ func (e EventActivityCode) Valid() bool {
 		return true
 	case EventActivityCodePeerSetupkeyAdd:
 		return true
-	case EventActivityCodePeerSshAuthFailed:
-		return true
 	case EventActivityCodePeerSshDisable:
 		return true
 	case EventActivityCodePeerSshEnable:
-		return true
-	case EventActivityCodePeerSshPolicyDenied:
-		return true
-	case EventActivityCodePeerSshSessionDenied:
-		return true
-	case EventActivityCodePeerSshSessionEnd:
-		return true
-	case EventActivityCodePeerSshSessionStart:
 		return true
 	case EventActivityCodePeerUserAdd:
 		return true

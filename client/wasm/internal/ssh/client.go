@@ -18,8 +18,7 @@ import (
 )
 
 const (
-	sshDialTimeout   = 30 * time.Second
-	sshClientVersion = "SSH-2.0-Cloink-WebSSH"
+	sshDialTimeout = 30 * time.Second
 )
 
 func closeWithLog(c io.Closer, resource string) {
@@ -63,7 +62,6 @@ func (c *Client) Connect(host string, port int, username, jwtToken string, ipVer
 		Auth:            authMethods,
 		HostKeyCallback: nbssh.CreateHostKeyCallback(c.nbClient),
 		Timeout:         sshDialTimeout,
-		ClientVersion:   sshClientVersion,
 	}
 
 	network := "tcp"

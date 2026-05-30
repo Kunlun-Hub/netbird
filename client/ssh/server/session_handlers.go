@@ -43,21 +43,10 @@ func (s *Server) sessionHandler(session ssh.Session) {
 	}
 	logger.Info("SSH session started")
 	sessionStart := time.Now()
-	auditStarted := false
-	sessionType := sessionTypeFor(session)
 
 	defer s.unregisterSession(sessionKey)
 	defer func() {
 		duration := time.Since(sessionStart).Round(time.Millisecond)
-		if auditStarted {
-			event := auditEventFromContext(session.Context(), SSHActivitySessionEnd, sessionType, SSHResultAllowed, "")
-			event.SessionID = string(sessionKey)
-			event.ActorUserID = jwtUsername
-			event.StartedAt = sessionStart
-			event.EndedAt = time.Now()
-			event.Duration = event.EndedAt.Sub(sessionStart).Round(time.Millisecond)
-			s.reportSSHEvent(session.Context(), event)
-		}
 		if err := session.Close(); err != nil && !errors.Is(err, io.EOF) {
 			logger.Warnf("close session after %v: %v", duration, err)
 		}
@@ -66,21 +55,9 @@ func (s *Server) sessionHandler(session ssh.Session) {
 
 	privilegeResult, err := s.userPrivilegeCheck(session.User())
 	if err != nil {
-		event := auditEventFromContext(session.Context(), SSHActivitySessionDenied, sessionType, SSHResultDenied, err.Error())
-		event.SessionID = string(sessionKey)
-		event.ActorUserID = jwtUsername
-		s.reportSSHEvent(session.Context(), event)
 		s.handlePrivError(logger, session, err)
 		return
 	}
-
-	sessionStart = time.Now()
-	startEvent := auditEventFromContext(session.Context(), SSHActivitySessionStart, sessionType, SSHResultAllowed, "")
-	startEvent.SessionID = string(sessionKey)
-	startEvent.ActorUserID = jwtUsername
-	startEvent.StartedAt = sessionStart
-	s.reportSSHEvent(session.Context(), startEvent)
-	auditStarted = true
 
 	ptyReq, winCh, isPty := session.Pty()
 	hasCommand := session.RawCommand() != ""
@@ -94,13 +71,6 @@ func (s *Server) sessionHandler(session ssh.Session) {
 	}
 }
 
-func sessionTypeFor(session ssh.Session) string {
-	if session.RawCommand() != "" {
-		return SSHSessionTypeExec
-	}
-	return SSHSessionTypeShell
-}
-
 func (s *Server) registerSession(session ssh.Session, sessionType string) sessionKey {
 	sessionID := session.Context().Value(ssh.ContextKeySessionID)
 	if sessionID == nil {
@@ -109,7 +79,6 @@ func (s *Server) registerSession(session ssh.Session, sessionType string) sessio
 
 	hasher := sha256.New()
 	hasher.Write([]byte(fmt.Sprintf("%v", sessionID)))
-	hasher.Write([]byte(fmt.Sprintf("%p", session)))
 	hash := hasher.Sum(nil)
 	shortID := hex.EncodeToString(hash[:4])
 

@@ -33,7 +33,6 @@ const (
 	DefaultDaemonAddr = "unix:///var/run/cloink.sock"
 	// DefaultDaemonAddrWindows is the default address for the Cloink daemon on Windows
 	DefaultDaemonAddrWindows = "tcp://127.0.0.1:41731"
-	sshClientVersion         = "SSH-2.0-Cloink-NetBirdSSH"
 )
 
 // Client wraps crypto/ssh Client for simplified SSH operations
@@ -301,7 +300,6 @@ func Dial(ctx context.Context, addr, user string, opts DialOptions) (*Client, er
 		User:            user,
 		Timeout:         30 * time.Second,
 		HostKeyCallback: hostKeyCallback,
-		ClientVersion:   sshClientVersion,
 	}
 
 	if opts.IdentityFile != "" {
