@@ -50,7 +50,7 @@ func (am *DefaultAccountManager) accountEntitlementUsage(ctx context.Context, ac
 			continue
 		}
 		usage[entitlements.LimitReverseProxyServer]++
-		usage[entitlements.LimitCustomRules] += len(service.Targets)
+		usage[entitlements.LimitCustomRules]++
 	}
 
 	domains, err := am.Store.ListCustomDomains(ctx, accountID)

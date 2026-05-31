@@ -47,7 +47,7 @@ func TestBasicPlanEntitlements(t *testing.T) {
 		LimitPeers:              10,
 		LimitReverseProxyServer: 1,
 		LimitCustomDomains:      1,
-		LimitCustomRules:        3,
+		LimitCustomRules:        1,
 	}
 	for limit, want := range expectedLimits {
 		if got := entitlements.LimitValue(limit); got != want {

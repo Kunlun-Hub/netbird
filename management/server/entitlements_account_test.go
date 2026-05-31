@@ -105,5 +105,5 @@ func TestAccountEntitlementUsageCountsResources(t *testing.T) {
 	assert.Equal(t, 2, usage[entitlements.LimitSelfHostedRelays])
 	assert.Equal(t, 1, usage[entitlements.LimitReverseProxyServer])
 	assert.Equal(t, 2, usage[entitlements.LimitCustomDomains])
-	assert.Equal(t, 2, usage[entitlements.LimitCustomRules])
+	assert.Equal(t, 1, usage[entitlements.LimitCustomRules])
 }

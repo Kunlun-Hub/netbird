@@ -280,3 +280,4 @@
 - 2026-05-31：基础版用量展示补齐：`GET /entitlements` 和 `GET/PUT /license` 返回 `usage`，Dashboard 授权中心展示账号资源用量卡片，用户、服务用户、客户端、中继页面顶部展示对应资源的已用/总额/剩余。
 - 2026-05-31：基础版用量回归通过：`go test ./management/server -run 'Test(GetAccountEntitlements|AccountEntitlementUsage|GetAccountLicense|UpdateAccountLicense)' -count=1 -timeout=2m`、`go test ./management/server/http/handlers/accounts -run 'Test(GetAccountEntitlements|GetAccountLicense|UpdateAccountLicense)' -count=1 -timeout=2m`、`go test ./management/server/licensing ./shared/management/http/api -count=1 -timeout=2m`、Dashboard `npx tsc --noEmit`、`npx eslint src/modules/account/ResourceUsage.tsx`。
 - 2026-05-31：资源用尽时 Dashboard 直接禁用相关新增入口并提示“资源不足”，覆盖用户/邀请、服务用户、客户端安装入口和中继部署；后端补齐中继 setup-token 与 relay register 的限额强校验，防止绕过前端继续新增自建中继。
+- 2026-05-31：反向代理资源口径调整为只展示和限制“反向代理域名”和“反向代理服务”：授权中心资源用量移除单独“反向代理”项，`custom_domains` 显示为反向代理域名，`custom_rules` 改为反向代理服务并按服务数计数；服务页和域名页顶部补充对应资源用量，新增入口在资源用尽时禁用并提示资源不足。

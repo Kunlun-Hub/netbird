@@ -27,10 +27,10 @@ func TestValidateServiceEntitlementsBasicDeniesSecondService(t *testing.T) {
 		Targets: []*rpservice.Target{{}},
 	})
 
-	assertReverseProxyLimitDenied(t, err, entitlements.LimitReverseProxyServer)
+	assertReverseProxyLimitDenied(t, err, entitlements.LimitCustomRules)
 }
 
-func TestValidateServiceEntitlementsBasicDeniesMoreThanThreeCustomRules(t *testing.T) {
+func TestValidateServiceEntitlementsBasicAllowsOneServiceWithMultipleTargets(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -43,24 +43,6 @@ func TestValidateServiceEntitlementsBasicDeniesMoreThanThreeCustomRules(t *testi
 	err := mgr.validateServiceEntitlements(context.Background(), mockStore, "account-a", &rpservice.Service{
 		ID:      "new",
 		Targets: []*rpservice.Target{{}, {}, {}, {}},
-	})
-
-	assertReverseProxyLimitDenied(t, err, entitlements.LimitCustomRules)
-}
-
-func TestValidateServiceEntitlementsBasicAllowsOneServiceWithThreeCustomRules(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockStore := store.NewMockStore(ctrl)
-	mockStore.EXPECT().
-		GetAccountServices(gomock.Any(), store.LockingStrengthUpdate, "account-a").
-		Return(nil, nil)
-
-	mgr := &Manager{entitlementsChecker: entitlements.NewChecker(entitlements.NewBasicStaticProvider())}
-	err := mgr.validateServiceEntitlements(context.Background(), mockStore, "account-a", &rpservice.Service{
-		ID:      "new",
-		Targets: []*rpservice.Target{{}, {}, {}},
 	})
 	if err != nil {
 		t.Fatalf("validateServiceEntitlements() error = %v", err)

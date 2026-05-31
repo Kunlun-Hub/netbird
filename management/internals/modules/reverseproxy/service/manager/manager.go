@@ -676,19 +676,14 @@ func (m *Manager) validateServiceEntitlements(ctx context.Context, transaction s
 	}
 
 	serviceCount := 1
-	customRuleCount := len(svc.Targets)
 	for _, existing := range services {
 		if existing.ID == svc.ID || existing.Terminated {
 			continue
 		}
 		serviceCount++
-		customRuleCount += len(existing.Targets)
 	}
 
-	if err := entitlements.RequireLimit(ctx, m.entitlementsChecker, accountID, entitlements.LimitReverseProxyServer, serviceCount); err != nil {
-		return err
-	}
-	return entitlements.RequireLimit(ctx, m.entitlementsChecker, accountID, entitlements.LimitCustomRules, customRuleCount)
+	return entitlements.RequireLimit(ctx, m.entitlementsChecker, accountID, entitlements.LimitCustomRules, serviceCount)
 }
 
 // handleDomainChange validates the new domain is free inside the transaction
