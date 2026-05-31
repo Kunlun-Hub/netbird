@@ -23,6 +23,7 @@ var (
 	relayCleanupInterval = 60 * time.Second
 	keepUnusedServerTime = 5 * time.Second
 	relayProbeTimeout    = 6 * time.Second
+	relayServerCooldown  = 2 * time.Minute
 	defaultRelayWeight   = 30
 
 	ErrRelayClientNotConnected = fmt.Errorf("relay client not connected")
@@ -65,6 +66,12 @@ func WithMaxBackoffInterval(d time.Duration) ManagerOption {
 	return func(m *Manager) { m.maxBackoffInterval = d }
 }
 
+// WithRelayServerCooldown sets how long a failed home Relay server is skipped
+// by the server picker. A non-positive duration disables cooldown filtering.
+func WithRelayServerCooldown(d time.Duration) ManagerOption {
+	return func(m *Manager) { m.relayServerCooldown = d }
+}
+
 // Manager is a manager for the relay client instances. It establishes one persistent connection to the given relay URL
 // and automatically reconnect to them in case disconnection.
 // The manager also manage temporary relay connection. If a client wants to communicate with a client on a
@@ -92,6 +99,7 @@ type Manager struct {
 
 	mtu                 uint16
 	maxBackoffInterval  time.Duration
+	relayServerCooldown time.Duration
 	switchMu            sync.Mutex
 	relayConfigMu       sync.RWMutex
 	configuredRelayURLs []string
@@ -108,10 +116,11 @@ func NewManager(ctx context.Context, serverURLs []string, peerID string, mtu uin
 	tokenStore := &relayAuth.TokenStore{}
 
 	m := &Manager{
-		ctx:        ctx,
-		peerID:     peerID,
-		tokenStore: tokenStore,
-		mtu:        mtu,
+		ctx:                 ctx,
+		peerID:              peerID,
+		tokenStore:          tokenStore,
+		mtu:                 mtu,
+		relayServerCooldown: relayServerCooldown,
 		serverPicker: &ServerPicker{
 			TokenStore:        tokenStore,
 			PeerID:            peerID,
@@ -126,6 +135,7 @@ func NewManager(ctx context.Context, serverURLs []string, peerID string, mtu uin
 	for _, opt := range opts {
 		opt(m)
 	}
+	m.serverPicker.CooldownDuration = m.relayServerCooldown
 	m.configuredRelayURLs = slices.Clone(serverURLs)
 	m.relayWeights = relayWeightsFromURLs(serverURLs)
 	m.serverPicker.ServerURLs.Store(m.effectiveRelayURLsLocked())

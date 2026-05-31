@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -30,6 +31,10 @@ type ServerPicker struct {
 	PeerID            string
 	MTU               uint16
 	ConnectionTimeout time.Duration
+	CooldownDuration  time.Duration
+
+	cooldownMu sync.Mutex
+	cooldowns  map[string]time.Time
 }
 
 func (sp *ServerPicker) PickServer(parentCtx context.Context) (*Client, error) {
@@ -37,6 +42,7 @@ func (sp *ServerPicker) PickServer(parentCtx context.Context) (*Client, error) {
 	defer cancel()
 
 	serverURLs := sp.ServerURLs.Load().([]string)
+	serverURLs = sp.availableServerURLs(serverURLs, time.Now())
 	totalServers := len(serverURLs)
 	if totalServers == 0 {
 		return nil, errors.New("failed to connect to any relay server: all attempts failed")
@@ -79,12 +85,14 @@ func (sp *ServerPicker) PickServer(parentCtx context.Context) (*Client, error) {
 			receivedResults++
 			if cr.Err == nil {
 				log.Infof("chosen home Relay server: %s", cr.Url)
+				sp.clearServerFailure(cr.Url)
 				cancelConnectionsExcept(cr.Url)
 				go sp.drainConnResults(connResultChan, receivedResults, startedServers)
 				return cr.RelayClient, nil
 			}
 
 			log.Tracef("failed to connect to Relay server: %s: %v", cr.Url, cr.Err)
+			sp.markServerFailure(cr.Url, time.Now(), cr.Err)
 			if receivedResults == startedServers && startedUpTo < totalServers {
 				startedUpTo = sp.startNextPriorityGroup(serverURLs, startedUpTo, startConnection)
 			}
@@ -96,6 +104,75 @@ func (sp *ServerPicker) PickServer(parentCtx context.Context) (*Client, error) {
 
 	cancelConnectionsExcept("")
 	return nil, errors.New("failed to connect to any relay server: all attempts failed")
+}
+
+func (sp *ServerPicker) availableServerURLs(serverURLs []string, now time.Time) []string {
+	if sp.CooldownDuration <= 0 || len(serverURLs) == 0 {
+		return serverURLs
+	}
+
+	sp.cooldownMu.Lock()
+	defer sp.cooldownMu.Unlock()
+
+	if len(sp.cooldowns) == 0 {
+		return serverURLs
+	}
+
+	available := make([]string, 0, len(serverURLs))
+	skipped := make([]string, 0)
+	for _, relayURL := range serverURLs {
+		cooldownUntil, ok := sp.cooldowns[relayURL]
+		if !ok {
+			available = append(available, relayURL)
+			continue
+		}
+		if !now.Before(cooldownUntil) {
+			delete(sp.cooldowns, relayURL)
+			available = append(available, relayURL)
+			continue
+		}
+		skipped = append(skipped, relayURL)
+	}
+
+	if len(available) == 0 {
+		log.WithField("cooldown_servers", skipped).Warn("all Relay servers are in cooldown, trying all servers")
+		return serverURLs
+	}
+
+	if len(skipped) > 0 {
+		log.WithField("cooldown_servers", skipped).Debug("skipping Relay servers in cooldown")
+	}
+	return available
+}
+
+func (sp *ServerPicker) markServerFailure(relayURL string, now time.Time, err error) {
+	if sp.CooldownDuration <= 0 || relayURL == "" {
+		return
+	}
+
+	sp.cooldownMu.Lock()
+	if sp.cooldowns == nil {
+		sp.cooldowns = make(map[string]time.Time)
+	}
+	cooldownUntil := now.Add(sp.CooldownDuration)
+	sp.cooldowns[relayURL] = cooldownUntil
+	sp.cooldownMu.Unlock()
+
+	log.WithFields(log.Fields{
+		"relay":          relayURL,
+		"cooldown_until": cooldownUntil,
+		"cooldown":       sp.CooldownDuration,
+	}).WithError(err).Debug("marked Relay server cooldown")
+}
+
+func (sp *ServerPicker) clearServerFailure(relayURL string) {
+	if sp.CooldownDuration <= 0 || relayURL == "" {
+		return
+	}
+
+	sp.cooldownMu.Lock()
+	delete(sp.cooldowns, relayURL)
+	sp.cooldownMu.Unlock()
 }
 
 func (sp *ServerPicker) startNextPriorityGroup(serverURLs []string, startAt int, startConnection func(string)) int {
@@ -142,9 +219,13 @@ func (sp *ServerPicker) processConnResults(resultChan chan connResult, successCh
 		cr := <-resultChan
 		if cr.Err != nil {
 			log.Tracef("failed to connect to Relay server: %s: %v", cr.Url, cr.Err)
+			if !hasSuccess {
+				sp.markServerFailure(cr.Url, time.Now(), cr.Err)
+			}
 			continue
 		}
 		log.Infof("connected to Relay server: %s", cr.Url)
+		sp.clearServerFailure(cr.Url)
 
 		if hasSuccess {
 			log.Infof("closing unnecessary Relay connection to: %s", cr.Url)

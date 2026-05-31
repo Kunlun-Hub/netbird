@@ -19,7 +19,20 @@ const (
 	Graceful
 )
 
-// Classify returns the retry behavior for common client reconnect errors.
+func (c Classification) String() string {
+	switch c {
+	case Transient:
+		return "transient"
+	case Permanent:
+		return "permanent"
+	case Graceful:
+		return "graceful"
+	default:
+		return "unknown"
+	}
+}
+
+// Classify returns the retry behavior for common reconnect errors.
 func Classify(err error) Classification {
 	if err == nil {
 		return Graceful

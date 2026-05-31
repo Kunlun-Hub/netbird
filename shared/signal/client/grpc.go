@@ -17,9 +17,9 @@ import (
 	"google.golang.org/grpc/status"
 
 	nbgrpc "github.com/netbirdio/netbird/client/grpc"
-	clientretry "github.com/netbirdio/netbird/client/retry"
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/shared/management/client"
+	clientretry "github.com/netbirdio/netbird/shared/retry"
 	"github.com/netbirdio/netbird/shared/signal/proto"
 	"github.com/netbirdio/netbird/util/wsproxy"
 )
@@ -178,7 +178,7 @@ func (c *GrpcClient) Receive(ctx context.Context, msgHandler func(msg *proto.Mes
 		return nil
 	}
 
-	err := backoff.Retry(operation, backOff)
+	err := clientretry.RetryNotify(operation, backOff, "signal", "receive_stream")
 	if err != nil {
 		log.Errorf("exiting the Signal service connection retry loop due to the unrecoverable error: %v", err)
 		return err

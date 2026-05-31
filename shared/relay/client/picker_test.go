@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 )
@@ -51,5 +52,65 @@ func TestServerPicker_StartNextPriorityGroupStartsSameWeightOnly(t *testing.T) {
 	}
 	if len(started) != 2 || started[0] != "relay-a" || started[1] != "relay-b" {
 		t.Fatalf("started = %v, want relay-a and relay-b", started)
+	}
+}
+
+func TestServerPicker_AvailableServerURLsSkipsCooldown(t *testing.T) {
+	now := time.Unix(100, 0)
+	sp := ServerPicker{CooldownDuration: time.Minute}
+	serverURLs := []string{"relay-a", "relay-b"}
+
+	sp.markServerFailure("relay-a", now, errors.New("dial failed"))
+
+	got := sp.availableServerURLs(serverURLs, now.Add(10*time.Second))
+	if want := []string{"relay-b"}; !slices.Equal(got, want) {
+		t.Fatalf("availableServerURLs() = %v, want %v", got, want)
+	}
+
+	got = sp.availableServerURLs(serverURLs, now.Add(time.Minute+time.Nanosecond))
+	if !slices.Equal(got, serverURLs) {
+		t.Fatalf("availableServerURLs() after cooldown = %v, want %v", got, serverURLs)
+	}
+}
+
+func TestServerPicker_AvailableServerURLsFallsBackWhenAllCooldown(t *testing.T) {
+	now := time.Unix(100, 0)
+	sp := ServerPicker{CooldownDuration: time.Minute}
+	serverURLs := []string{"relay-a", "relay-b"}
+
+	sp.markServerFailure("relay-a", now, errors.New("dial failed"))
+	sp.markServerFailure("relay-b", now, errors.New("dial failed"))
+
+	got := sp.availableServerURLs(serverURLs, now.Add(10*time.Second))
+	if !slices.Equal(got, serverURLs) {
+		t.Fatalf("availableServerURLs() = %v, want fallback to %v", got, serverURLs)
+	}
+}
+
+func TestServerPicker_ClearServerFailure(t *testing.T) {
+	now := time.Unix(100, 0)
+	sp := ServerPicker{CooldownDuration: time.Minute}
+	serverURLs := []string{"relay-a", "relay-b"}
+
+	sp.markServerFailure("relay-a", now, errors.New("dial failed"))
+	sp.clearServerFailure("relay-a")
+
+	got := sp.availableServerURLs(serverURLs, now.Add(10*time.Second))
+	if !slices.Equal(got, serverURLs) {
+		t.Fatalf("availableServerURLs() = %v, want %v", got, serverURLs)
+	}
+}
+
+func TestServerPicker_DrainConnResultsDoesNotCooldownAfterSuccess(t *testing.T) {
+	sp := ServerPicker{CooldownDuration: time.Minute}
+	serverURLs := []string{"relay-a", "relay-b"}
+	resultChan := make(chan connResult, 2)
+	resultChan <- connResult{Url: "relay-a", Err: errors.New("connection canceled")}
+
+	sp.drainConnResults(resultChan, 1, 2)
+
+	got := sp.availableServerURLs(serverURLs, time.Now())
+	if !slices.Equal(got, serverURLs) {
+		t.Fatalf("availableServerURLs() = %v, want %v", got, serverURLs)
 	}
 }

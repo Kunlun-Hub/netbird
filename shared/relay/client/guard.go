@@ -6,6 +6,8 @@ import (
 
 	"github.com/cenkalti/backoff/v4"
 	log "github.com/sirupsen/logrus"
+
+	retrypolicy "github.com/netbirdio/netbird/shared/retry"
 )
 
 const defaultMaxBackoffInterval = 60 * time.Second
@@ -50,6 +52,10 @@ func NewGuard(sp *ServerPicker, maxBackoffInterval time.Duration) *Guard {
 func (g *Guard) StartReconnectTrys(ctx context.Context, relayClient *Client) {
 	// try to reconnect to the same server
 	if ok := g.tryToQuickReconnect(ctx, relayClient); ok {
+		log.WithFields(log.Fields{
+			"component": "relay",
+			"phase":     "quick_reconnect",
+		}).Info("relay reconnect succeeded")
 		g.notifyReconnected()
 		return
 	}
@@ -57,14 +63,26 @@ func (g *Guard) StartReconnectTrys(ctx context.Context, relayClient *Client) {
 	// start a ticker to pick a new server
 	ticker := g.exponentTicker(ctx)
 	defer ticker.Stop()
+	attempt := 0
 
 	for {
 		select {
 		case <-ticker.C:
+			attempt++
 			if err := g.retry(ctx); err != nil {
-				log.Errorf("failed to pick new Relay server: %s", err)
+				log.WithFields(log.Fields{
+					"component":    "relay",
+					"phase":        "server_pick",
+					"attempt":      attempt,
+					"max_interval": g.maxBackoffInterval,
+				}).WithError(err).Error("failed to pick new Relay server")
 				continue
 			}
+			log.WithFields(log.Fields{
+				"component": "relay",
+				"phase":     "server_pick",
+				"attempt":   attempt,
+			}).Info("relay reconnect succeeded")
 			return
 		case <-ctx.Done():
 			return
@@ -85,10 +103,18 @@ func (g *Guard) tryToQuickReconnect(parentCtx context.Context, rc *Client) bool 
 		return false
 	}
 
-	log.Infof("try to reconnect to Relay server: %s", rc.connectionURL)
+	log.WithFields(log.Fields{
+		"component": "relay",
+		"phase":     "quick_reconnect",
+		"server":    rc.connectionURL,
+	}).Info("try to reconnect to Relay server")
 
 	if err := rc.Connect(parentCtx); err != nil {
-		log.Errorf("failed to reconnect to relay server: %s", err)
+		log.WithFields(log.Fields{
+			"component": "relay",
+			"phase":     "quick_reconnect",
+			"server":    rc.connectionURL,
+		}).WithError(err).Error("failed to reconnect to relay server")
 		return false
 	}
 	return true
@@ -132,14 +158,11 @@ func (g *Guard) notifyReconnected() {
 }
 
 func (g *Guard) exponentTicker(ctx context.Context) *backoff.Ticker {
-	bo := backoff.WithContext(&backoff.ExponentialBackOff{
-		InitialInterval: 2 * time.Second,
-		Multiplier:      2,
-		MaxInterval:     g.maxBackoffInterval,
-		Clock:           backoff.SystemClock,
-	}, ctx)
+	return backoff.NewTicker(retrypolicy.NewBackOff(ctx, g.reconnectPolicy()))
+}
 
-	return backoff.NewTicker(bo)
+func (g *Guard) reconnectPolicy() retrypolicy.Policy {
+	return retrypolicy.RelayReconnectPolicy.WithMaxInterval(g.maxBackoffInterval)
 }
 
 func waiteBeforeRetry(ctx context.Context) bool {

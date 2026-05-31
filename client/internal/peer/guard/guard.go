@@ -6,6 +6,8 @@ import (
 
 	"github.com/cenkalti/backoff/v4"
 	log "github.com/sirupsen/logrus"
+
+	retrypolicy "github.com/netbirdio/netbird/shared/retry"
 )
 
 // ConnStatus represents the connection state as seen by the guard.
@@ -140,30 +142,20 @@ func (g *Guard) reconnectLoopWithRetry(ctx context.Context, callback func()) {
 
 // initialTicker give chance to the peer to establish the initial connection.
 func (g *Guard) initialTicker(ctx context.Context) *backoff.Ticker {
-	bo := backoff.WithContext(&backoff.ExponentialBackOff{
-		InitialInterval:     3 * time.Second,
-		RandomizationFactor: 0.1,
-		Multiplier:          2,
-		MaxInterval:         g.timeout,
-		Stop:                backoff.Stop,
-		Clock:               backoff.SystemClock,
-	}, ctx)
-
-	return backoff.NewTicker(bo)
+	return backoff.NewTicker(retrypolicy.NewBackOff(ctx, g.initialPolicy()))
 }
 
 func (g *Guard) newReconnectTicker(ctx context.Context) *backoff.Ticker {
-	bo := backoff.WithContext(&backoff.ExponentialBackOff{
-		InitialInterval:     800 * time.Millisecond,
-		RandomizationFactor: 0.1,
-		Multiplier:          2,
-		MaxInterval:         g.timeout,
-		Stop:                backoff.Stop,
-		Clock:               backoff.SystemClock,
-	}, ctx)
-
-	ticker := backoff.NewTicker(bo)
+	ticker := backoff.NewTicker(retrypolicy.NewBackOff(ctx, g.reconnectPolicy()))
 	<-ticker.C // consume the initial tick what is happening right after the ticker has been created
 
 	return ticker
+}
+
+func (g *Guard) initialPolicy() retrypolicy.Policy {
+	return retrypolicy.PeerInitialPolicy.WithMaxInterval(g.timeout)
+}
+
+func (g *Guard) reconnectPolicy() retrypolicy.Policy {
+	return retrypolicy.PeerReconnectPolicy.WithMaxInterval(g.timeout)
 }

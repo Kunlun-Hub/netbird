@@ -33,3 +33,22 @@ func TestClassify(t *testing.T) {
 		})
 	}
 }
+
+func TestClassificationString(t *testing.T) {
+	tests := []struct {
+		classification Classification
+		want           string
+	}{
+		{classification: Unknown, want: "unknown"},
+		{classification: Transient, want: "transient"},
+		{classification: Permanent, want: "permanent"},
+		{classification: Graceful, want: "graceful"},
+		{classification: Classification(99), want: "unknown"},
+	}
+
+	for _, tt := range tests {
+		if got := tt.classification.String(); got != tt.want {
+			t.Fatalf("String() = %q, want %q", got, tt.want)
+		}
+	}
+}

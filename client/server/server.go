@@ -33,7 +33,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 	"github.com/netbirdio/netbird/client/internal/updater"
 	"github.com/netbirdio/netbird/client/proto"
-	clientretry "github.com/netbirdio/netbird/client/retry"
+	clientretry "github.com/netbirdio/netbird/shared/retry"
 	"github.com/netbirdio/netbird/util/capture"
 	"github.com/netbirdio/netbird/version"
 )

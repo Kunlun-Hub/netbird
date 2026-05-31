@@ -21,11 +21,11 @@ import (
 	"google.golang.org/grpc/connectivity"
 
 	nbgrpc "github.com/netbirdio/netbird/client/grpc"
-	clientretry "github.com/netbirdio/netbird/client/retry"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/shared/management/proto"
+	clientretry "github.com/netbirdio/netbird/shared/retry"
 	"github.com/netbirdio/netbird/util/wsproxy"
 )
 
@@ -166,7 +166,7 @@ func (c *GrpcClient) ready() bool {
 // Sync wraps the real client's Sync endpoint call and takes care of retries and encryption/decryption of messages
 // Blocking request. The result will be sent via msgHandler callback function
 func (c *GrpcClient) Sync(ctx context.Context, sysInfo *system.Info, msgHandler func(msg *proto.SyncResponse) error) error {
-	return c.withMgmtStream(ctx, func(ctx context.Context, serverPubKey wgtypes.Key) error {
+	return c.withMgmtStream(ctx, "sync_stream", func(ctx context.Context, serverPubKey wgtypes.Key) error {
 		return c.handleSyncStream(ctx, serverPubKey, sysInfo, msgHandler)
 	})
 }
@@ -174,7 +174,7 @@ func (c *GrpcClient) Sync(ctx context.Context, sysInfo *system.Info, msgHandler 
 // Job wraps the real client's Job endpoint call and takes care of retries and encryption/decryption of messages
 // Blocking request. The result will be sent via msgHandler callback function
 func (c *GrpcClient) Job(ctx context.Context, msgHandler func(msg *proto.JobRequest) *proto.JobResponse) error {
-	return c.withMgmtStream(ctx, func(ctx context.Context, serverPubKey wgtypes.Key) error {
+	return c.withMgmtStream(ctx, "job_stream", func(ctx context.Context, serverPubKey wgtypes.Key) error {
 		return c.handleJobStream(ctx, serverPubKey, msgHandler)
 	})
 }
@@ -183,6 +183,7 @@ func (c *GrpcClient) Job(ctx context.Context, msgHandler func(msg *proto.JobRequ
 // It takes care of retries, connection readiness, and fetching server public key.
 func (c *GrpcClient) withMgmtStream(
 	ctx context.Context,
+	operationName string,
 	handler func(ctx context.Context, serverPubKey wgtypes.Key) error,
 ) error {
 	backOff := defaultBackoff(ctx)
@@ -206,7 +207,7 @@ func (c *GrpcClient) withMgmtStream(
 		return handler(ctx, *serverPubKey)
 	}
 
-	err := backoff.Retry(operation, backOff)
+	err := clientretry.RetryNotify(operation, backOff, "management", operationName)
 	if err != nil {
 		log.Warnf("exiting the Management service connection retry loop due to the unrecoverable error: %s", err)
 	}
