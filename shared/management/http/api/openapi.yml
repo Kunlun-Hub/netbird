@@ -5239,6 +5239,34 @@ components:
           type: string
           description: A human-readable error message.
           example: "couldn't parse JSON request"
+        code:
+          type: integer
+          description: The HTTP status code returned with the error response.
+          example: 403
+        error_code:
+          type: string
+          description: A stable machine-readable error code when available.
+          example: "feature_not_entitled"
+        feature:
+          type: string
+          description: The gated feature that caused the authorization error, when applicable.
+          example: "identity_providers"
+        limit:
+          type: string
+          description: The quota limit that caused the authorization error, when applicable.
+          example: "users"
+        current:
+          type: integer
+          description: The current usage value for a quota error, when applicable.
+          example: 4
+        allowed:
+          type: integer
+          description: The allowed usage value for a quota error, when applicable.
+          example: 3
+        required_plan:
+          type: string
+          description: The plan required to use the feature or exceed the quota.
+          example: "pro"
   responses:
     not_found:
       description: Resource not found

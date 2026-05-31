@@ -2273,8 +2273,29 @@ type EmailTarget struct {
 
 // ErrorResponse Standard error response. Note: The exact structure of this error response is inferred from `util.WriteErrorResponse` and `util.WriteError` usage in the provided Go code, as a specific Go struct for errors was not provided.
 type ErrorResponse struct {
+	// Allowed The allowed usage value for a quota error, when applicable.
+	Allowed *int `json:"allowed,omitempty"`
+
+	// Code The HTTP status code returned with the error response.
+	Code *int `json:"code,omitempty"`
+
+	// Current The current usage value for a quota error, when applicable.
+	Current *int `json:"current,omitempty"`
+
+	// ErrorCode A stable machine-readable error code when available.
+	ErrorCode *string `json:"error_code,omitempty"`
+
+	// Feature The gated feature that caused the authorization error, when applicable.
+	Feature *string `json:"feature,omitempty"`
+
+	// Limit The quota limit that caused the authorization error, when applicable.
+	Limit *string `json:"limit,omitempty"`
+
 	// Message A human-readable error message.
 	Message *string `json:"message,omitempty"`
+
+	// RequiredPlan The plan required to use the feature or exceed the quota.
+	RequiredPlan *string `json:"required_plan,omitempty"`
 }
 
 // Event defines model for Event.

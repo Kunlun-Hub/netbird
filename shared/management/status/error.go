@@ -54,6 +54,8 @@ var (
 type Error struct {
 	ErrorType Type
 	Message   string
+	Code      string
+	Details   map[string]interface{}
 }
 
 // Type returns the Type of the error
@@ -74,6 +76,16 @@ func Errorf(errorType Type, format string, a ...interface{}) error {
 	}
 }
 
+// ErrorfWithDetails returns an Error with a stable machine-readable code and optional details.
+func ErrorfWithDetails(errorType Type, code string, details map[string]interface{}, format string, a ...interface{}) error {
+	return &Error{
+		ErrorType: errorType,
+		Message:   fmt.Sprintf(format, a...),
+		Code:      code,
+		Details:   cloneDetails(details),
+	}
+}
+
 // FromError returns Error, true if the provided error is of type of Error. nil, false otherwise
 func FromError(err error) (s *Error, ok bool) {
 	if err == nil {
@@ -84,6 +96,17 @@ func FromError(err error) (s *Error, ok bool) {
 		return e, true
 	}
 	return nil, false
+}
+
+func cloneDetails(details map[string]interface{}) map[string]interface{} {
+	if details == nil {
+		return nil
+	}
+	result := make(map[string]interface{}, len(details))
+	for key, value := range details {
+		result[key] = value
+	}
+	return result
 }
 
 // NewPeerNotFoundError creates a new Error with NotFound type for a missing peer

@@ -15,10 +15,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
+	"github.com/netbirdio/netbird/management/server/entitlements"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/management/http/api"
+	"github.com/netbirdio/netbird/shared/management/http/util"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
@@ -265,6 +267,39 @@ func TestCreateIdentityProvider(t *testing.T) {
 	}
 }
 
+func TestCreateIdentityProviderReturnsForbiddenWhenEntitlementDenied(t *testing.T) {
+	h := &handler{
+		accountManager: &mock_server.MockAccountManager{
+			CreateIdentityProviderFunc: func(_ context.Context, accountID, userID string, idp *types.IdentityProvider) (*types.IdentityProvider, error) {
+				assert.Equal(t, testAccountID, accountID)
+				assert.Equal(t, testUserID, userID)
+				assert.Equal(t, "New IDP", idp.Name)
+				return nil, identityProviderEntitlementDeniedError(t)
+			},
+		},
+	}
+
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/identity-providers", bytes.NewBufferString(`{
+		"name": "New IDP",
+		"type": "oidc",
+		"issuer": "https://new-issuer.example.com",
+		"client_id": "new-client-id",
+		"client_secret": "new-client-secret"
+	}`))
+	req.Header.Set("Content-Type", "application/json")
+	req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{
+		UserId:    testUserID,
+		AccountId: testAccountID,
+	})
+
+	router := mux.NewRouter()
+	router.HandleFunc("/api/identity-providers", h.createIdentityProvider).Methods("POST")
+	router.ServeHTTP(recorder, req)
+
+	assertEntitlementForbiddenResponse(t, recorder)
+}
+
 func TestUpdateIdentityProvider(t *testing.T) {
 	existingIDP := &types.IdentityProvider{
 		ID:           existingIDPID,
@@ -348,6 +383,39 @@ func TestUpdateIdentityProvider(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestUpdateIdentityProviderReturnsForbiddenWhenEntitlementDenied(t *testing.T) {
+	h := &handler{
+		accountManager: &mock_server.MockAccountManager{
+			UpdateIdentityProviderFunc: func(_ context.Context, accountID, idpID, userID string, idp *types.IdentityProvider) (*types.IdentityProvider, error) {
+				assert.Equal(t, testAccountID, accountID)
+				assert.Equal(t, existingIDPID, idpID)
+				assert.Equal(t, testUserID, userID)
+				assert.Equal(t, "Updated IDP", idp.Name)
+				return nil, identityProviderEntitlementDeniedError(t)
+			},
+		},
+	}
+
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/identity-providers/%s", existingIDPID), bytes.NewBufferString(`{
+		"name": "Updated IDP",
+		"type": "oidc",
+		"issuer": "https://updated-issuer.example.com",
+		"client_id": "updated-client-id"
+	}`))
+	req.Header.Set("Content-Type", "application/json")
+	req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{
+		UserId:    testUserID,
+		AccountId: testAccountID,
+	})
+
+	router := mux.NewRouter()
+	router.HandleFunc("/api/identity-providers/{idpId}", h.updateIdentityProvider).Methods("PUT")
+	router.ServeHTTP(recorder, req)
+
+	assertEntitlementForbiddenResponse(t, recorder)
 }
 
 func TestDeleteIdentityProvider(t *testing.T) {
@@ -437,4 +505,36 @@ func TestFromAPIRequest(t *testing.T) {
 	assert.Equal(t, "https://dev-123456.okta.com", idp.Issuer)
 	assert.Equal(t, "okta-client-id", idp.ClientID)
 	assert.Equal(t, "okta-client-secret", idp.ClientSecret)
+}
+
+func identityProviderEntitlementDeniedError(t *testing.T) error {
+	t.Helper()
+	err := entitlements.RequireFeature(
+		context.Background(),
+		entitlements.NewChecker(entitlements.NewBasicStaticProvider()),
+		testAccountID,
+		entitlements.FeatureIdentityProviders,
+	)
+	require.Error(t, err)
+	return err
+}
+
+func assertEntitlementForbiddenResponse(t *testing.T, recorder *httptest.ResponseRecorder) {
+	t.Helper()
+	assert.Equal(t, http.StatusForbidden, recorder.Code)
+
+	res := recorder.Result()
+	defer res.Body.Close()
+
+	content, err := io.ReadAll(res.Body)
+	require.NoError(t, err)
+
+	var response util.ErrorResponse
+	require.NoError(t, json.Unmarshal(content, &response))
+	assert.Equal(t, http.StatusForbidden, response.Code)
+	assert.Equal(t, "feature_not_entitled", response.ErrorCode)
+	assert.Equal(t, string(entitlements.FeatureIdentityProviders), response.Feature)
+	assert.Equal(t, string(entitlements.PlanPro), response.RequiredPlan)
+	assert.Contains(t, response.Message, "feature_not_entitled")
+	assert.Contains(t, response.Message, string(entitlements.FeatureIdentityProviders))
 }

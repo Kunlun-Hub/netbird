@@ -28,6 +28,7 @@
 
 - 授权模块只负责账号/套餐能力，不替代现有用户 RBAC 权限。
 - 服务端强制拦截，前端隐藏按钮只作为体验优化。
+- RDP 当前没有 management 侧专用 session API，按产品决策只做 Dashboard 入口隐藏；不额外防护用户绕过前端手工创建临时 TCP 访问。
 - 基础组网、登录、稳定性、重连、安全修复不做授权限制。
 - 读接口可以返回授权状态，写接口必须拒绝未授权变更。
 - 限额类能力需要在创建、更新和恢复已有数据时都能正确处理。
@@ -60,7 +61,7 @@
 - [x] 禁止新增、启用或更新外部身份提供商。
 - [x] 禁止开启 JWT group sync / groups propagation 等外部身份增强能力。
 - [x] 确保已有 IDP 配置在基础版下不会继续作为可用登录入口。
-- [ ] 更新相关 handler / manager 测试。
+- [x] 更新相关 handler / manager 测试。
 
 ### 4. 流日志与 DNS 日志限制
 
@@ -127,15 +128,15 @@
 
 - [x] 识别网页 SSH/RDP 的 API、proxy 和前端入口。
 - [x] 禁止基础版创建网页 SSH 会话/远程 job。
-- [ ] 禁止基础版创建网页 RDP 会话：当前仓库未发现管理端 RDP session API，后续新增入口时接入 `FeatureWebRDP`。
+- [x] 基础版隐藏网页 RDP 入口；当前不做服务端防绕过，后续若新增 management 侧 RDP session API 再接入 `FeatureWebRDP`。
 - [x] 禁止下发网页远控相关能力。
 - [x] Dashboard 隐藏或禁用入口。
 - [x] 增加网页远控授权测试。
 
 ### 13. 错误模型和前端体验
 
-- [ ] 统一未授权错误码，例如 `feature_not_entitled`、`limit_exceeded`。
-- [ ] 错误响应包含 feature、limit、current、required_plan。
+- [x] 统一未授权错误码，例如 `feature_not_entitled`、`limit_exceeded`。
+- [x] 错误响应包含 feature、limit、current、required_plan。
 - [x] Dashboard 根据授权状态展示基础版限制。
 - [x] Dashboard 对未授权功能显示升级提示。
 
@@ -143,7 +144,7 @@
 
 - [x] 授权核心单元测试。
 - [x] settings / extra settings 更新测试。
-- [ ] IDP handler 测试。
+- [x] IDP handler 测试。
 - [x] user / peer 限额测试。
 - [x] relay 限额测试。
 - [x] DNS / posture / route / reverse proxy 测试。
@@ -214,7 +215,7 @@
 - SSH 服务端开关：`management/server/peer.go`
 - SSH 策略协议：`types.PolicyRuleProtocolNetbirdSSH`，写入入口 `management/server/policy.go`
 - 远程 job：`management/server/peer.go`、`management/server/http/handlers/peers/peers_handler.go`
-- RDP：当前仅发现 `client/wasm/internal/rdp` 客户端实现，暂未发现 management 侧 RDP session API。
+- RDP：当前仅发现 `client/wasm/internal/rdp` 客户端实现，暂未发现 management 侧 RDP session API；按产品决策仅通过 Dashboard `web_rdp` 授权隐藏/显示入口。
 
 ## 进度记录
 
@@ -229,12 +230,12 @@
 - 2026-05-31：将授权 checker 改为服务启动时注入，保持运行时默认基础版，同时避免裸测试 manager 被套餐策略误伤。
 - 2026-05-31：接入反向代理限额，基础版限制 service 1 个、自定义域名 1 个、自定义规则按 service targets/path mappings 计数最多 3 条。
 - 2026-05-31：接入用户和设备数限额，基础版限制用户 3 个、设备/peer 10 台，超限账号允许读取和删除但禁止新增。
-- 2026-05-31：接入网页 SSH 相关服务端限制，基础版禁止开启 peer SSH、禁止 netbird-ssh 策略和远程 job 创建；RDP 独立入口仍需继续定位。
+- 2026-05-31：接入网页 SSH 相关服务端限制，基础版禁止开启 peer SSH、禁止 netbird-ssh 策略和远程 job 创建；RDP 当前按 Dashboard 入口隐藏处理。
 - 2026-05-31：接入 network map 下发过滤，基础版会在同步视图中剥离 DNS、posture 和 netbird-ssh 能力，避免历史配置继续生效。
 - 2026-05-31：补齐 relay peer/group preference 的唯一中继引用计数，避免通过偏好配置绕过自建中继 1 个的限额。
 - 2026-05-31：完善 relay 引用归一，registered relay 的 key、ID、address 与 peer/group preference 中的同一引用会按同一个中继计数，避免误伤合法的单中继偏好配置。
 - 2026-05-31：补齐身份侧基础版限制，外部 IdP 登录选项和外部 IdP 用户创建都会被授权检查拦截，只保留嵌入式本地身份路径。
-- 2026-05-31：复核 RDP 入口，当前 management 侧未发现独立 RDP session API；RDP 仅存在于 wasm 客户端代理实现，后续新增管理端入口时接入 `FeatureWebRDP`。
+- 2026-05-31：复核 RDP 入口，当前 management 侧未发现独立 RDP session API；RDP 仅存在于 wasm 客户端代理实现，按产品决策不做服务端临时 TCP 访问防绕过。
 - 2026-05-31：补充 HA route 授权测试，基础版同一 HA 组的第二条路由会被 `FeatureHARoutes` 拒绝。
 - 2026-05-31：修正 networks/resources 既有测试中过期的 reverse proxy reload mock 预期，恢复 `management/server/...` 全包回归。
 - 2026-05-31：回归通过：`go test ./management/server/...`、`go test ./management/internals/...`。
@@ -244,3 +245,9 @@
 - 2026-05-31：Dashboard 接入账号授权状态查询，新增授权 hook 和升级提示组件；基础版会隐藏 DNS、设备合规、网络/DNS 日志、网页 SSH/RDP 等导航或按钮，并禁用 flow logs、branding、DNS 域名、JWT/group propagation 等设置入口。
 - 2026-05-31：Dashboard 校验通过：`npm run lint` 无错误（仓库仍有既有 warning），`npx tsc --noEmit` 通过。
 - 2026-05-31：Dashboard 从 `cloink-saas` 新建 `cloink-saas-pro` 分支，前端授权接入改动已保留在该分支工作区。
+- 2026-05-31：补充 IDP HTTP handler 授权专项测试，断言基础版 `identity_providers` 授权拒绝会在创建/更新身份提供商接口中返回 403 和 `feature_not_entitled` 响应。
+- 2026-05-31：IDP handler 回归通过：`go test ./management/server/http/handlers/idp`、`go test ./management/server/http/handlers/...`。
+- 2026-05-31：补齐授权错误结构化响应，`feature_not_entitled` / `limit_exceeded` 会通过 HTTP JSON 返回 `error_code`、`feature` / `limit`、`current`、`allowed`、`required_plan` 等字段，避免前端解析 message。
+- 2026-05-31：错误模型回归通过：`go test ./management/server/entitlements`、`go test ./shared/management/http/util`、`go test ./management/server/http/handlers/idp`、`go test ./management/server/http/handlers/...`、`go test ./shared/management/...`、`go test ./management/server/...`。
+- 2026-05-31：同步 OpenAPI `ErrorResponse` schema 并重新生成 `shared/management/http/api/types.gen.go`，授权错误结构化字段已进入生成类型；生成后回归通过 `go test ./shared/management/...`、`go test ./management/server/http/handlers/...`、`go test ./management/server/... -run TestDoesNotExist`。
+- 2026-05-31：确认 RDP 授权策略调整为仅 Dashboard 入口层控制：无 `web_rdp` 授权隐藏入口，有授权显示入口，不做服务端临时 TCP 访问防绕过。

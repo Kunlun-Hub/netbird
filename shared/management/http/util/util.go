@@ -19,8 +19,14 @@ type EmptyObject struct {
 }
 
 type ErrorResponse struct {
-	Message string `json:"message"`
-	Code    int    `json:"code"`
+	Message      string `json:"message"`
+	Code         int    `json:"code"`
+	ErrorCode    string `json:"error_code,omitempty"`
+	Feature      string `json:"feature,omitempty"`
+	Limit        string `json:"limit,omitempty"`
+	Current      *int   `json:"current,omitempty"`
+	Allowed      *int   `json:"allowed,omitempty"`
+	RequiredPlan string `json:"required_plan,omitempty"`
 }
 
 // WriteJSONObject simply writes object to the HTTP response in JSON format
@@ -68,12 +74,16 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 
 // WriteErrorResponse prepares and writes an error response i nJSON
 func WriteErrorResponse(errMsg string, httpStatus int, w http.ResponseWriter) {
-	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
-	w.WriteHeader(httpStatus)
-	err := json.NewEncoder(w).Encode(&ErrorResponse{
+	writeErrorResponse(&ErrorResponse{
 		Message: errMsg,
 		Code:    httpStatus,
-	})
+	}, httpStatus, w)
+}
+
+func writeErrorResponse(response *ErrorResponse, httpStatus int, w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
+	w.WriteHeader(httpStatus)
+	err := json.NewEncoder(w).Encode(response)
 	if err != nil {
 		http.Error(w, "failed handling request", http.StatusInternalServerError)
 	}
@@ -116,5 +126,75 @@ func WriteError(ctx context.Context, err error, w http.ResponseWriter) {
 		log.WithContext(ctx).Error(unhandledMSG)
 	}
 
-	WriteErrorResponse(msg, httpStatus, w)
+	response := &ErrorResponse{
+		Message: msg,
+		Code:    httpStatus,
+	}
+	if ok {
+		applyStatusDetails(response, errStatus)
+	}
+
+	writeErrorResponse(response, httpStatus, w)
+}
+
+func applyStatusDetails(response *ErrorResponse, errStatus *status.Error) {
+	if errStatus == nil {
+		return
+	}
+	response.ErrorCode = errStatus.Code
+	response.Feature = stringDetail(errStatus.Details, "feature")
+	response.Limit = stringDetail(errStatus.Details, "limit")
+	response.RequiredPlan = stringDetail(errStatus.Details, "required_plan")
+	response.Current = intDetail(errStatus.Details, "current")
+	response.Allowed = intDetail(errStatus.Details, "allowed")
+}
+
+func stringDetail(details map[string]interface{}, key string) string {
+	value, ok := details[key]
+	if !ok {
+		return ""
+	}
+	switch v := value.(type) {
+	case string:
+		return v
+	case fmt.Stringer:
+		return v.String()
+	default:
+		return ""
+	}
+}
+
+func intDetail(details map[string]interface{}, key string) *int {
+	value, ok := details[key]
+	if !ok {
+		return nil
+	}
+	var result int
+	switch v := value.(type) {
+	case int:
+		result = v
+	case int8:
+		result = int(v)
+	case int16:
+		result = int(v)
+	case int32:
+		result = int(v)
+	case int64:
+		result = int(v)
+	case uint:
+		result = int(v)
+	case uint8:
+		result = int(v)
+	case uint16:
+		result = int(v)
+	case uint32:
+		result = int(v)
+	case uint64:
+		result = int(v)
+	case float64:
+		result = int(v)
+	default:
+		return nil
+	}
+	return &result
 }
