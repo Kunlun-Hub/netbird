@@ -133,11 +133,6 @@ type Settings struct {
 
 // Copy copies the Settings struct
 func (s *Settings) Copy() *Settings {
-	loginMethod := s.LoginMethod
-	if loginMethod == "" {
-		loginMethod = "all"
-	}
-
 	settings := &Settings{
 		PeerLoginExpirationEnabled: s.PeerLoginExpirationEnabled,
 		PeerLoginExpiration:        s.PeerLoginExpiration,
@@ -162,7 +157,7 @@ func (s *Settings) Copy() *Settings {
 		IPv6EnabledGroups:               slices.Clone(s.IPv6EnabledGroups),
 		EmbeddedIdpEnabled:              s.EmbeddedIdpEnabled,
 		LocalAuthDisabled:               s.LocalAuthDisabled,
-		LoginMethod:                     loginMethod,
+		LoginMethod:                     s.LoginMethod,
 		EnabledLoginOptions:             slices.Clone(s.EnabledLoginOptions),
 		EnabledLoginOptionsSet:          s.EnabledLoginOptionsSet,
 		LocalMfaEnabled:                 s.LocalMfaEnabled,
@@ -213,8 +208,14 @@ type ExtraSettings struct {
 
 	// BrandingLogoDataURL stores a custom dashboard header logo as a data URL.
 	BrandingLogoDataURL string
+	// BrandingLogoDarkDataURL stores a custom dashboard header logo for dark mode as a data URL.
+	BrandingLogoDarkDataURL string
+	// BrandingIconDataURL stores a compact brand icon and favicon as a data URL.
+	BrandingIconDataURL string
 	// BrandingTabTitle stores a custom browser tab brand title.
 	BrandingTabTitle string
+	// BrandingPrimaryColor stores a custom dashboard primary brand color.
+	BrandingPrimaryColor string
 
 	// RelayPeerPreferences maps peer IDs to preferred relay IDs or addresses.
 	RelayPeerPreferences map[string][]string `gorm:"serializer:json"`
@@ -257,7 +258,10 @@ func (e *ExtraSettings) Copy() *ExtraSettings {
 		FlowSyslogFacility:        e.FlowSyslogFacility,
 		FlowSyslogTag:             e.FlowSyslogTag,
 		BrandingLogoDataURL:       e.BrandingLogoDataURL,
+		BrandingLogoDarkDataURL:   e.BrandingLogoDarkDataURL,
+		BrandingIconDataURL:       e.BrandingIconDataURL,
 		BrandingTabTitle:          e.BrandingTabTitle,
+		BrandingPrimaryColor:      e.BrandingPrimaryColor,
 		RelayPeerPreferences:      cloneStringSliceMap(e.RelayPeerPreferences),
 		RelayGroupPreferences:     cloneStringSliceMap(e.RelayGroupPreferences),
 		RegisteredRelays:          cloneRegisteredRelays(e.RegisteredRelays),

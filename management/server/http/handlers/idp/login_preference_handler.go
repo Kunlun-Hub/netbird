@@ -91,7 +91,7 @@ func (h *loginPreferenceHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 				h.redirectToPreferredConnector(w, r, preferredConnectorID)
 				return
 			}
-		case strings.HasPrefix(r.URL.Path, "/oauth2/auth/local/login") || 
+		case strings.HasPrefix(r.URL.Path, "/oauth2/auth/local/login") ||
 			strings.HasPrefix(r.URL.Path, "/oauth2/auth/") && strings.Contains(r.URL.Path, "/login"):
 			// Check if the requested path contains a different connector than preferred
 			if !strings.Contains(r.URL.Path, "/"+preferredConnectorID+"/") {
@@ -137,7 +137,7 @@ func (h *loginPreferenceHandler) resolveLoginOptions(ctx context.Context) ([]typ
 		return []types.LoginOption{}, nil, nil
 	}
 
-	// Use Copy to ensure we have default values
+	// Work with a copy so login preference resolution doesn't mutate account settings.
 	settings = settings.Copy()
 
 	// First, check if we have EnabledLoginOptions

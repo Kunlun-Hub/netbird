@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"reflect"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -2066,6 +2068,255 @@ func TestDefaultAccountManager_UpdateAccountSettings(t *testing.T) {
 		Extra:                      &types.ExtraSettings{},
 	})
 	require.Error(t, err, "expecting to fail when providing PeerLoginExpiration more than 180 days")
+}
+
+func TestDefaultAccountManager_UpdateAccountSettings_BrandingValidation(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err, "unable to create account manager")
+
+	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
+	require.NoError(t, err, "unable to create an account")
+
+	validPNG := "data:image/png;base64," + base64.StdEncoding.EncodeToString([]byte("logo"))
+	validJPEG := "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString([]byte("dark-logo"))
+	validSVG := "data:image/svg+xml;base64," + base64.StdEncoding.EncodeToString([]byte(`<svg xmlns="http://www.w3.org/2000/svg"/>`))
+	oversizedPNG := "data:image/png;base64," + base64.StdEncoding.EncodeToString(make([]byte, maxBrandingImageBytes+1))
+
+	tests := []struct {
+		name    string
+		extra   *types.ExtraSettings
+		wantErr string
+	}{
+		{
+			name: "valid branding",
+			extra: &types.ExtraSettings{
+				BrandingLogoDataURL:     validPNG,
+				BrandingLogoDarkDataURL: validJPEG,
+				BrandingIconDataURL:     validSVG,
+				BrandingTabTitle:        "Acme Dashboard",
+				BrandingPrimaryColor:    "#123456",
+			},
+		},
+		{
+			name: "invalid image MIME type",
+			extra: &types.ExtraSettings{
+				BrandingLogoDataURL: "data:image/gif;base64," + base64.StdEncoding.EncodeToString([]byte("logo")),
+			},
+			wantErr: "supported image types",
+		},
+		{
+			name: "invalid base64 image payload",
+			extra: &types.ExtraSettings{
+				BrandingLogoDataURL: "data:image/png;base64,not-valid-base64!!!",
+			},
+			wantErr: "valid image data",
+		},
+		{
+			name: "unsafe SVG script",
+			extra: &types.ExtraSettings{
+				BrandingIconDataURL: "data:image/svg+xml;base64," + base64.StdEncoding.EncodeToString([]byte(`<svg><script>alert(1)</script></svg>`)),
+			},
+			wantErr: "SVG is not allowed",
+		},
+		{
+			name: "unsafe SVG event handler",
+			extra: &types.ExtraSettings{
+				BrandingIconDataURL: "data:image/svg+xml;base64," + base64.StdEncoding.EncodeToString([]byte(`<svg onload="alert(1)"></svg>`)),
+			},
+			wantErr: "SVG is not allowed",
+		},
+		{
+			name: "unsafe SVG javascript href",
+			extra: &types.ExtraSettings{
+				BrandingIconDataURL: "data:image/svg+xml;base64," + base64.StdEncoding.EncodeToString([]byte(`<svg><a href="javascript:alert(1)"/></svg>`)),
+			},
+			wantErr: "SVG is not allowed",
+		},
+		{
+			name: "unsafe SVG embedded data href",
+			extra: &types.ExtraSettings{
+				BrandingIconDataURL: "data:image/svg+xml;base64," + base64.StdEncoding.EncodeToString([]byte(`<svg><image href="data:image/png;base64,AAAA"/></svg>`)),
+			},
+			wantErr: "SVG is not allowed",
+		},
+		{
+			name: "oversized image payload",
+			extra: &types.ExtraSettings{
+				BrandingIconDataURL: oversizedPNG,
+			},
+			wantErr: "larger than 256 KB",
+		},
+		{
+			name: "invalid primary color",
+			extra: &types.ExtraSettings{
+				BrandingPrimaryColor: "123456",
+			},
+			wantErr: "6-digit hex color",
+		},
+		{
+			name: "short primary color",
+			extra: &types.ExtraSettings{
+				BrandingPrimaryColor: "#123",
+			},
+			wantErr: "6-digit hex color",
+		},
+		{
+			name: "too long tab title",
+			extra: &types.ExtraSettings{
+				BrandingTabTitle: strings.Repeat("a", maxBrandingTabTitleLength+1),
+			},
+			wantErr: "tab title",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			updatedSettings, err := manager.UpdateAccountSettings(context.Background(), accountID, userID, &types.Settings{
+				PeerLoginExpiration:        time.Hour,
+				PeerLoginExpirationEnabled: true,
+				Extra:                      test.extra,
+			})
+			if test.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), test.wantErr)
+				return
+			}
+
+			require.NoError(t, err)
+			require.NotNil(t, updatedSettings.Extra)
+			assert.Equal(t, test.extra.BrandingLogoDataURL, updatedSettings.Extra.BrandingLogoDataURL)
+			assert.Equal(t, test.extra.BrandingLogoDarkDataURL, updatedSettings.Extra.BrandingLogoDarkDataURL)
+			assert.Equal(t, test.extra.BrandingIconDataURL, updatedSettings.Extra.BrandingIconDataURL)
+			assert.Equal(t, test.extra.BrandingTabTitle, updatedSettings.Extra.BrandingTabTitle)
+			assert.Equal(t, test.extra.BrandingPrimaryColor, updatedSettings.Extra.BrandingPrimaryColor)
+		})
+	}
+}
+
+func TestValidateBrandingSVG(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload string
+		wantErr string
+	}{
+		{
+			name: "valid fragment references",
+			payload: `<svg xmlns="http://www.w3.org/2000/svg">
+				<defs>
+					<linearGradient id="brand-a"/>
+					<g id="mark"><path fill="url(#brand-a)" d="M0 0h1v1H0z"/></g>
+				</defs>
+				<use href="#mark" style="stroke: url('#brand-a')"/>
+			</svg>`,
+		},
+		{
+			name:    "valid style content",
+			payload: `<svg><style>.mark{fill:#123456;stroke:url(#brand-a)}</style><rect class="mark"/></svg>`,
+		},
+		{
+			name:    "reject non svg root",
+			payload: `<html></html>`,
+			wantErr: "root element must be svg",
+		},
+		{
+			name:    "reject foreign object",
+			payload: `<svg><foreignObject><body>unsafe</body></foreignObject></svg>`,
+			wantErr: "foreignObject elements are not allowed",
+		},
+		{
+			name:    "reject external href",
+			payload: `<svg><a href="https://example.com">link</a></svg>`,
+			wantErr: "href attributes are not allowed",
+		},
+		{
+			name:    "reject xlink data href",
+			payload: `<svg xmlns:xlink="http://www.w3.org/1999/xlink"><image xlink:href="data:image/png;base64,AAAA"/></svg>`,
+			wantErr: "href attributes are not allowed",
+		},
+		{
+			name:    "reject spaced javascript href",
+			payload: `<svg><a href="java&#x0a;script:alert(1)">link</a></svg>`,
+			wantErr: "href attributes are not allowed",
+		},
+		{
+			name:    "reject external style url",
+			payload: `<svg><rect style="fill:url(https://example.com/paint.svg#x)"/></svg>`,
+			wantErr: "style attributes are not allowed",
+		},
+		{
+			name:    "reject external presentation url",
+			payload: `<svg><rect fill="url(https://example.com/paint.svg#x)"/></svg>`,
+			wantErr: "fill attributes are not allowed",
+		},
+		{
+			name:    "reject style import",
+			payload: `<svg><rect style="@import url(https://example.com/a.css); fill: #fff"/></svg>`,
+			wantErr: "style attributes are not allowed",
+		},
+		{
+			name:    "reject style element import",
+			payload: `<svg><style>@import url(https://example.com/a.css); .mark{fill:#fff}</style></svg>`,
+			wantErr: "style content is not allowed",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := validateBrandingSVG([]byte(test.payload))
+			if test.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), test.wantErr)
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestDefaultAccountManager_UpdateAccountSettings_BrandingPreservesUnmanagedExtraSettings(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err, "unable to create account manager")
+
+	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
+	require.NoError(t, err, "unable to create an account")
+
+	ctx := context.Background()
+	currentSettings, err := manager.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
+	require.NoError(t, err)
+	currentSettings.Extra = &types.ExtraSettings{
+		FlowLocalStorageEnabled: true,
+		FlowLocalStoragePath:    "/var/lib/netbird/flow",
+		RelayPeerPreferences: map[string][]string{
+			"peer-1": {"relay-1"},
+		},
+		RegisteredRelays: map[string]types.RegisteredRelay{
+			"relay-1": {
+				ID:      "relay-1",
+				Address: "relay.example.com:443",
+			},
+		},
+	}
+	require.NoError(t, manager.Store.SaveAccountSettings(ctx, accountID, currentSettings))
+
+	validPNG := "data:image/png;base64," + base64.StdEncoding.EncodeToString([]byte("logo"))
+	updatedSettings, err := manager.UpdateAccountSettings(ctx, accountID, userID, &types.Settings{
+		PeerLoginExpiration:        time.Hour,
+		PeerLoginExpirationEnabled: true,
+		Extra: &types.ExtraSettings{
+			BrandingLogoDataURL:  validPNG,
+			BrandingPrimaryColor: "#123456",
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, updatedSettings.Extra)
+
+	assert.Equal(t, validPNG, updatedSettings.Extra.BrandingLogoDataURL)
+	assert.Equal(t, "#123456", updatedSettings.Extra.BrandingPrimaryColor)
+	assert.True(t, updatedSettings.Extra.FlowLocalStorageEnabled)
+	assert.Equal(t, "/var/lib/netbird/flow", updatedSettings.Extra.FlowLocalStoragePath)
+	assert.Equal(t, []string{"relay-1"}, updatedSettings.Extra.RelayPeerPreferences["peer-1"])
+	assert.Equal(t, "relay.example.com:443", updatedSettings.Extra.RegisteredRelays["relay-1"].Address)
 }
 
 func TestDefaultAccountManager_UpdateAccountSettings_PeerApproval(t *testing.T) {

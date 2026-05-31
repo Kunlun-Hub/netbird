@@ -1047,7 +1047,10 @@ func testUpdateAccountPeers(t *testing.T) {
 
 			for _, channel := range peerChannels {
 				update := <-channel
-				assert.Nil(t, update.Update.NetbirdConfig)
+				if assert.NotNil(t, update.Update.NetbirdConfig) {
+					assert.NotNil(t, update.Update.NetbirdConfig.Flow)
+					assert.False(t, update.Update.NetbirdConfig.Flow.Enabled)
+				}
 				assert.Equal(t, tc.peers, len(update.Update.NetworkMap.RemotePeers))
 				assert.Equal(t, tc.peers*2, len(update.Update.NetworkMap.FirewallRules))
 			}

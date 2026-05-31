@@ -341,7 +341,10 @@ func (h *handler) updateAccountRequestSettings(req api.PutApiAccountsAccountIdJS
 			FlowENCollectionEnabled:  req.Settings.Extra.NetworkTrafficExitNodeCollectionEnabled,
 			FlowDnsCollectionEnabled: req.Settings.Extra.NetworkTrafficDnsCollectionEnabled,
 			BrandingLogoDataURL:      req.Settings.Extra.BrandingLogoDataUrl,
+			BrandingLogoDarkDataURL:  req.Settings.Extra.BrandingLogoDarkDataUrl,
+			BrandingIconDataURL:      req.Settings.Extra.BrandingIconDataUrl,
 			BrandingTabTitle:         req.Settings.Extra.BrandingTabTitle,
+			BrandingPrimaryColor:     req.Settings.Extra.BrandingPrimaryColor,
 		}
 	}
 
@@ -659,7 +662,10 @@ func toAccountResponse(accountID string, settings *types.Settings, meta *types.A
 			NetworkTrafficExitNodeCollectionEnabled: settings.Extra.FlowENCollectionEnabled,
 			NetworkTrafficDnsCollectionEnabled:      settings.Extra.FlowDnsCollectionEnabled,
 			BrandingLogoDataUrl:                     settings.Extra.BrandingLogoDataURL,
+			BrandingLogoDarkDataUrl:                 settings.Extra.BrandingLogoDarkDataURL,
+			BrandingIconDataUrl:                     settings.Extra.BrandingIconDataURL,
 			BrandingTabTitle:                        settings.Extra.BrandingTabTitle,
+			BrandingPrimaryColor:                    settings.Extra.BrandingPrimaryColor,
 		}
 	}
 

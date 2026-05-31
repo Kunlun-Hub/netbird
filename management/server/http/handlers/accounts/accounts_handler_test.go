@@ -481,7 +481,10 @@ func TestUpdateAccountBrandingPayload(t *testing.T) {
 				"peer_login_expiration_enabled": true,
 				"extra": {
 					"branding_logo_data_url": "data:image/png;base64,logo",
-					"branding_tab_title": "Acme Dashboard"
+					"branding_logo_dark_data_url": "data:image/png;base64,dark-logo",
+					"branding_icon_data_url": "data:image/png;base64,icon",
+					"branding_tab_title": "Acme Dashboard",
+					"branding_primary_color": "#123456"
 				}
 			}
 		}`),
@@ -502,7 +505,10 @@ func TestUpdateAccountBrandingPayload(t *testing.T) {
 	assert.NoError(t, err)
 	if assert.NotNil(t, response.Settings.Extra) {
 		assert.Equal(t, "data:image/png;base64,logo", response.Settings.Extra.BrandingLogoDataUrl)
+		assert.Equal(t, "data:image/png;base64,dark-logo", response.Settings.Extra.BrandingLogoDarkDataUrl)
+		assert.Equal(t, "data:image/png;base64,icon", response.Settings.Extra.BrandingIconDataUrl)
 		assert.Equal(t, "Acme Dashboard", response.Settings.Extra.BrandingTabTitle)
+		assert.Equal(t, "#123456", response.Settings.Extra.BrandingPrimaryColor)
 	}
 }
 

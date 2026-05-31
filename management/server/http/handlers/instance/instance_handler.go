@@ -9,6 +9,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/account"
 	nbinstance "github.com/netbirdio/netbird/management/server/instance"
+	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/http/util"
 )
@@ -16,6 +17,7 @@ import (
 // handler handles the instance setup HTTP endpoints
 type handler struct {
 	instanceManager nbinstance.Manager
+	accountManager  account.Manager
 	setupManager    *nbinstance.SetupService
 }
 
@@ -24,10 +26,12 @@ type handler struct {
 func AddEndpoints(instanceManager nbinstance.Manager, accountManager account.Manager, router *mux.Router) {
 	h := &handler{
 		instanceManager: instanceManager,
+		accountManager:  accountManager,
 		setupManager:    nbinstance.NewSetupService(instanceManager, accountManager),
 	}
 
 	router.HandleFunc("/instance", h.getInstanceStatus).Methods("GET", "OPTIONS")
+	router.HandleFunc("/instance/branding", h.getBranding).Methods("GET", "OPTIONS")
 	router.HandleFunc("/setup", h.setup).Methods("POST", "OPTIONS")
 }
 
@@ -53,6 +57,47 @@ func (h *handler) getInstanceStatus(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(r.Context(), w, api.InstanceStatus{
 		SetupRequired: setupRequired,
 	})
+}
+
+// getBranding returns public branding settings for unauthenticated entry pages.
+func (h *handler) getBranding(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+
+	resp := api.InstanceBranding{}
+	if h.accountManager == nil || h.accountManager.GetStore() == nil {
+		util.WriteJSONObject(r.Context(), w, resp)
+		return
+	}
+
+	accounts := h.accountManager.GetStore().GetAllAccounts(r.Context())
+	account := pickPublicBrandingAccount(accounts)
+	if account == nil || account.Settings == nil || account.Settings.Extra == nil {
+		util.WriteJSONObject(r.Context(), w, resp)
+		return
+	}
+
+	extra := account.Settings.Extra
+	resp.BrandingLogoDataUrl = extra.BrandingLogoDataURL
+	resp.BrandingLogoDarkDataUrl = extra.BrandingLogoDarkDataURL
+	resp.BrandingIconDataUrl = extra.BrandingIconDataURL
+	resp.BrandingTabTitle = extra.BrandingTabTitle
+	resp.BrandingPrimaryColor = extra.BrandingPrimaryColor
+
+	util.WriteJSONObject(r.Context(), w, resp)
+}
+
+func pickPublicBrandingAccount(accounts []*types.Account) *types.Account {
+	if len(accounts) == 0 {
+		return nil
+	}
+
+	for _, account := range accounts {
+		if account != nil && account.IsDomainPrimaryAccount {
+			return account
+		}
+	}
+
+	return accounts[0]
 }
 
 // setup creates the initial admin user for the instance.

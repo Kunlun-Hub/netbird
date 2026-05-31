@@ -1607,7 +1607,9 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 			settings_extra_flow_enabled, settings_extra_flow_groups,
 			settings_extra_flow_packet_counter_enabled, settings_extra_flow_en_collection_enabled,
 			settings_extra_flow_dns_collection_enabled,
-			settings_extra_branding_logo_data_url, settings_extra_branding_tab_title
+			settings_extra_branding_logo_data_url, settings_extra_branding_logo_dark_data_url,
+			settings_extra_branding_icon_data_url, settings_extra_branding_tab_title,
+			settings_extra_branding_primary_color
 		FROM accounts WHERE id = $1`
 
 	var (
@@ -1637,7 +1639,10 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 		sExtraFlowENCollectionEnabled    sql.NullBool
 		sExtraFlowDNSCollectionEnabled   sql.NullBool
 		sExtraBrandingLogoDataURL        sql.NullString
+		sExtraBrandingLogoDarkDataURL    sql.NullString
+		sExtraBrandingIconDataURL        sql.NullString
 		sExtraBrandingTabTitle           sql.NullString
+		sExtraBrandingPrimaryColor       sql.NullString
 		networkNet                       sql.NullString
 		networkNetV6                     sql.NullString
 		dnsSettingsDisabledGroups        sql.NullString
@@ -1662,7 +1667,9 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 		&sExtraFlowEnabled, &sExtraFlowGroups,
 		&sExtraFlowPacketCounterEnabled, &sExtraFlowENCollectionEnabled,
 		&sExtraFlowDNSCollectionEnabled,
-		&sExtraBrandingLogoDataURL, &sExtraBrandingTabTitle,
+		&sExtraBrandingLogoDataURL, &sExtraBrandingLogoDarkDataURL,
+		&sExtraBrandingIconDataURL, &sExtraBrandingTabTitle,
+		&sExtraBrandingPrimaryColor,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -1772,8 +1779,17 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 	if sExtraBrandingLogoDataURL.Valid {
 		account.Settings.Extra.BrandingLogoDataURL = sExtraBrandingLogoDataURL.String
 	}
+	if sExtraBrandingLogoDarkDataURL.Valid {
+		account.Settings.Extra.BrandingLogoDarkDataURL = sExtraBrandingLogoDarkDataURL.String
+	}
+	if sExtraBrandingIconDataURL.Valid {
+		account.Settings.Extra.BrandingIconDataURL = sExtraBrandingIconDataURL.String
+	}
 	if sExtraBrandingTabTitle.Valid {
 		account.Settings.Extra.BrandingTabTitle = sExtraBrandingTabTitle.String
+	}
+	if sExtraBrandingPrimaryColor.Valid {
+		account.Settings.Extra.BrandingPrimaryColor = sExtraBrandingPrimaryColor.String
 	}
 	account.InitOnce()
 	return &account, nil

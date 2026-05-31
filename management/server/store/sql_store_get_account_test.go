@@ -100,7 +100,10 @@ func TestGetAccount_ComprehensiveFieldValidation(t *testing.T) {
 				FlowENCollectionEnabled:   true,
 				FlowDnsCollectionEnabled:  true,
 				BrandingLogoDataURL:       "data:image/png;base64,logo",
+				BrandingLogoDarkDataURL:   "data:image/png;base64,dark-logo",
+				BrandingIconDataURL:       "data:image/png;base64,icon",
 				BrandingTabTitle:          "Acme Dashboard",
+				BrandingPrimaryColor:      "#123456",
 			},
 		},
 	}
@@ -688,7 +691,10 @@ func TestGetAccount_ComprehensiveFieldValidation(t *testing.T) {
 		assert.True(t, retrievedAccount.Settings.Extra.FlowENCollectionEnabled, "FlowENCollectionEnabled mismatch")
 		assert.True(t, retrievedAccount.Settings.Extra.FlowDnsCollectionEnabled, "FlowDnsCollectionEnabled mismatch")
 		assert.Equal(t, "data:image/png;base64,logo", retrievedAccount.Settings.Extra.BrandingLogoDataURL)
+		assert.Equal(t, "data:image/png;base64,dark-logo", retrievedAccount.Settings.Extra.BrandingLogoDarkDataURL)
+		assert.Equal(t, "data:image/png;base64,icon", retrievedAccount.Settings.Extra.BrandingIconDataURL)
 		assert.Equal(t, "Acme Dashboard", retrievedAccount.Settings.Extra.BrandingTabTitle)
+		assert.Equal(t, "#123456", retrievedAccount.Settings.Extra.BrandingPrimaryColor)
 	})
 
 	// ========== VALIDATE SETUP KEYS ==========

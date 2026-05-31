@@ -3,6 +3,7 @@
 package integration
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -230,6 +231,117 @@ func Test_Accounts_Update(t *testing.T) {
 				tc.verifyDB(t, dbAccount)
 			})
 		}
+	}
+}
+
+func Test_Accounts_UpdateBrandingValidation(t *testing.T) {
+	validLogo := "data:image/png;base64," + base64.StdEncoding.EncodeToString([]byte("logo"))
+	oversizedLogo := "data:image/png;base64," + base64.StdEncoding.EncodeToString(make([]byte, 256*1024+1))
+
+	tests := []struct {
+		name           string
+		extra          *api.AccountExtraSettings
+		expectedStatus int
+		verifyResponse func(t *testing.T, account *api.Account)
+	}{
+		{
+			name: "valid branding settings",
+			extra: &api.AccountExtraSettings{
+				BrandingLogoDataUrl:  validLogo,
+				BrandingTabTitle:     "Acme Dashboard",
+				BrandingPrimaryColor: "#123456",
+			},
+			expectedStatus: http.StatusOK,
+			verifyResponse: func(t *testing.T, account *api.Account) {
+				t.Helper()
+				assert.Equal(t, validLogo, account.Settings.Extra.BrandingLogoDataUrl)
+				assert.Equal(t, "Acme Dashboard", account.Settings.Extra.BrandingTabTitle)
+				assert.Equal(t, "#123456", account.Settings.Extra.BrandingPrimaryColor)
+			},
+		},
+		{
+			name: "reject invalid image MIME type",
+			extra: &api.AccountExtraSettings{
+				BrandingLogoDataUrl: "data:image/gif;base64," + base64.StdEncoding.EncodeToString([]byte("logo")),
+			},
+			expectedStatus: http.StatusUnprocessableEntity,
+		},
+		{
+			name: "reject oversized image payload",
+			extra: &api.AccountExtraSettings{
+				BrandingIconDataUrl: oversizedLogo,
+			},
+			expectedStatus: http.StatusUnprocessableEntity,
+		},
+		{
+			name: "reject unsafe SVG payload",
+			extra: &api.AccountExtraSettings{
+				BrandingIconDataUrl: "data:image/svg+xml;base64," + base64.StdEncoding.EncodeToString([]byte(`<svg onload="alert(1)"></svg>`)),
+			},
+			expectedStatus: http.StatusUnprocessableEntity,
+		},
+		{
+			name: "reject SVG embedded data reference",
+			extra: &api.AccountExtraSettings{
+				BrandingIconDataUrl: "data:image/svg+xml;base64," + base64.StdEncoding.EncodeToString([]byte(`<svg><image href="data:image/png;base64,AAAA"/></svg>`)),
+			},
+			expectedStatus: http.StatusUnprocessableEntity,
+		},
+		{
+			name: "reject invalid primary color",
+			extra: &api.AccountExtraSettings{
+				BrandingPrimaryColor: "123456",
+			},
+			expectedStatus: http.StatusUnprocessableEntity,
+		},
+		{
+			name: "reject too long tab title",
+			extra: &api.AccountExtraSettings{
+				BrandingTabTitle: strings.Repeat("a", 81),
+			},
+			expectedStatus: http.StatusUnprocessableEntity,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			apiHandler, am, _ := channel.BuildApiBlackBoxWithDBState(t, "../testdata/accounts.sql", nil, false)
+
+			body, err := json.Marshal(&api.AccountRequest{
+				Settings: api.AccountSettings{
+					PeerLoginExpirationEnabled: true,
+					PeerLoginExpiration:        86400,
+					Extra:                      tc.extra,
+				},
+			})
+			if err != nil {
+				t.Fatalf("Failed to marshal request body: %v", err)
+			}
+
+			req := testing_tools.BuildRequest(t, body, http.MethodPut, strings.Replace("/api/accounts/{accountId}", "{accountId}", testing_tools.TestAccountId, 1), testing_tools.TestAdminId)
+			recorder := httptest.NewRecorder()
+			apiHandler.ServeHTTP(recorder, req)
+
+			content, expectResponse := testing_tools.ReadResponse(t, recorder, tc.expectedStatus, true)
+			if !expectResponse {
+				return
+			}
+
+			got := &api.Account{}
+			if err := json.Unmarshal(content, got); err != nil {
+				t.Fatalf("Sent content is not in correct json format; %v", err)
+			}
+			if tc.verifyResponse != nil {
+				tc.verifyResponse(t, got)
+			}
+
+			db := testing_tools.GetDB(t, am.GetStore())
+			dbAccount := testing_tools.VerifyAccountSettings(t, db)
+			assert.Equal(t, tc.extra.BrandingLogoDataUrl, dbAccount.Settings.Extra.BrandingLogoDataURL)
+			assert.Equal(t, tc.extra.BrandingIconDataUrl, dbAccount.Settings.Extra.BrandingIconDataURL)
+			assert.Equal(t, tc.extra.BrandingTabTitle, dbAccount.Settings.Extra.BrandingTabTitle)
+			assert.Equal(t, tc.extra.BrandingPrimaryColor, dbAccount.Settings.Extra.BrandingPrimaryColor)
+		})
 	}
 }
 

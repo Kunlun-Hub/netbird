@@ -1452,8 +1452,17 @@ type AccountExtraSettings struct {
 	// BrandingLogoDataUrl Custom dashboard header logo stored as a data URL.
 	BrandingLogoDataUrl string `json:"branding_logo_data_url,omitempty"`
 
+	// BrandingLogoDarkDataUrl Custom dashboard header logo for dark mode stored as a data URL.
+	BrandingLogoDarkDataUrl string `json:"branding_logo_dark_data_url,omitempty"`
+
+	// BrandingIconDataUrl Custom compact brand icon and favicon stored as a data URL.
+	BrandingIconDataUrl string `json:"branding_icon_data_url,omitempty"`
+
 	// BrandingTabTitle Custom brand title shown in browser tabs.
 	BrandingTabTitle string `json:"branding_tab_title,omitempty"`
+
+	// BrandingPrimaryColor Custom dashboard primary brand color as a 6-digit hex value.
+	BrandingPrimaryColor string `json:"branding_primary_color,omitempty"`
 
 	// Counters Legacy alias for network_traffic_packet_counter_enabled.
 	Counters bool `json:"counters,omitempty"`
@@ -2597,6 +2606,24 @@ type IngressPortAllocationRequestPortRangeProtocol string
 type InstanceStatus struct {
 	// SetupRequired Indicates whether the instance requires initial setup
 	SetupRequired bool `json:"setup_required"`
+}
+
+// InstanceBranding Public branding settings for unauthenticated entry pages
+type InstanceBranding struct {
+	// BrandingLogoDataUrl Custom dashboard header logo stored as a data URL.
+	BrandingLogoDataUrl string `json:"branding_logo_data_url,omitempty"`
+
+	// BrandingLogoDarkDataUrl Custom dashboard header logo for dark mode stored as a data URL.
+	BrandingLogoDarkDataUrl string `json:"branding_logo_dark_data_url,omitempty"`
+
+	// BrandingIconDataUrl Custom compact brand icon and favicon stored as a data URL.
+	BrandingIconDataUrl string `json:"branding_icon_data_url,omitempty"`
+
+	// BrandingTabTitle Custom brand title shown in browser tabs.
+	BrandingTabTitle string `json:"branding_tab_title,omitempty"`
+
+	// BrandingPrimaryColor Custom dashboard primary brand color as a 6-digit hex value.
+	BrandingPrimaryColor string `json:"branding_primary_color,omitempty"`
 }
 
 // InstanceVersionInfo Version information for NetBird components

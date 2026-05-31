@@ -139,6 +139,58 @@ func TestGetInstanceStatus_SetupNotRequired(t *testing.T) {
 	assert.False(t, response.SetupRequired)
 }
 
+func TestGetBranding_ReturnsPrimaryAccountBranding(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	accountStore := nbstore.NewMockStore(ctrl)
+	accountStore.EXPECT().GetAllAccounts(gomock.Any()).Return([]*types.Account{
+		{
+			Id: "non-primary",
+			Settings: &types.Settings{
+				Extra: &types.ExtraSettings{
+					BrandingTabTitle: "Non Primary",
+				},
+			},
+		},
+		{
+			Id:                     "primary",
+			IsDomainPrimaryAccount: true,
+			Settings: &types.Settings{
+				Extra: &types.ExtraSettings{
+					BrandingLogoDataURL:     "data:image/png;base64,logo",
+					BrandingLogoDarkDataURL: "data:image/png;base64,dark-logo",
+					BrandingIconDataURL:     "data:image/png;base64,icon",
+					BrandingTabTitle:        "Acme Dashboard",
+					BrandingPrimaryColor:    "#123456",
+				},
+			},
+		},
+	})
+
+	manager := &mockInstanceManager{isSetupRequired: false}
+	accountMgr := &mock_server.MockAccountManager{
+		GetStoreFunc: func() nbstore.Store {
+			return accountStore
+		},
+	}
+	router := setupTestRouterWithPAT(manager, accountMgr)
+
+	req := httptest.NewRequest(http.MethodGet, "/instance/branding", nil)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "no-store", rec.Header().Get("Cache-Control"))
+
+	var response api.InstanceBranding
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&response))
+	assert.Equal(t, "data:image/png;base64,logo", response.BrandingLogoDataUrl)
+	assert.Equal(t, "data:image/png;base64,dark-logo", response.BrandingLogoDarkDataUrl)
+	assert.Equal(t, "data:image/png;base64,icon", response.BrandingIconDataUrl)
+	assert.Equal(t, "Acme Dashboard", response.BrandingTabTitle)
+	assert.Equal(t, "#123456", response.BrandingPrimaryColor)
+}
+
 func TestGetInstanceStatus_Error(t *testing.T) {
 	manager := &mockInstanceManager{
 		isSetupRequiredFn: func(ctx context.Context) (bool, error) {
