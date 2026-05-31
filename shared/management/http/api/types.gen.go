@@ -1449,6 +1449,12 @@ type Account struct {
 
 // AccountExtraSettings defines model for AccountExtraSettings.
 type AccountExtraSettings struct {
+	// BrandingLogoDataUrl Custom dashboard header logo stored as a data URL.
+	BrandingLogoDataUrl string `json:"branding_logo_data_url,omitempty"`
+
+	// BrandingTabTitle Custom brand title shown in browser tabs.
+	BrandingTabTitle string `json:"branding_tab_title,omitempty"`
+
 	// Counters Legacy alias for network_traffic_packet_counter_enabled.
 	Counters bool `json:"counters,omitempty"`
 

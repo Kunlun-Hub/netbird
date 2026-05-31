@@ -340,6 +340,8 @@ func (h *handler) updateAccountRequestSettings(req api.PutApiAccountsAccountIdJS
 			FlowPacketCounterEnabled: req.Settings.Extra.NetworkTrafficPacketCounterEnabled,
 			FlowENCollectionEnabled:  req.Settings.Extra.NetworkTrafficExitNodeCollectionEnabled,
 			FlowDnsCollectionEnabled: req.Settings.Extra.NetworkTrafficDnsCollectionEnabled,
+			BrandingLogoDataURL:      req.Settings.Extra.BrandingLogoDataUrl,
+			BrandingTabTitle:         req.Settings.Extra.BrandingTabTitle,
 		}
 	}
 
@@ -656,6 +658,8 @@ func toAccountResponse(accountID string, settings *types.Settings, meta *types.A
 			NetworkTrafficPacketCounterEnabled:      settings.Extra.FlowPacketCounterEnabled,
 			NetworkTrafficExitNodeCollectionEnabled: settings.Extra.FlowENCollectionEnabled,
 			NetworkTrafficDnsCollectionEnabled:      settings.Extra.FlowDnsCollectionEnabled,
+			BrandingLogoDataUrl:                     settings.Extra.BrandingLogoDataURL,
+			BrandingTabTitle:                        settings.Extra.BrandingTabTitle,
 		}
 	}
 

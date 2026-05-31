@@ -416,6 +416,14 @@ components:
     AccountExtraSettings:
       type: object
       properties:
+        branding_logo_data_url:
+          description: Custom dashboard header logo stored as a data URL.
+          type: string
+          example: "data:image/png;base64,iVBORw0KGgo="
+        branding_tab_title:
+          description: Custom brand title shown in browser tabs.
+          type: string
+          example: "Acme Dashboard"
         peer_approval_enabled:
           description: (Cloud only) Enables or disables peer approval globally. If enabled, all peers added will be in pending state until approved by an admin.
           type: boolean

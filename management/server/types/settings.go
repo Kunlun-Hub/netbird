@@ -211,6 +211,11 @@ type ExtraSettings struct {
 	// FlowSyslogTag sets the syslog tag
 	FlowSyslogTag string
 
+	// BrandingLogoDataURL stores a custom dashboard header logo as a data URL.
+	BrandingLogoDataURL string
+	// BrandingTabTitle stores a custom browser tab brand title.
+	BrandingTabTitle string
+
 	// RelayPeerPreferences maps peer IDs to preferred relay IDs or addresses.
 	RelayPeerPreferences map[string][]string `gorm:"serializer:json"`
 	// RelayGroupPreferences maps group IDs to preferred relay IDs or addresses.
@@ -251,6 +256,8 @@ func (e *ExtraSettings) Copy() *ExtraSettings {
 		FlowSyslogProtocol:        e.FlowSyslogProtocol,
 		FlowSyslogFacility:        e.FlowSyslogFacility,
 		FlowSyslogTag:             e.FlowSyslogTag,
+		BrandingLogoDataURL:       e.BrandingLogoDataURL,
+		BrandingTabTitle:          e.BrandingTabTitle,
 		RelayPeerPreferences:      cloneStringSliceMap(e.RelayPeerPreferences),
 		RelayGroupPreferences:     cloneStringSliceMap(e.RelayGroupPreferences),
 		RegisteredRelays:          cloneRegisteredRelays(e.RegisteredRelays),

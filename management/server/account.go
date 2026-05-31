@@ -312,6 +312,11 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		if err = am.validateSettingsUpdate(ctx, transaction, newSettings, oldSettings, userID, accountID); err != nil {
 			return err
 		}
+		if newSettings.Extra == nil {
+			newSettings.Extra = oldSettings.Extra
+		} else {
+			preserveUnmanagedExtraSettings(newSettings.Extra, oldSettings.Extra)
+		}
 
 		// No lock: the transaction already holds Settings(Update), and network.Net is
 		// only mutated by reallocateAccountPeerIPs, which is reachable only through
@@ -370,9 +375,6 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 			}
 		}
 
-		if newSettings.Extra == nil {
-			newSettings.Extra = oldSettings.Extra
-		}
 		if newSettings.LoginMethod == "" {
 			newSettings.LoginMethod = oldSettings.LoginMethod
 		}
@@ -463,6 +465,28 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 	}
 
 	return newSettings, nil
+}
+
+func preserveUnmanagedExtraSettings(newExtra, oldExtra *types.ExtraSettings) {
+	if newExtra == nil || oldExtra == nil {
+		return
+	}
+
+	oldExtra = oldExtra.Copy()
+	newExtra.IntegratedValidator = oldExtra.IntegratedValidator
+	newExtra.IntegratedValidatorGroups = oldExtra.IntegratedValidatorGroups
+	newExtra.FlowLocalStorageEnabled = oldExtra.FlowLocalStorageEnabled
+	newExtra.FlowLocalStoragePath = oldExtra.FlowLocalStoragePath
+	newExtra.FlowLocalStorageMaxSizeMB = oldExtra.FlowLocalStorageMaxSizeMB
+	newExtra.FlowLocalStorageMaxFiles = oldExtra.FlowLocalStorageMaxFiles
+	newExtra.FlowSyslogEnabled = oldExtra.FlowSyslogEnabled
+	newExtra.FlowSyslogServer = oldExtra.FlowSyslogServer
+	newExtra.FlowSyslogProtocol = oldExtra.FlowSyslogProtocol
+	newExtra.FlowSyslogFacility = oldExtra.FlowSyslogFacility
+	newExtra.FlowSyslogTag = oldExtra.FlowSyslogTag
+	newExtra.RelayPeerPreferences = oldExtra.RelayPeerPreferences
+	newExtra.RelayGroupPreferences = oldExtra.RelayGroupPreferences
+	newExtra.RegisteredRelays = oldExtra.RegisteredRelays
 }
 
 func flowSettingsChanged(oldExtra, newExtra *types.ExtraSettings) bool {

@@ -99,6 +99,8 @@ func TestGetAccount_ComprehensiveFieldValidation(t *testing.T) {
 				FlowPacketCounterEnabled:  true,
 				FlowENCollectionEnabled:   true,
 				FlowDnsCollectionEnabled:  true,
+				BrandingLogoDataURL:       "data:image/png;base64,logo",
+				BrandingTabTitle:          "Acme Dashboard",
 			},
 		},
 	}
@@ -685,6 +687,8 @@ func TestGetAccount_ComprehensiveFieldValidation(t *testing.T) {
 		assert.True(t, retrievedAccount.Settings.Extra.FlowPacketCounterEnabled, "FlowPacketCounterEnabled mismatch")
 		assert.True(t, retrievedAccount.Settings.Extra.FlowENCollectionEnabled, "FlowENCollectionEnabled mismatch")
 		assert.True(t, retrievedAccount.Settings.Extra.FlowDnsCollectionEnabled, "FlowDnsCollectionEnabled mismatch")
+		assert.Equal(t, "data:image/png;base64,logo", retrievedAccount.Settings.Extra.BrandingLogoDataURL)
+		assert.Equal(t, "Acme Dashboard", retrievedAccount.Settings.Extra.BrandingTabTitle)
 	})
 
 	// ========== VALIDATE SETUP KEYS ==========

@@ -453,6 +453,59 @@ func TestUpdateAccountFlowCompatPayload(t *testing.T) {
 	}
 }
 
+func TestUpdateAccountBrandingPayload(t *testing.T) {
+	accountID := "test_account"
+	adminUser := types.NewAdminUser("test_user")
+
+	handler := initAccountsTestData(t, &types.Account{
+		Id:      accountID,
+		Domain:  "hotmail.com",
+		Network: types.NewNetwork(),
+		Users: map[string]*types.User{
+			adminUser.Id: adminUser,
+		},
+		Settings: &types.Settings{
+			PeerLoginExpirationEnabled: false,
+			PeerLoginExpiration:        time.Hour,
+			RegularUsersViewBlocked:    true,
+		},
+	})
+
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(
+		http.MethodPut,
+		"/api/accounts/"+accountID,
+		bytes.NewBufferString(`{
+			"settings": {
+				"peer_login_expiration": 7200,
+				"peer_login_expiration_enabled": true,
+				"extra": {
+					"branding_logo_data_url": "data:image/png;base64,logo",
+					"branding_tab_title": "Acme Dashboard"
+				}
+			}
+		}`),
+	)
+
+	req = mux.SetURLVars(req, map[string]string{"accountId": accountID})
+	req = req.WithContext(nbcontext.SetUserAuthInContext(req.Context(), auth.UserAuth{
+		UserId:    adminUser.Id,
+		AccountId: accountID,
+		Domain:    "hotmail.com",
+	}))
+
+	handler.updateAccount(recorder, req)
+	assert.Equal(t, http.StatusOK, recorder.Code)
+
+	var response api.Account
+	err := json.Unmarshal(recorder.Body.Bytes(), &response)
+	assert.NoError(t, err)
+	if assert.NotNil(t, response.Settings.Extra) {
+		assert.Equal(t, "data:image/png;base64,logo", response.Settings.Extra.BrandingLogoDataUrl)
+		assert.Equal(t, "Acme Dashboard", response.Settings.Extra.BrandingTabTitle)
+	}
+}
+
 func TestGetAccountFlowCompatResponse(t *testing.T) {
 	accountID := "test_account"
 	adminUser := types.NewAdminUser("test_user")
