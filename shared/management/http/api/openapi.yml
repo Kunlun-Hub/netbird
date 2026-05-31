@@ -314,6 +314,10 @@ components:
           description: Dashboard domain embedded in the installed license.
           type: string
           example: cloink.4w.ink
+        name:
+          description: Authorized licensee name embedded in the installed license. The encrypted payload may provide this value as UTF-8 text or base64-encoded UTF-8.
+          type: string
+          example: xxx公司
         status:
           description: Current license status.
           type: string
@@ -376,9 +380,9 @@ components:
       description: Request body for installing or clearing an account license key.
       properties:
         license_key:
-          description: AES-encrypted base64 license key. Send an empty string to clear the installed key.
+          description: OpenSSL/CryptoJS-compatible AES encrypted base64 license key. Send an empty string to clear the installed key.
           type: string
-          example: dGVzdC1saWNlbnNlLWtleQ==
+          example: U2FsdGVkX1+86EPyCJ/iuA==
         server_url:
           description: Current dashboard domain without scheme, path, or trailing slash.
           type: string

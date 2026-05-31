@@ -68,6 +68,7 @@ type accountEntitlementsResponse struct {
 type accountLicenseResponse struct {
 	MachineID        string          `json:"machine_id"`
 	ServerURL        string          `json:"server_url,omitempty"`
+	Name             string          `json:"name,omitempty"`
 	Status           string          `json:"status"`
 	Plan             string          `json:"plan"`
 	LicenseKeyMasked string          `json:"license_key_masked,omitempty"`
@@ -472,6 +473,7 @@ func toAccountLicenseResponse(state *licensing.State) accountLicenseResponse {
 	return accountLicenseResponse{
 		MachineID:        state.MachineID,
 		ServerURL:        state.ServerURL,
+		Name:             state.Name,
 		Status:           string(state.Status),
 		Plan:             string(state.Plan),
 		LicenseKeyMasked: state.LicenseKeyMasked,

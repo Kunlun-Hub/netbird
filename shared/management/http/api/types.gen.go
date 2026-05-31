@@ -1650,6 +1650,9 @@ type AccountLicense struct {
 	// Message Human-readable license status detail.
 	Message *string `json:"message,omitempty"`
 
+	// Name Authorized licensee name embedded in the installed license. The encrypted payload may provide this value as UTF-8 text or base64-encoded UTF-8.
+	Name *string `json:"name,omitempty"`
+
 	// Plan Effective entitlement plan.
 	Plan AccountLicensePlan `json:"plan"`
 
@@ -4807,7 +4810,7 @@ type TenantResponseStatus string
 
 // UpdateAccountLicenseRequest Request body for installing or clearing an account license key.
 type UpdateAccountLicenseRequest struct {
-	// LicenseKey AES-encrypted base64 license key. Send an empty string to clear the installed key.
+	// LicenseKey OpenSSL/CryptoJS-compatible AES encrypted base64 license key. Send an empty string to clear the installed key.
 	LicenseKey string `json:"license_key"`
 
 	// ServerUrl Current dashboard domain without scheme, path, or trailing slash.

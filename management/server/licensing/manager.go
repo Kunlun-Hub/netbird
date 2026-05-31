@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/md5"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -18,6 +19,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/netbirdio/netbird/management/server/entitlements"
 )
@@ -27,6 +30,8 @@ const (
 
 	licenseSecretEnv = "CLOINK_LICENSE_AES_KEY"
 	defaultSecret    = "lA8fsCkh1s7e2JEruZCr0JNChQIfpuDbr6avPSbWgasz2cseGjNcZ225BAuCy4m2CDz8jMSHaQxHSWBXxfo1viFDDZRTDJqQ82oFfietnjhEYpuG1DPslfIpyFLiSvse"
+
+	opensslSaltHeader = "Salted__"
 )
 
 type Status string
@@ -53,6 +58,7 @@ var ErrInvalidLicenseKey = errors.New("invalid license key")
 type State struct {
 	MachineID        string
 	ServerURL        string
+	Name             string
 	Status           Status
 	Plan             entitlements.Plan
 	LicenseKeyMasked string
@@ -65,6 +71,7 @@ type State struct {
 
 type licensePayload struct {
 	ServerURL    string
+	Name         string
 	LicenseTypes []LicenseType
 	Key          string
 	StartTime    *time.Time
@@ -155,7 +162,7 @@ func (m *Manager) GetState(ctx context.Context, serverURL string) (*State, error
 		return nil, err
 	}
 	if !found || strings.TrimSpace(stored.Key) == "" {
-		return m.state(machineID, "", "", StatusUnlicensed, entitlements.PlanBasic, nil, nil, nil, "No license key has been installed."), nil
+		return m.state(machineID, "", "", "", StatusUnlicensed, entitlements.PlanBasic, nil, nil, nil, "No license key has been installed."), nil
 	}
 
 	state := m.validate(ctx, machineID, stored.Key)
@@ -174,7 +181,7 @@ func (m *Manager) UpdateKey(ctx context.Context, serverURL, key string) (*State,
 		if err := m.deleteStoredLicense(); err != nil {
 			return nil, err
 		}
-		return m.state(machineID, "", "", StatusUnlicensed, entitlements.PlanBasic, nil, nil, nil, "No license key has been installed."), nil
+		return m.state(machineID, "", "", "", StatusUnlicensed, entitlements.PlanBasic, nil, nil, nil, "No license key has been installed."), nil
 	}
 
 	state := m.validate(ctx, machineID, key)
@@ -196,38 +203,39 @@ func (m *Manager) UpdateKey(ctx context.Context, serverURL, key string) (*State,
 func (m *Manager) validate(_ context.Context, machineID, key string) *State {
 	payload, err := DecryptLicensePayload(key, m.secret)
 	if err != nil {
-		return m.state(machineID, "", key, StatusInvalid, entitlements.PlanBasic, nil, nil, nil, "License key cannot be decrypted.")
+		return m.state(machineID, "", "", key, StatusInvalid, entitlements.PlanBasic, nil, nil, nil, "License key cannot be decrypted.")
 	}
 
 	payload.ServerURL = NormalizeServerURL(payload.ServerURL)
 	if payload.ServerURL == "" {
-		return m.state(machineID, payload.ServerURL, key, StatusInvalid, entitlements.PlanBasic, payload.LicenseTypes, payload.StartTime, payload.EndTime, "License server_url is empty.")
+		return m.state(machineID, payload.ServerURL, payload.Name, key, StatusInvalid, entitlements.PlanBasic, payload.LicenseTypes, payload.StartTime, payload.EndTime, "License server_url is empty.")
 	}
 	if payload.Key != m.secret {
-		return m.state(machineID, payload.ServerURL, key, StatusInvalid, entitlements.PlanBasic, payload.LicenseTypes, payload.StartTime, payload.EndTime, "License key secret is invalid.")
+		return m.state(machineID, payload.ServerURL, payload.Name, key, StatusInvalid, entitlements.PlanBasic, payload.LicenseTypes, payload.StartTime, payload.EndTime, "License key secret is invalid.")
 	}
 	if len(payload.LicenseTypes) == 0 {
-		return m.state(machineID, payload.ServerURL, key, StatusInvalid, entitlements.PlanBasic, payload.LicenseTypes, payload.StartTime, payload.EndTime, "License type is empty.")
+		return m.state(machineID, payload.ServerURL, payload.Name, key, StatusInvalid, entitlements.PlanBasic, payload.LicenseTypes, payload.StartTime, payload.EndTime, "License type is empty.")
 	}
 
 	now := m.now().UTC()
 	if payload.StartTime != nil && now.Before(*payload.StartTime) {
-		return m.state(machineID, payload.ServerURL, key, StatusNotStarted, entitlements.PlanBasic, payload.LicenseTypes, payload.StartTime, payload.EndTime, "License is not active yet.")
+		return m.state(machineID, payload.ServerURL, payload.Name, key, StatusNotStarted, entitlements.PlanBasic, payload.LicenseTypes, payload.StartTime, payload.EndTime, "License is not active yet.")
 	}
 	if payload.EndTime != nil && now.After(endOfDay(*payload.EndTime)) {
-		return m.state(machineID, payload.ServerURL, key, StatusExpired, entitlements.PlanBasic, payload.LicenseTypes, payload.StartTime, payload.EndTime, "License has expired.")
+		return m.state(machineID, payload.ServerURL, payload.Name, key, StatusExpired, entitlements.PlanBasic, payload.LicenseTypes, payload.StartTime, payload.EndTime, "License has expired.")
 	}
 	if machineID != "" && payload.ServerURL != machineID {
-		return m.state(machineID, payload.ServerURL, key, StatusURLMismatch, entitlements.PlanBasic, payload.LicenseTypes, payload.StartTime, payload.EndTime, "License URL does not match the current dashboard URL.")
+		return m.state(machineID, payload.ServerURL, payload.Name, key, StatusURLMismatch, entitlements.PlanBasic, payload.LicenseTypes, payload.StartTime, payload.EndTime, "License URL does not match the current dashboard URL.")
 	}
 
-	return m.state(machineID, payload.ServerURL, key, StatusActive, entitlements.PlanPro, payload.LicenseTypes, payload.StartTime, payload.EndTime, "Pro license is active.")
+	return m.state(machineID, payload.ServerURL, payload.Name, key, StatusActive, entitlements.PlanPro, payload.LicenseTypes, payload.StartTime, payload.EndTime, "Pro license is active.")
 }
 
-func (m *Manager) state(machineID, serverURL, key string, status Status, plan entitlements.Plan, licenseTypes []LicenseType, startTime, endTime *time.Time, message string) *State {
+func (m *Manager) state(machineID, serverURL, name, key string, status Status, plan entitlements.Plan, licenseTypes []LicenseType, startTime, endTime *time.Time, message string) *State {
 	return &State{
 		MachineID:        machineID,
 		ServerURL:        serverURL,
+		Name:             name,
 		Status:           status,
 		Plan:             plan,
 		LicenseKeyMasked: MaskLicenseKey(key),
@@ -313,22 +321,24 @@ func EncryptLicensePayload(rawPayload, secret string) (string, error) {
 		secret = defaultSecret
 	}
 
-	block, err := aes.NewCipher(aesKey(secret))
+	salt := make([]byte, 8)
+	if _, err := io.ReadFull(rand.Reader, salt); err != nil {
+		return "", fmt.Errorf("generate license salt: %w", err)
+	}
+
+	key, iv := opensslKeyIV([]byte(secret), salt)
+	block, err := aes.NewCipher(key)
 	if err != nil {
 		return "", fmt.Errorf("create license cipher: %w", err)
 	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return "", fmt.Errorf("create license gcm: %w", err)
-	}
 
-	nonce := make([]byte, gcm.NonceSize())
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return "", fmt.Errorf("generate license nonce: %w", err)
-	}
+	plaintext := pkcs7Pad([]byte(rawPayload), aes.BlockSize)
+	ciphertext := make([]byte, len(plaintext))
+	cipher.NewCBCEncrypter(block, iv).CryptBlocks(ciphertext, plaintext)
 
-	ciphertext := gcm.Seal(nil, nonce, []byte(rawPayload), nil)
-	return base64.StdEncoding.EncodeToString(append(nonce, ciphertext...)), nil
+	payload := append([]byte(opensslSaltHeader), salt...)
+	payload = append(payload, ciphertext...)
+	return base64.StdEncoding.EncodeToString(payload), nil
 }
 
 func DecryptLicensePayload(encoded, secret string) (*licensePayload, error) {
@@ -352,6 +362,14 @@ func DecryptLicenseString(encoded, secret string) (string, error) {
 		}
 	}
 
+	if strings.HasPrefix(string(cipherData), opensslSaltHeader) {
+		plaintext, err := decryptOpenSSLSaltedPayload(cipherData, secret)
+		if err != nil {
+			return "", err
+		}
+		return string(plaintext), nil
+	}
+
 	block, err := aes.NewCipher(aesKey(secret))
 	if err != nil {
 		return "", fmt.Errorf("create license cipher: %w", err)
@@ -373,19 +391,99 @@ func DecryptLicenseString(encoded, secret string) (string, error) {
 	return string(plaintext), nil
 }
 
+func decryptOpenSSLSaltedPayload(cipherData []byte, secret string) ([]byte, error) {
+	if len(cipherData) <= len(opensslSaltHeader)+8 {
+		return nil, errors.New("license payload is too short")
+	}
+
+	salt := cipherData[len(opensslSaltHeader) : len(opensslSaltHeader)+8]
+	ciphertext := cipherData[len(opensslSaltHeader)+8:]
+	if len(ciphertext)%aes.BlockSize != 0 {
+		return nil, errors.New("license ciphertext is not block aligned")
+	}
+
+	key, iv := opensslKeyIV([]byte(secret), salt)
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, fmt.Errorf("create license cipher: %w", err)
+	}
+
+	plaintext := make([]byte, len(ciphertext))
+	cipher.NewCBCDecrypter(block, iv).CryptBlocks(plaintext, ciphertext)
+	plaintext, err = pkcs7Unpad(plaintext, aes.BlockSize)
+	if err != nil {
+		return nil, err
+	}
+	return plaintext, nil
+}
+
+func opensslKeyIV(password, salt []byte) ([]byte, []byte) {
+	const keyLength = 32
+	const ivLength = aes.BlockSize
+	result := make([]byte, 0, keyLength+ivLength)
+	var previous []byte
+
+	for len(result) < keyLength+ivLength {
+		hash := md5.New()
+		_, _ = hash.Write(previous)
+		_, _ = hash.Write(password)
+		_, _ = hash.Write(salt)
+		previous = hash.Sum(nil)
+		result = append(result, previous...)
+	}
+
+	return result[:keyLength], result[keyLength : keyLength+ivLength]
+}
+
+func pkcs7Pad(data []byte, blockSize int) []byte {
+	padding := blockSize - len(data)%blockSize
+	padded := make([]byte, len(data)+padding)
+	copy(padded, data)
+	for i := len(data); i < len(padded); i++ {
+		padded[i] = byte(padding)
+	}
+	return padded
+}
+
+func pkcs7Unpad(data []byte, blockSize int) ([]byte, error) {
+	if len(data) == 0 || len(data)%blockSize != 0 {
+		return nil, errors.New("invalid license padding")
+	}
+
+	padding := int(data[len(data)-1])
+	if padding == 0 || padding > blockSize || padding > len(data) {
+		return nil, errors.New("invalid license padding")
+	}
+	for _, value := range data[len(data)-padding:] {
+		if int(value) != padding {
+			return nil, errors.New("invalid license padding")
+		}
+	}
+	return data[:len(data)-padding], nil
+}
+
 func BuildLicensePayload(serverURL string, licenseTypes []LicenseType, secret string, startTime, endTime string) string {
+	return BuildLicensePayloadWithName(serverURL, licenseTypes, secret, startTime, endTime, "")
+}
+
+func BuildLicensePayloadWithName(serverURL string, licenseTypes []LicenseType, secret string, startTime, endTime, name string) string {
 	licenseValues := make([]string, 0, len(licenseTypes))
 	for _, licenseType := range licenseTypes {
 		licenseValues = append(licenseValues, string(licenseType))
 	}
-	return fmt.Sprintf(
-		"server_url=%s,license=[%s],key=%s,start_time=%s,end_time=%s;",
+
+	payload := fmt.Sprintf(
+		"server_url=%s,license=[%s],key=%s,start_time=%s,end_time=%s",
 		NormalizeServerURL(serverURL),
 		strings.Join(licenseValues, ","),
 		secret,
 		startTime,
 		endTime,
 	)
+	if strings.TrimSpace(name) != "" {
+		payload += fmt.Sprintf(",name=%s", strings.TrimSpace(name))
+	}
+	return payload + ";"
 }
 
 func MaskLicenseKey(key string) string {
@@ -448,6 +546,7 @@ func parseLicensePayload(payload string) (*licensePayload, error) {
 
 	return &licensePayload{
 		ServerURL:    NormalizeServerURL(fields["server_url"]),
+		Name:         parseLicenseName(fields["name"]),
 		LicenseTypes: parseLicenseTypes(fields["license"]),
 		Key:          fields["key"],
 		StartTime:    startTime,
@@ -482,12 +581,49 @@ func splitPayloadFields(payload string) []string {
 	return fields
 }
 
+func parseLicenseName(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+
+	for _, encoding := range []*base64.Encoding{
+		base64.StdEncoding,
+		base64.RawStdEncoding,
+		base64.URLEncoding,
+		base64.RawURLEncoding,
+	} {
+		decoded, err := encoding.DecodeString(value)
+		if err != nil || len(decoded) == 0 || !utf8.Valid(decoded) {
+			continue
+		}
+		candidate := strings.TrimSpace(string(decoded))
+		if candidate != "" && isPrintableString(candidate) {
+			return candidate
+		}
+	}
+
+	return value
+}
+
+func isPrintableString(value string) bool {
+	for _, r := range value {
+		if !unicode.IsPrint(r) {
+			return false
+		}
+	}
+	return true
+}
+
 func parseLicenseTypes(value string) []LicenseType {
 	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
 	value = strings.TrimPrefix(value, "[")
 	value = strings.TrimSuffix(value, "]")
 	if value == "" {
-		return nil
+		return []LicenseType{LicenseTypeEnterprise}
 	}
 
 	parts := strings.Split(value, ",")

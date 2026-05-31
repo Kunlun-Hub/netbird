@@ -2,7 +2,9 @@ package licensing
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -58,6 +60,82 @@ func TestManagerAcceptsAESLicenseForCurrentDashboardDomain(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, StatusActive, storedState.Status)
 	assert.Equal(t, entitlements.PlanPro, storedState.Plan)
+}
+
+func TestManagerAcceptsOpenSSLSaltedAESLicense(t *testing.T) {
+	secret := "lA8fsCkh1s7e2JEruZCr0JNChQIfpuDbr6avPSbWgasz2cseGjNcZ225BAuCy4m2CDz8jMSHaQxHSWBXxfo1viFDDZRTDJqQ82oFfietnjhEYpuG1DPslfIpyFLiSvse"
+	key := "U2FsdGVkX1+86EPyCJ/iuGmzd9JLs4IcdAVm/KsSU70gF8i/TCrkgPlfBmAPHRJqQ9BQWQLZGl6Oa15cglLaJoYWHp1k0ABJ2E6/7JWmQtkREuVz7uP1FjeLpRcnQRifDjgNHteVpCqk2n7UCWqTTx0+2PG9AAPqqgdR08o0bFO7RwLATOdt9CBrDhCaiH0NsWjoLUSskB6JgkBNSzBth13edoY7xC/3oziJcOtX0qV/fah75WuSZmRcDCQNeYvxBMb9XKd1aygaZVVBLrGFxwwIVBMu3R6VUUrlGn7gOzUwCEZRVUbRB30n+G+5zP6VajpTWBiDgesu/at1F5fCkw=="
+	manager := NewManager(t.TempDir(), WithSecret(secret))
+
+	state, err := manager.UpdateKey(context.Background(), "cloink.4w.ink", key)
+	require.NoError(t, err)
+	assert.Equal(t, StatusActive, state.Status)
+	assert.Equal(t, entitlements.PlanPro, state.Plan)
+	assert.Equal(t, []LicenseType{LicenseTypeEnterprise}, state.LicenseTypes)
+	assert.Equal(t, "xxx公司", state.Name)
+}
+
+func TestEncryptLicensePayloadUsesOpenSSLSaltedFormat(t *testing.T) {
+	key, err := EncryptLicensePayload("server_url=cloink.4w.ink,license=enterprise,key=test-secret,start_time=2020/1/1,end_time=2099/12/31,name=xxx公司;", "test-secret")
+	require.NoError(t, err)
+	assert.True(t, strings.HasPrefix(key, "U2FsdGVkX1"))
+
+	plaintext, err := DecryptLicenseString(key, "test-secret")
+	require.NoError(t, err)
+	assert.Contains(t, plaintext, "license=enterprise")
+	assert.Contains(t, plaintext, "name=xxx公司")
+}
+
+func TestManagerParsesLicenseName(t *testing.T) {
+	companyName := "xxx公司"
+	tests := []struct {
+		name       string
+		fieldValue string
+	}{
+		{
+			name:       "plain UTF-8",
+			fieldValue: companyName,
+		},
+		{
+			name:       "base64 UTF-8",
+			fieldValue: base64.StdEncoding.EncodeToString([]byte(companyName)),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			manager := NewManager(t.TempDir(), WithSecret("test-secret"))
+			payload := BuildLicensePayloadWithName(
+				"cloink.4w.ink",
+				[]LicenseType{LicenseTypeYear},
+				"test-secret",
+				"2020/1/1",
+				"2099/12/31",
+				tt.fieldValue,
+			)
+			key, err := EncryptLicensePayload(payload, "test-secret")
+			require.NoError(t, err)
+
+			state, err := manager.UpdateKey(context.Background(), "cloink.4w.ink", key)
+			require.NoError(t, err)
+			assert.Equal(t, companyName, state.Name)
+		})
+	}
+}
+
+func TestManagerTreatsEmptyLicenseListAsEnterprise(t *testing.T) {
+	secret := "test-secret"
+	manager := NewManager(t.TempDir(), WithSecret(secret))
+	payload := "server_url=cloink.4w.ink,license=[],key=test-secret,start_time=2020/1/1,end_time=2099/12/31,name=xxx公司;"
+	key, err := EncryptLicensePayload(payload, secret)
+	require.NoError(t, err)
+
+	state, err := manager.UpdateKey(context.Background(), "cloink.4w.ink", key)
+	require.NoError(t, err)
+	assert.Equal(t, StatusActive, state.Status)
+	assert.Equal(t, entitlements.PlanPro, state.Plan)
+	assert.Equal(t, []LicenseType{LicenseTypeEnterprise}, state.LicenseTypes)
+	assert.Equal(t, "xxx公司", state.Name)
 }
 
 func TestManagerRejectsInvalidLicenseWithoutPersistingIt(t *testing.T) {

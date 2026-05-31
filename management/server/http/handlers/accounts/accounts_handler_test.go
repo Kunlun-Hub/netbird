@@ -580,6 +580,7 @@ func TestGetAccountLicense(t *testing.T) {
 				return &licensing.State{
 					MachineID:        "cloink.4w.ink",
 					ServerURL:        "cloink.4w.ink",
+					Name:             "xxx公司",
 					Status:           licensing.StatusActive,
 					Plan:             entitlements.PlanPro,
 					LicenseKeyMasked: "aGVsbG8...BBBBBB",
@@ -608,6 +609,7 @@ func TestGetAccountLicense(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "cloink.4w.ink", response.MachineID)
 	assert.Equal(t, "cloink.4w.ink", response.ServerURL)
+	assert.Equal(t, "xxx公司", response.Name)
 	assert.Equal(t, string(licensing.StatusActive), response.Status)
 	assert.Equal(t, string(entitlements.PlanPro), response.Plan)
 	assert.Equal(t, []string{string(licensing.LicenseTypeYear)}, response.License)
@@ -630,6 +632,7 @@ func TestUpdateAccountLicense(t *testing.T) {
 				return &licensing.State{
 					MachineID:    "cloink.4w.ink",
 					ServerURL:    "cloink.4w.ink",
+					Name:         "xxx公司",
 					Status:       licensing.StatusActive,
 					Plan:         entitlements.PlanPro,
 					LicenseTypes: []licensing.LicenseType{licensing.LicenseTypeEnterprise},
@@ -659,6 +662,7 @@ func TestUpdateAccountLicense(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, string(licensing.StatusActive), response.Status)
 	assert.Equal(t, string(entitlements.PlanPro), response.Plan)
+	assert.Equal(t, "xxx公司", response.Name)
 	assert.Equal(t, []string{string(licensing.LicenseTypeEnterprise)}, response.License)
 }
 
