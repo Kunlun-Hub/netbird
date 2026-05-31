@@ -24,28 +24,28 @@ type PlatformType string
 type ArchitectureType string
 
 const (
-	PlatformTypeMacOS    PlatformType = "macos"
-	PlatformTypeWindows  PlatformType = "windows"
-	PlatformTypeLinux    PlatformType = "linux"
-	PlatformTypeAndroid  PlatformType = "android"
+	PlatformTypeMacOS   PlatformType = "macos"
+	PlatformTypeWindows PlatformType = "windows"
+	PlatformTypeLinux   PlatformType = "linux"
+	PlatformTypeAndroid PlatformType = "android"
 )
 
 const (
-	ArchitectureAMD64  ArchitectureType = "amd64"
-	ArchitectureARM64  ArchitectureType = "arm64"
-	ArchitectureARMv7  ArchitectureType = "armv7"
+	ArchitectureAMD64     ArchitectureType = "amd64"
+	ArchitectureARM64     ArchitectureType = "arm64"
+	ArchitectureARMv7     ArchitectureType = "armv7"
 	ArchitectureUniversal ArchitectureType = "universal"
 )
 
 type VersionRelease struct {
-	ID           string          `json:"id"`
-	Version      string          `json:"version"`
-	Platform     PlatformType    `json:"platform"`
+	ID           string           `json:"id"`
+	Version      string           `json:"version"`
+	Platform     PlatformType     `json:"platform"`
 	Architecture ArchitectureType `json:"architecture"`
-	DownloadURL  string          `json:"downloadUrl"`
-	Description  string          `json:"description,omitempty"`
-	IsLatest     bool            `json:"isLatest,omitempty"`
-	CreatedAt    time.Time       `json:"createdAt"`
+	DownloadURL  string           `json:"downloadUrl"`
+	Description  string           `json:"description,omitempty"`
+	IsLatest     bool             `json:"isLatest,omitempty"`
+	CreatedAt    time.Time        `json:"createdAt"`
 }
 
 type FileInfo struct {
@@ -59,15 +59,15 @@ type PersistedData struct {
 }
 
 const (
-	versionsDir    = "version_releases"
-	dataFileName   = "versions.json"
-	filesDir       = "files"
+	versionsDir  = "version_releases"
+	dataFileName = "versions.json"
+	filesDir     = "files"
 )
 
 var (
-	mu         sync.RWMutex
-	versions   = make(map[string]*VersionRelease)
-	accountMap = make(map[string][]string)
+	mu          sync.RWMutex
+	versions    = make(map[string]*VersionRelease)
+	accountMap  = make(map[string][]string)
 	fileStorage = make(map[string]*FileInfo)
 	fileLock    = &sync.RWMutex{}
 	dataDir     string
@@ -88,6 +88,7 @@ func AddEndpoints(accountManager account.Manager, router *mux.Router, rootRouter
 	// Public endpoint must be registered BEFORE /{id} route to avoid "public" being matched as an id.
 	// Auth is bypassed via bypass.AddBypassPath("/api/version-releases/public") in handler.go.
 	router.HandleFunc("/version-releases/public", h.getAllPublic).Methods("GET", "OPTIONS")
+	router.HandleFunc("/version-releases/files/{id}", h.downloadFile).Methods("GET", "HEAD", "OPTIONS")
 	router.HandleFunc("/version-releases/{id}", h.get).Methods("GET", "OPTIONS")
 	router.HandleFunc("/version-releases/{id}", h.update).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/version-releases/{id}", h.delete).Methods("DELETE", "OPTIONS")
@@ -196,12 +197,12 @@ func newHandler(accountManager account.Manager) *handler {
 }
 
 type CreateRequest struct {
-	Version      string          `json:"version"`
-	Platform     PlatformType    `json:"platform"`
+	Version      string           `json:"version"`
+	Platform     PlatformType     `json:"platform"`
 	Architecture ArchitectureType `json:"architecture"`
-	DownloadURL  string          `json:"downloadUrl"`
-	Description  string          `json:"description,omitempty"`
-	IsLatest     bool            `json:"isLatest,omitempty"`
+	DownloadURL  string           `json:"downloadUrl"`
+	Description  string           `json:"description,omitempty"`
+	IsLatest     bool             `json:"isLatest,omitempty"`
 }
 
 func (h *handler) create(w http.ResponseWriter, r *http.Request) {
@@ -312,7 +313,7 @@ func (h *handler) getAllPublic(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Content-Type", "application/json")
-	
+
 	// 最简单最安全的直接编码 JSON
 	encoder := json.NewEncoder(w)
 	err := encoder.Encode(result)
@@ -351,12 +352,12 @@ func (h *handler) get(w http.ResponseWriter, r *http.Request) {
 }
 
 type UpdateRequest struct {
-	Version      string          `json:"version"`
-	Platform     PlatformType    `json:"platform"`
+	Version      string           `json:"version"`
+	Platform     PlatformType     `json:"platform"`
 	Architecture ArchitectureType `json:"architecture"`
-	DownloadURL  string          `json:"downloadUrl"`
-	Description  string          `json:"description,omitempty"`
-	IsLatest     bool            `json:"isLatest,omitempty"`
+	DownloadURL  string           `json:"downloadUrl"`
+	Description  string           `json:"description,omitempty"`
+	IsLatest     bool             `json:"isLatest,omitempty"`
 }
 
 func (h *handler) update(w http.ResponseWriter, r *http.Request) {
@@ -436,8 +437,8 @@ func (h *handler) delete(w http.ResponseWriter, r *http.Request) {
 	// if there's a file URL, delete the file from disk
 	if version.DownloadURL != "" {
 		for fileID := range fileStorage {
-			if version.DownloadURL == "/api/version-releases/files/"+fileID || 
-			   version.DownloadURL == dataDir+"/"+fileID {
+			if version.DownloadURL == "/api/version-releases/files/"+fileID ||
+				version.DownloadURL == dataDir+"/"+fileID {
 				deleteFileFromDisk(fileID)
 				delete(fileStorage, fileID)
 				break
@@ -518,7 +519,7 @@ func (h *handler) downloadFile(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
-	
+
 	vars := mux.Vars(r)
 	fileID := vars["id"]
 	if len(fileID) == 0 {
