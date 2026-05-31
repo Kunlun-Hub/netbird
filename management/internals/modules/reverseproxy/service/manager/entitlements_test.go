@@ -12,14 +12,18 @@ import (
 	"github.com/netbirdio/netbird/management/server/store"
 )
 
-func TestValidateServiceEntitlementsBasicDeniesSecondService(t *testing.T) {
+func TestValidateServiceEntitlementsBasicDeniesFourthService(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
 	mockStore := store.NewMockStore(ctrl)
 	mockStore.EXPECT().
 		GetAccountServices(gomock.Any(), store.LockingStrengthUpdate, "account-a").
-		Return([]*rpservice.Service{{ID: "existing", Targets: []*rpservice.Target{{}}}}, nil)
+		Return([]*rpservice.Service{
+			{ID: "existing-a", Targets: []*rpservice.Target{{}}},
+			{ID: "existing-b", Targets: []*rpservice.Target{{}}},
+			{ID: "existing-c", Targets: []*rpservice.Target{{}}},
+		}, nil)
 
 	mgr := &Manager{entitlementsChecker: entitlements.NewChecker(entitlements.NewBasicStaticProvider())}
 	err := mgr.validateServiceEntitlements(context.Background(), mockStore, "account-a", &rpservice.Service{
@@ -30,14 +34,17 @@ func TestValidateServiceEntitlementsBasicDeniesSecondService(t *testing.T) {
 	assertReverseProxyLimitDenied(t, err, entitlements.LimitCustomRules)
 }
 
-func TestValidateServiceEntitlementsBasicAllowsOneServiceWithMultipleTargets(t *testing.T) {
+func TestValidateServiceEntitlementsBasicAllowsThirdServiceWithMultipleTargets(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
 	mockStore := store.NewMockStore(ctrl)
 	mockStore.EXPECT().
 		GetAccountServices(gomock.Any(), store.LockingStrengthUpdate, "account-a").
-		Return(nil, nil)
+		Return([]*rpservice.Service{
+			{ID: "existing-a", Targets: []*rpservice.Target{{}}},
+			{ID: "existing-b", Targets: []*rpservice.Target{{}}},
+		}, nil)
 
 	mgr := &Manager{entitlementsChecker: entitlements.NewChecker(entitlements.NewBasicStaticProvider())}
 	err := mgr.validateServiceEntitlements(context.Background(), mockStore, "account-a", &rpservice.Service{

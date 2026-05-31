@@ -168,7 +168,7 @@ func basicEntitlements() Entitlements {
 			LimitPeers:              10,
 			LimitReverseProxyServer: 1,
 			LimitCustomDomains:      1,
-			LimitCustomRules:        1,
+			LimitCustomRules:        3,
 		},
 	}
 }

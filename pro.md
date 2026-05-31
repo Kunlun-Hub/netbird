@@ -15,9 +15,8 @@
 - 自建中继数最多 1 个。
 - 用户数最多 3 个。
 - 设备数最多 10 台。
-- 反向代理服务器最多 1 台。
-- 自定义域名最多 1 个。
-- 自定义规则最多 3 条。
+- 反向代理服务最多 3 个。
+- 反向代理域名最多 1 个。
 - 不支持设备合规功能。
 - 不支持 DNS 功能。
 - 不支持品牌定制。
@@ -88,12 +87,11 @@
 - [x] 明确已超限账号的行为：允许读取和删除，禁止新增。
 - [x] 增加用户和设备限额测试。
 
-### 7. 反向代理、自定义域名、自定义规则限制
+### 7. 反向代理服务和域名限制
 
-- [x] 限制基础版反向代理服务器最多 1 台。
-- [x] 限制基础版自定义域名最多 1 个。
-- [x] 限制基础版自定义规则最多 3 条。
-- [x] 在 reverse proxy service/domain/rule 创建和更新入口做检查。
+- [x] 限制基础版反向代理服务最多 3 个。
+- [x] 限制基础版反向代理域名最多 1 个。
+- [x] 在 reverse proxy service/domain 创建和更新入口做检查。
 - [x] 增加反向代理限额测试。
 
 ### 8. 设备合规限制
@@ -281,3 +279,4 @@
 - 2026-05-31：基础版用量回归通过：`go test ./management/server -run 'Test(GetAccountEntitlements|AccountEntitlementUsage|GetAccountLicense|UpdateAccountLicense)' -count=1 -timeout=2m`、`go test ./management/server/http/handlers/accounts -run 'Test(GetAccountEntitlements|GetAccountLicense|UpdateAccountLicense)' -count=1 -timeout=2m`、`go test ./management/server/licensing ./shared/management/http/api -count=1 -timeout=2m`、Dashboard `npx tsc --noEmit`、`npx eslint src/modules/account/ResourceUsage.tsx`。
 - 2026-05-31：资源用尽时 Dashboard 直接禁用相关新增入口并提示“资源不足”，覆盖用户/邀请、服务用户、客户端安装入口和中继部署；后端补齐中继 setup-token 与 relay register 的限额强校验，防止绕过前端继续新增自建中继。
 - 2026-05-31：反向代理资源口径调整为只展示和限制“反向代理域名”和“反向代理服务”：授权中心资源用量移除单独“反向代理”项，`custom_domains` 显示为反向代理域名，`custom_rules` 改为反向代理服务并按服务数计数；服务页和域名页顶部补充对应资源用量，新增入口在资源用尽时禁用并提示资源不足。
+- 2026-05-31：修正基础版反向代理服务额度为 3 个，授权中心应展示反向代理服务 `已用/3`。
