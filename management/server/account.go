@@ -40,6 +40,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
+	"github.com/netbirdio/netbird/management/server/entitlements"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
@@ -119,6 +120,8 @@ type DefaultAccountManager struct {
 	permissionsManager permissions.Manager
 
 	disableDefaultPolicy bool
+
+	entitlementsChecker entitlements.Checker
 }
 
 var _ account.Manager = (*DefaultAccountManager)(nil)
@@ -136,6 +139,10 @@ var (
 
 func (am *DefaultAccountManager) SetServiceManager(serviceManager service.Manager) {
 	am.serviceManager = serviceManager
+}
+
+func (am *DefaultAccountManager) SetEntitlementsChecker(checker entitlements.Checker) {
+	am.entitlementsChecker = checker
 }
 
 func isUniqueConstraintError(err error) bool {
@@ -335,6 +342,9 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 			newSettings.Extra = oldSettings.Extra
 		} else {
 			preserveUnmanagedExtraSettings(newSettings.Extra, oldSettings.Extra)
+		}
+		if err = am.validateSettingsEntitlements(ctx, accountID, newSettings); err != nil {
+			return err
 		}
 
 		// No lock: the transaction already holds Settings(Update), and network.Net is

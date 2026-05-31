@@ -15,12 +15,15 @@ import (
 	"golang.org/x/exp/maps"
 	"golang.org/x/mod/semver"
 
+	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller/cache"
 	"github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral"
+	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	"github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/account"
+	"github.com/netbirdio/netbird/management/server/entitlements"
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
@@ -56,6 +59,7 @@ type Controller struct {
 	proxyController port_forwarding.Controller
 
 	integratedPeerValidator integrated_validator.IntegratedValidator
+	entitlementsChecker     entitlements.Checker
 }
 
 type bufferUpdate struct {
@@ -86,6 +90,10 @@ func NewController(ctx context.Context, store store.Store, metrics telemetry.App
 		proxyController:       proxyController,
 		EphemeralPeersManager: ephemeralPeersManager,
 	}
+}
+
+func (c *Controller) SetEntitlementsChecker(checker entitlements.Checker) {
+	c.entitlementsChecker = checker
 }
 
 func (c *Controller) OnPeerConnected(ctx context.Context, accountID string, peerID string) (chan *network_map.UpdateMessage, error) {
@@ -135,6 +143,11 @@ func (c *Controller) sendUpdateAccountPeers(ctx context.Context, accountID strin
 		return nil
 	}
 
+	account, dnsEnabled, err := c.filterAccountForEntitlements(ctx, account)
+	if err != nil {
+		return err
+	}
+
 	approvedPeersMap, err := c.integratedPeerValidator.GetValidatedPeers(ctx, account.Id, maps.Values(account.Groups), maps.Values(account.Peers), account.Settings.Extra)
 	if err != nil {
 		return fmt.Errorf("failed to get validate peers: %v", err)
@@ -145,8 +158,18 @@ func (c *Controller) sendUpdateAccountPeers(ctx context.Context, accountID strin
 
 	account.InjectProxyPolicies(ctx)
 	dnsCache := &cache.DNSConfigCache{}
-	dnsDomain := c.GetDNSDomain(account.Settings)
-	peersCustomZone := account.GetPeersCustomZone(ctx, dnsDomain)
+	dnsDomain := ""
+	peersCustomZone := nbdns.CustomZone{}
+	var accountZones []*zones.Zone
+	if dnsEnabled {
+		dnsDomain = c.GetDNSDomain(account.Settings)
+		peersCustomZone = account.GetPeersCustomZone(ctx, dnsDomain)
+		accountZones, err = c.repo.GetAccountZones(ctx, account.Id)
+		if err != nil {
+			log.WithContext(ctx).Errorf("failed to get account zones: %v", err)
+			return fmt.Errorf("failed to get account zones: %v", err)
+		}
+	}
 	resourcePolicies := account.GetResourcePoliciesMap()
 	routers := account.GetResourceRoutersMap()
 	groupIDToUserIDs := account.GetActiveGroupUsers()
@@ -162,12 +185,9 @@ func (c *Controller) sendUpdateAccountPeers(ctx context.Context, accountID strin
 		return fmt.Errorf("failed to get flow enabled status: %v", err)
 	}
 
-	dnsFwdPort := computeForwarderPort(maps.Values(account.Peers), network_map.DnsForwarderPortMinVersion)
-
-	accountZones, err := c.repo.GetAccountZones(ctx, account.Id)
-	if err != nil {
-		log.WithContext(ctx).Errorf("failed to get account zones: %v", err)
-		return fmt.Errorf("failed to get account zones: %v", err)
+	var dnsFwdPort int64
+	if dnsEnabled {
+		dnsFwdPort = computeForwarderPort(maps.Values(account.Peers), network_map.DnsForwarderPortMinVersion)
 	}
 
 	for _, peer := range account.Peers {
@@ -284,6 +304,15 @@ func (c *Controller) UpdateAccountPeer(ctx context.Context, accountId string, pe
 		return fmt.Errorf("peer %s doesn't exists in account %s", peerId, accountId)
 	}
 
+	account, dnsEnabled, err := c.filterAccountForEntitlements(ctx, account)
+	if err != nil {
+		return err
+	}
+	peer = account.GetPeer(peerId)
+	if peer == nil {
+		return fmt.Errorf("peer %s doesn't exists in account %s", peerId, accountId)
+	}
+
 	approvedPeersMap, err := c.integratedPeerValidator.GetValidatedPeers(ctx, account.Id, maps.Values(account.Groups), maps.Values(account.Peers), account.Settings.Extra)
 	if err != nil {
 		return fmt.Errorf("failed to get validated peers: %v", err)
@@ -291,8 +320,18 @@ func (c *Controller) UpdateAccountPeer(ctx context.Context, accountId string, pe
 
 	account.InjectProxyPolicies(ctx)
 	dnsCache := &cache.DNSConfigCache{}
-	dnsDomain := c.GetDNSDomain(account.Settings)
-	peersCustomZone := account.GetPeersCustomZone(ctx, dnsDomain)
+	dnsDomain := ""
+	peersCustomZone := nbdns.CustomZone{}
+	var accountZones []*zones.Zone
+	if dnsEnabled {
+		dnsDomain = c.GetDNSDomain(account.Settings)
+		peersCustomZone = account.GetPeersCustomZone(ctx, dnsDomain)
+		accountZones, err = c.repo.GetAccountZones(ctx, account.Id)
+		if err != nil {
+			log.WithContext(ctx).Errorf("failed to get account zones: %v", err)
+			return err
+		}
+	}
 	resourcePolicies := account.GetResourcePoliciesMap()
 	routers := account.GetResourceRoutersMap()
 	groupIDToUserIDs := account.GetActiveGroupUsers()
@@ -309,12 +348,6 @@ func (c *Controller) UpdateAccountPeer(ctx context.Context, accountId string, pe
 		return err
 	}
 
-	accountZones, err := c.repo.GetAccountZones(ctx, account.Id)
-	if err != nil {
-		log.WithContext(ctx).Errorf("failed to get account zones: %v", err)
-		return err
-	}
-
 	remotePeerNetworkMap := account.GetPeerNetworkMapFromComponents(ctx, peerId, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, c.accountManagerMetrics, groupIDToUserIDs)
 
 	proxyNetworkMap, ok := proxyNetworkMaps[peer.ID]
@@ -328,7 +361,10 @@ func (c *Controller) UpdateAccountPeer(ctx context.Context, accountId string, pe
 	}
 
 	peerGroups := account.GetPeerGroups(peerId)
-	dnsFwdPort := computeForwarderPort(maps.Values(account.Peers), network_map.DnsForwarderPortMinVersion)
+	var dnsFwdPort int64
+	if dnsEnabled {
+		dnsFwdPort = computeForwarderPort(maps.Values(account.Peers), network_map.DnsForwarderPortMinVersion)
+	}
 
 	update := grpc.ToSyncResponse(ctx, c.config, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, peer, nil, nil, remotePeerNetworkMap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSettings, maps.Keys(peerGroups), dnsFwdPort)
 	c.peersUpdateManager.SendUpdate(ctx, peer.ID, &network_map.UpdateMessage{
@@ -396,6 +432,14 @@ func (c *Controller) GetValidatedPeerWithMap(ctx context.Context, isRequiresAppr
 	}
 
 	account.InjectProxyPolicies(ctx)
+	account, dnsEnabled, err := c.filterAccountForEntitlements(ctx, account)
+	if err != nil {
+		return nil, nil, nil, 0, err
+	}
+	peer = account.GetPeer(peer.ID)
+	if peer == nil {
+		return nil, nil, nil, 0, status.Errorf(status.NotFound, "peer with ID %s not found", peer.ID)
+	}
 
 	approvedPeersMap, err := c.integratedPeerValidator.GetValidatedPeers(ctx, account.Id, maps.Values(account.Groups), maps.Values(account.Peers), account.Settings.Extra)
 	if err != nil {
@@ -409,14 +453,18 @@ func (c *Controller) GetValidatedPeerWithMap(ctx context.Context, isRequiresAppr
 	}
 	log.WithContext(ctx).Debugf("getPeerPostureChecks took %s", time.Since(startPosture))
 
-	accountZones, err := c.repo.GetAccountZones(ctx, account.Id)
-	if err != nil {
-		log.WithContext(ctx).Errorf("failed to get account zones: %v", err)
-		return nil, nil, nil, 0, err
+	dnsDomain := ""
+	peersCustomZone := nbdns.CustomZone{}
+	var accountZones []*zones.Zone
+	if dnsEnabled {
+		accountZones, err = c.repo.GetAccountZones(ctx, account.Id)
+		if err != nil {
+			log.WithContext(ctx).Errorf("failed to get account zones: %v", err)
+			return nil, nil, nil, 0, err
+		}
+		dnsDomain = c.GetDNSDomain(account.Settings)
+		peersCustomZone = account.GetPeersCustomZone(ctx, dnsDomain)
 	}
-
-	dnsDomain := c.GetDNSDomain(account.Settings)
-	peersCustomZone := account.GetPeersCustomZone(ctx, dnsDomain)
 
 	proxyNetworkMaps, err := c.proxyController.GetProxyNetworkMaps(ctx, account.Id, peer.ID, account.Peers)
 	if err != nil {
@@ -434,7 +482,10 @@ func (c *Controller) GetValidatedPeerWithMap(ctx context.Context, isRequiresAppr
 		networkMap.Merge(proxyNetworkMap)
 	}
 
-	dnsFwdPort := computeForwarderPort(maps.Values(account.Peers), network_map.DnsForwarderPortMinVersion)
+	var dnsFwdPort int64
+	if dnsEnabled {
+		dnsFwdPort = computeForwarderPort(maps.Values(account.Peers), network_map.DnsForwarderPortMinVersion)
+	}
 
 	return peer, networkMap, postureChecks, dnsFwdPort, nil
 }
@@ -648,6 +699,15 @@ func (c *Controller) GetNetworkMap(ctx context.Context, peerID string) (*types.N
 		return nil, status.Errorf(status.NotFound, "peer with ID %s not found", peerID)
 	}
 
+	account, dnsEnabled, err := c.filterAccountForEntitlements(ctx, account)
+	if err != nil {
+		return nil, err
+	}
+	peer = account.GetPeer(peerID)
+	if peer == nil {
+		return nil, status.Errorf(status.NotFound, "peer with ID %s not found", peerID)
+	}
+
 	groups := make(map[string][]string)
 	for groupID, group := range account.Groups {
 		groups[groupID] = group.Peers
@@ -658,14 +718,18 @@ func (c *Controller) GetNetworkMap(ctx context.Context, peerID string) (*types.N
 		return nil, err
 	}
 
-	accountZones, err := c.repo.GetAccountZones(ctx, account.Id)
-	if err != nil {
-		log.WithContext(ctx).Errorf("failed to get account zones: %v", err)
-		return nil, err
+	dnsDomain := ""
+	peersCustomZone := nbdns.CustomZone{}
+	var accountZones []*zones.Zone
+	if dnsEnabled {
+		accountZones, err = c.repo.GetAccountZones(ctx, account.Id)
+		if err != nil {
+			log.WithContext(ctx).Errorf("failed to get account zones: %v", err)
+			return nil, err
+		}
+		dnsDomain = c.GetDNSDomain(account.Settings)
+		peersCustomZone = account.GetPeersCustomZone(ctx, dnsDomain)
 	}
-
-	dnsDomain := c.GetDNSDomain(account.Settings)
-	peersCustomZone := account.GetPeersCustomZone(ctx, dnsDomain)
 
 	proxyNetworkMaps, err := c.proxyController.GetProxyNetworkMaps(ctx, account.Id, peerID, account.Peers)
 	if err != nil {
@@ -685,6 +749,75 @@ func (c *Controller) GetNetworkMap(ctx context.Context, peerID string) (*types.N
 	}
 
 	return networkMap, nil
+}
+
+func (c *Controller) filterAccountForEntitlements(ctx context.Context, account *types.Account) (*types.Account, bool, error) {
+	if c.entitlementsChecker == nil || account == nil {
+		return account, true, nil
+	}
+
+	filtered := account
+	copyAccount := func() {
+		if filtered == account {
+			filtered = account.Copy()
+		}
+	}
+
+	dnsEnabled, err := c.featureAllowed(ctx, account.Id, entitlements.FeatureDNS)
+	if err != nil {
+		return nil, false, err
+	}
+	if !dnsEnabled {
+		copyAccount()
+		filtered.NameServerGroups = map[string]*nbdns.NameServerGroup{}
+		filtered.DNSSettings = types.DNSSettings{}
+		if filtered.Settings != nil {
+			filtered.Settings.DNSDomain = ""
+			filtered.Settings.RoutingPeerDNSResolutionEnabled = false
+		}
+	}
+
+	postureEnabled, err := c.featureAllowed(ctx, account.Id, entitlements.FeatureDevicePosture)
+	if err != nil {
+		return nil, false, err
+	}
+	if !postureEnabled {
+		copyAccount()
+		filtered.PostureChecks = nil
+		for _, policy := range filtered.Policies {
+			policy.SourcePostureChecks = nil
+		}
+	}
+
+	webSSHEnabled, err := c.featureAllowed(ctx, account.Id, entitlements.FeatureWebSSH)
+	if err != nil {
+		return nil, false, err
+	}
+	if !webSSHEnabled {
+		copyAccount()
+		for _, peer := range filtered.Peers {
+			peer.SSHEnabled = false
+		}
+		for _, policy := range filtered.Policies {
+			filteredRules := policy.Rules[:0]
+			for _, rule := range policy.Rules {
+				if rule.Protocol != types.PolicyRuleProtocolNetbirdSSH {
+					filteredRules = append(filteredRules, rule)
+				}
+			}
+			policy.Rules = filteredRules
+		}
+	}
+
+	return filtered, dnsEnabled, nil
+}
+
+func (c *Controller) featureAllowed(ctx context.Context, accountID string, feature entitlements.Feature) (bool, error) {
+	decision, err := c.entitlementsChecker.IsAllowed(ctx, accountID, feature)
+	if err != nil {
+		return false, status.Errorf(status.Internal, "check feature entitlement: %v", err)
+	}
+	return decision.Allowed, nil
 }
 
 func (c *Controller) DisconnectPeers(ctx context.Context, accountId string, peerIDs []string) {

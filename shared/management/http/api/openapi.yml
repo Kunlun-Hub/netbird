@@ -274,6 +274,34 @@ components:
         - created_at
         - created_by
         - onboarding
+    AccountEntitlements:
+      type: object
+      description: Account plan capabilities and quota limits.
+      properties:
+        account_id:
+          description: Account ID
+          type: string
+          example: ch8i4ug6lnn4g9hqv7l0
+        plan:
+          description: Current entitlement plan.
+          type: string
+          enum: [ basic, pro ]
+          example: basic
+        features:
+          description: Feature availability keyed by feature ID.
+          type: object
+          additionalProperties:
+            type: boolean
+        limits:
+          description: Numeric quota limits keyed by limit ID. A value of -1 means unlimited.
+          type: object
+          additionalProperties:
+            type: integer
+      required:
+        - account_id
+        - plan
+        - features
+        - limits
     AccountOnboarding:
       type: object
       properties:
@@ -5524,6 +5552,36 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Account'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/accounts/{accountId}/entitlements:
+    get:
+      summary: Get Account Entitlements
+      description: Returns the current account entitlement plan, feature switches, and quota limits.
+      tags: [ Accounts ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: accountId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of an account
+      responses:
+        '200':
+          description: Account entitlement snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountEntitlements'
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':

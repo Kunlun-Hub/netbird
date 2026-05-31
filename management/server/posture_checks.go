@@ -7,6 +7,7 @@ import (
 	"github.com/rs/xid"
 
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/entitlements"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/posture"
@@ -39,6 +40,10 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 	}
 	if !allowed {
 		return nil, status.NewPermissionDeniedError()
+	}
+
+	if err := am.requireEntitledFeature(ctx, accountID, entitlements.FeatureDevicePosture); err != nil {
+		return nil, err
 	}
 
 	var updateAccountPeers bool

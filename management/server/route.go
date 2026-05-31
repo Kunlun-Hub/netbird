@@ -11,6 +11,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/entitlements"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -173,6 +174,9 @@ func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID stri
 		if err = validateRoute(ctx, transaction, accountID, newRoute); err != nil {
 			return err
 		}
+		if err = am.validateRouteEntitlements(ctx, transaction, accountID, newRoute); err != nil {
+			return err
+		}
 
 		updateAccountPeers, err = areRouteChangesAffectPeers(ctx, transaction, newRoute)
 		if err != nil {
@@ -226,6 +230,9 @@ func (am *DefaultAccountManager) SaveRoute(ctx context.Context, accountID, userI
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		if err = validateRoute(ctx, transaction, accountID, routeToSave); err != nil {
+			return err
+		}
+		if err = am.validateRouteEntitlements(ctx, transaction, accountID, routeToSave); err != nil {
 			return err
 		}
 
@@ -342,6 +349,24 @@ func (am *DefaultAccountManager) ListRoutes(ctx context.Context, accountID, user
 	}
 
 	return am.Store.GetAccountRoutes(ctx, store.LockingStrengthNone, accountID)
+}
+
+func (am *DefaultAccountManager) validateRouteEntitlements(ctx context.Context, transaction store.Store, accountID string, routeToSave *route.Route) error {
+	routes, err := transaction.GetAccountRoutes(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		return err
+	}
+
+	haID := routeToSave.GetHAUniqueID()
+	for _, existingRoute := range routes {
+		if existingRoute.ID == routeToSave.ID {
+			continue
+		}
+		if existingRoute.GetHAUniqueID() == haID {
+			return am.requireEntitledFeature(ctx, accountID, entitlements.FeatureHARoutes)
+		}
+	}
+	return nil
 }
 
 func validateRoute(ctx context.Context, transaction store.Store, accountID string, routeToSave *route.Route) error {

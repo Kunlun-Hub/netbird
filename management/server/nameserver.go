@@ -11,6 +11,7 @@ import (
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/entitlements"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -42,6 +43,10 @@ func (am *DefaultAccountManager) CreateNameServerGroup(ctx context.Context, acco
 	}
 	if !allowed {
 		return nil, status.NewPermissionDeniedError()
+	}
+
+	if err := am.requireEntitledFeature(ctx, accountID, entitlements.FeatureDNS); err != nil {
+		return nil, err
 	}
 
 	newNSGroup := &nbdns.NameServerGroup{
@@ -100,6 +105,10 @@ func (am *DefaultAccountManager) SaveNameServerGroup(ctx context.Context, accoun
 	}
 	if !allowed {
 		return status.NewPermissionDeniedError()
+	}
+
+	if err := am.requireEntitledFeature(ctx, accountID, entitlements.FeatureDNS); err != nil {
+		return err
 	}
 
 	var updateAccountPeers bool

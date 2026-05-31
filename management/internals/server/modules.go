@@ -20,6 +20,7 @@ import (
 	recordsManager "github.com/netbirdio/netbird/management/internals/modules/zones/records/manager"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/account"
+	"github.com/netbirdio/netbird/management/server/entitlements"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/idp"
@@ -105,12 +106,19 @@ func (s *BaseServer) AccountManager() account.Manager {
 		if err != nil {
 			log.Fatalf("failed to create account service: %v", err)
 		}
+		accountManager.SetEntitlementsChecker(s.EntitlementsChecker())
 
 		s.AfterInit(func(s *BaseServer) {
 			accountManager.SetServiceManager(s.ServiceManager())
 		})
 
 		return accountManager
+	})
+}
+
+func (s *BaseServer) EntitlementsChecker() entitlements.Checker {
+	return Create(s, func() entitlements.Checker {
+		return entitlements.NewChecker(entitlements.NewBasicStaticProvider())
 	})
 }
 
@@ -152,7 +160,6 @@ func (s *BaseServer) IdpManager() idp.Manager {
 
 			return idpManager
 		}
-
 
 		return nil
 	})
@@ -215,7 +222,9 @@ func (s *BaseServer) RecordsManager() records.Manager {
 
 func (s *BaseServer) ServiceManager() service.Manager {
 	return Create(s, func() service.Manager {
-		return nbreverseproxy.NewManager(s.Store(), s.AccountManager(), s.PermissionsManager(), s.ServiceProxyController(), s.ProxyManager(), s.ReverseProxyDomainManager())
+		manager := nbreverseproxy.NewManager(s.Store(), s.AccountManager(), s.PermissionsManager(), s.ServiceProxyController(), s.ProxyManager(), s.ReverseProxyDomainManager())
+		manager.SetEntitlementsChecker(s.EntitlementsChecker())
+		return manager
 	})
 }
 
@@ -232,6 +241,7 @@ func (s *BaseServer) ProxyManager() proxy.Manager {
 func (s *BaseServer) ReverseProxyDomainManager() *manager.Manager {
 	return Create(s, func() *manager.Manager {
 		m := manager.NewManager(s.Store(), s.ProxyManager(), s.PermissionsManager(), s.AccountManager())
+		m.SetEntitlementsChecker(s.EntitlementsChecker())
 		return &m
 	})
 }

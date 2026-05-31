@@ -247,57 +247,57 @@ func Test_Accounts_UpdateBrandingValidation(t *testing.T) {
 		{
 			name: "valid branding settings",
 			extra: &api.AccountExtraSettings{
-				BrandingLogoDataUrl:  validLogo,
-				BrandingTabTitle:     "Acme Dashboard",
-				BrandingPrimaryColor: "#123456",
+				BrandingLogoDataUrl:  stringPointer(validLogo),
+				BrandingTabTitle:     stringPointer("Acme Dashboard"),
+				BrandingPrimaryColor: stringPointer("#123456"),
 			},
 			expectedStatus: http.StatusOK,
 			verifyResponse: func(t *testing.T, account *api.Account) {
 				t.Helper()
-				assert.Equal(t, validLogo, account.Settings.Extra.BrandingLogoDataUrl)
-				assert.Equal(t, "Acme Dashboard", account.Settings.Extra.BrandingTabTitle)
-				assert.Equal(t, "#123456", account.Settings.Extra.BrandingPrimaryColor)
+				assert.Equal(t, validLogo, stringValue(account.Settings.Extra.BrandingLogoDataUrl))
+				assert.Equal(t, "Acme Dashboard", stringValue(account.Settings.Extra.BrandingTabTitle))
+				assert.Equal(t, "#123456", stringValue(account.Settings.Extra.BrandingPrimaryColor))
 			},
 		},
 		{
 			name: "reject invalid image MIME type",
 			extra: &api.AccountExtraSettings{
-				BrandingLogoDataUrl: "data:image/gif;base64," + base64.StdEncoding.EncodeToString([]byte("logo")),
+				BrandingLogoDataUrl: stringPointer("data:image/gif;base64," + base64.StdEncoding.EncodeToString([]byte("logo"))),
 			},
 			expectedStatus: http.StatusUnprocessableEntity,
 		},
 		{
 			name: "reject oversized image payload",
 			extra: &api.AccountExtraSettings{
-				BrandingIconDataUrl: oversizedLogo,
+				BrandingIconDataUrl: stringPointer(oversizedLogo),
 			},
 			expectedStatus: http.StatusUnprocessableEntity,
 		},
 		{
 			name: "reject unsafe SVG payload",
 			extra: &api.AccountExtraSettings{
-				BrandingIconDataUrl: "data:image/svg+xml;base64," + base64.StdEncoding.EncodeToString([]byte(`<svg onload="alert(1)"></svg>`)),
+				BrandingIconDataUrl: stringPointer("data:image/svg+xml;base64," + base64.StdEncoding.EncodeToString([]byte(`<svg onload="alert(1)"></svg>`))),
 			},
 			expectedStatus: http.StatusUnprocessableEntity,
 		},
 		{
 			name: "reject SVG embedded data reference",
 			extra: &api.AccountExtraSettings{
-				BrandingIconDataUrl: "data:image/svg+xml;base64," + base64.StdEncoding.EncodeToString([]byte(`<svg><image href="data:image/png;base64,AAAA"/></svg>`)),
+				BrandingIconDataUrl: stringPointer("data:image/svg+xml;base64," + base64.StdEncoding.EncodeToString([]byte(`<svg><image href="data:image/png;base64,AAAA"/></svg>`))),
 			},
 			expectedStatus: http.StatusUnprocessableEntity,
 		},
 		{
 			name: "reject invalid primary color",
 			extra: &api.AccountExtraSettings{
-				BrandingPrimaryColor: "123456",
+				BrandingPrimaryColor: stringPointer("123456"),
 			},
 			expectedStatus: http.StatusUnprocessableEntity,
 		},
 		{
 			name: "reject too long tab title",
 			extra: &api.AccountExtraSettings{
-				BrandingTabTitle: strings.Repeat("a", 81),
+				BrandingTabTitle: stringPointer(strings.Repeat("a", 81)),
 			},
 			expectedStatus: http.StatusUnprocessableEntity,
 		},
@@ -337,14 +337,21 @@ func Test_Accounts_UpdateBrandingValidation(t *testing.T) {
 
 			db := testing_tools.GetDB(t, am.GetStore())
 			dbAccount := testing_tools.VerifyAccountSettings(t, db)
-			assert.Equal(t, tc.extra.BrandingLogoDataUrl, dbAccount.Settings.Extra.BrandingLogoDataURL)
-			assert.Equal(t, tc.extra.BrandingIconDataUrl, dbAccount.Settings.Extra.BrandingIconDataURL)
-			assert.Equal(t, tc.extra.BrandingTabTitle, dbAccount.Settings.Extra.BrandingTabTitle)
-			assert.Equal(t, tc.extra.BrandingPrimaryColor, dbAccount.Settings.Extra.BrandingPrimaryColor)
+			assert.Equal(t, stringValue(tc.extra.BrandingLogoDataUrl), dbAccount.Settings.Extra.BrandingLogoDataURL)
+			assert.Equal(t, stringValue(tc.extra.BrandingIconDataUrl), dbAccount.Settings.Extra.BrandingIconDataURL)
+			assert.Equal(t, stringValue(tc.extra.BrandingTabTitle), dbAccount.Settings.Extra.BrandingTabTitle)
+			assert.Equal(t, stringValue(tc.extra.BrandingPrimaryColor), dbAccount.Settings.Extra.BrandingPrimaryColor)
 		})
 	}
 }
 
 func stringPointer(s string) *string {
 	return &s
+}
+
+func stringValue(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }

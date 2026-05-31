@@ -77,13 +77,20 @@ func (h *handler) getBranding(w http.ResponseWriter, r *http.Request) {
 	}
 
 	extra := account.Settings.Extra
-	resp.BrandingLogoDataUrl = extra.BrandingLogoDataURL
-	resp.BrandingLogoDarkDataUrl = extra.BrandingLogoDarkDataURL
-	resp.BrandingIconDataUrl = extra.BrandingIconDataURL
-	resp.BrandingTabTitle = extra.BrandingTabTitle
-	resp.BrandingPrimaryColor = extra.BrandingPrimaryColor
+	resp.BrandingLogoDataUrl = optionalBrandingString(extra.BrandingLogoDataURL)
+	resp.BrandingLogoDarkDataUrl = optionalBrandingString(extra.BrandingLogoDarkDataURL)
+	resp.BrandingIconDataUrl = optionalBrandingString(extra.BrandingIconDataURL)
+	resp.BrandingTabTitle = optionalBrandingString(extra.BrandingTabTitle)
+	resp.BrandingPrimaryColor = optionalBrandingString(extra.BrandingPrimaryColor)
 
 	util.WriteJSONObject(r.Context(), w, resp)
+}
+
+func optionalBrandingString(value string) *string {
+	if value == "" {
+		return nil
+	}
+	return &value
 }
 
 func pickPublicBrandingAccount(accounts []*types.Account) *types.Account {

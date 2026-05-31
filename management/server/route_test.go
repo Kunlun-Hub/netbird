@@ -18,6 +18,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/cache"
+	"github.com/netbirdio/netbird/management/server/entitlements"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	"github.com/netbirdio/netbird/management/server/job"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
@@ -1059,6 +1060,36 @@ func TestDeleteRoute(t *testing.T) {
 	if found {
 		t.Error("route shouldn't be found after delete")
 	}
+}
+
+func TestValidateRouteEntitlementsBasicDeniesSecondHARoute(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	existingRoute := &route.Route{
+		ID:          "route-a",
+		AccountID:   "account-a",
+		Network:     netip.MustParsePrefix("10.10.10.0/24"),
+		NetworkType: route.IPv4Network,
+		NetID:       "ha-net",
+		Peer:        "peer-a",
+	}
+	newRoute := &route.Route{
+		ID:          "route-b",
+		AccountID:   "account-a",
+		Network:     existingRoute.Network,
+		NetworkType: existingRoute.NetworkType,
+		NetID:       existingRoute.NetID,
+		Peer:        "peer-b",
+	}
+
+	mockStore := store.NewMockStore(ctrl)
+	mockStore.EXPECT().
+		GetAccountRoutes(gomock.Any(), store.LockingStrengthNone, "account-a").
+		Return([]*route.Route{existingRoute}, nil)
+
+	err := basicEntitlementsAccountManager().validateRouteEntitlements(context.Background(), mockStore, "account-a", newRoute)
+	assertFeatureDenied(t, err, entitlements.FeatureHARoutes)
 }
 
 func TestGetNetworkMap_RouteSyncPeerGroups(t *testing.T) {

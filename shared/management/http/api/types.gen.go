@@ -38,6 +38,24 @@ func (e AccessRestrictionsCrowdsecMode) Valid() bool {
 	}
 }
 
+// Defines values for AccountEntitlementsPlan.
+const (
+	AccountEntitlementsPlanBasic AccountEntitlementsPlan = "basic"
+	AccountEntitlementsPlanPro   AccountEntitlementsPlan = "pro"
+)
+
+// Valid indicates whether the value is a known member of the AccountEntitlementsPlan enum.
+func (e AccountEntitlementsPlan) Valid() bool {
+	switch e {
+	case AccountEntitlementsPlanBasic:
+		return true
+	case AccountEntitlementsPlanPro:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AccountSettingsLoginMethod.
 const (
 	AccountSettingsLoginMethodAll        AccountSettingsLoginMethod = "all"
@@ -532,8 +550,8 @@ func (e GroupMinimumIssued) Valid() bool {
 
 // Defines values for IdentityProviderType.
 const (
-	IdentityProviderTypeAuthentik  IdentityProviderType = "authentik"
 	IdentityProviderTypeAdfs       IdentityProviderType = "adfs"
+	IdentityProviderTypeAuthentik  IdentityProviderType = "authentik"
 	IdentityProviderTypeEntra      IdentityProviderType = "entra"
 	IdentityProviderTypeGoogle     IdentityProviderType = "google"
 	IdentityProviderTypeKeycloak   IdentityProviderType = "keycloak"
@@ -548,6 +566,8 @@ const (
 // Valid indicates whether the value is a known member of the IdentityProviderType enum.
 func (e IdentityProviderType) Valid() bool {
 	switch e {
+	case IdentityProviderTypeAdfs:
+		return true
 	case IdentityProviderTypeAuthentik:
 		return true
 	case IdentityProviderTypeEntra:
@@ -567,8 +587,6 @@ func (e IdentityProviderType) Valid() bool {
 	case IdentityProviderTypeWechatwork:
 		return true
 	case IdentityProviderTypeZitadel:
-		return true
-	case IdentityProviderTypeAdfs:
 		return true
 	default:
 		return false
@@ -1447,52 +1465,76 @@ type Account struct {
 	Settings   AccountSettings   `json:"settings"`
 }
 
+// AccountEntitlements Account plan capabilities and quota limits.
+type AccountEntitlements struct {
+	// AccountId Account ID
+	AccountId string `json:"account_id"`
+
+	// Features Feature availability keyed by feature ID.
+	Features map[string]bool `json:"features"`
+
+	// Limits Numeric quota limits keyed by limit ID. A value of -1 means unlimited.
+	Limits map[string]int `json:"limits"`
+
+	// Plan Current entitlement plan.
+	Plan AccountEntitlementsPlan `json:"plan"`
+}
+
+// AccountEntitlementsPlan Current entitlement plan.
+type AccountEntitlementsPlan string
+
 // AccountExtraSettings defines model for AccountExtraSettings.
 type AccountExtraSettings struct {
-	// BrandingLogoDataUrl Custom dashboard header logo stored as a data URL.
-	BrandingLogoDataUrl string `json:"branding_logo_data_url,omitempty"`
+	// BrandingIconDataUrl Custom compact brand icon and favicon stored as a data URL. Allowed image types are PNG, JPEG, WebP, and SVG. Decoded image data must be 256 KB or smaller. SVG content must not contain scriptable elements, event handler attributes, javascript links, embedded data links, or external references.
+	BrandingIconDataUrl *string `json:"branding_icon_data_url,omitempty"`
 
-	// BrandingLogoDarkDataUrl Custom dashboard header logo for dark mode stored as a data URL.
-	BrandingLogoDarkDataUrl string `json:"branding_logo_dark_data_url,omitempty"`
+	// BrandingLogoDarkDataUrl Custom dashboard header logo for dark mode stored as a data URL. Allowed image types are PNG, JPEG, WebP, and SVG. Decoded image data must be 256 KB or smaller. SVG content must not contain scriptable elements, event handler attributes, javascript links, embedded data links, or external references.
+	BrandingLogoDarkDataUrl *string `json:"branding_logo_dark_data_url,omitempty"`
 
-	// BrandingIconDataUrl Custom compact brand icon and favicon stored as a data URL.
-	BrandingIconDataUrl string `json:"branding_icon_data_url,omitempty"`
-
-	// BrandingTabTitle Custom brand title shown in browser tabs.
-	BrandingTabTitle string `json:"branding_tab_title,omitempty"`
+	// BrandingLogoDataUrl Custom dashboard header logo stored as a data URL. Allowed image types are PNG, JPEG, WebP, and SVG. Decoded image data must be 256 KB or smaller. SVG content must not contain scriptable elements, event handler attributes, javascript links, embedded data links, or external references.
+	BrandingLogoDataUrl *string `json:"branding_logo_data_url,omitempty"`
 
 	// BrandingPrimaryColor Custom dashboard primary brand color as a 6-digit hex value.
-	BrandingPrimaryColor string `json:"branding_primary_color,omitempty"`
+	BrandingPrimaryColor *string `json:"branding_primary_color,omitempty"`
+
+	// BrandingTabTitle Custom brand title shown in browser tabs.
+	BrandingTabTitle *string `json:"branding_tab_title,omitempty"`
 
 	// Counters Legacy alias for network_traffic_packet_counter_enabled.
-	Counters bool `json:"counters,omitempty"`
+	Counters *bool `json:"counters,omitempty"`
 
 	// DnsCollection Legacy alias for network_traffic_dns_collection_enabled.
-	DnsCollection bool `json:"dns_collection,omitempty"`
+	DnsCollection *bool `json:"dns_collection,omitempty"`
+
+	// Enabled Legacy alias for network_traffic_logs_enabled.
+	Enabled *bool `json:"enabled,omitempty"`
 
 	// ExitNodeCollection Legacy alias for network_traffic_exit_node_collection_enabled.
-	ExitNodeCollection bool `json:"exit_node_collection,omitempty"`
+	ExitNodeCollection *bool `json:"exit_node_collection,omitempty"`
 
 	// FlowDnsCollectionEnabled Legacy alias for network_traffic_dns_collection_enabled.
-	FlowDnsCollectionEnabled bool `json:"flow_dns_collection_enabled,omitempty"`
+	FlowDnsCollectionEnabled *bool `json:"flow_dns_collection_enabled,omitempty"`
 
 	// FlowEnabled Legacy alias for network_traffic_logs_enabled.
-	FlowEnabled bool `json:"flow_enabled,omitempty"`
+	FlowEnabled *bool `json:"flow_enabled,omitempty"`
 
 	// FlowExitNodeCollectionEnabled Legacy alias for network_traffic_exit_node_collection_enabled.
-	FlowExitNodeCollectionEnabled bool `json:"flow_exit_node_collection_enabled,omitempty"`
+	FlowExitNodeCollectionEnabled *bool `json:"flow_exit_node_collection_enabled,omitempty"`
 
 	// FlowGroups Legacy alias for network_traffic_logs_groups.
-	FlowGroups []string `json:"flow_groups,omitempty"`
+	FlowGroups *[]string `json:"flow_groups,omitempty"`
 
 	// FlowLogsEnabled Legacy alias for network_traffic_logs_enabled.
-	FlowLogsEnabled bool `json:"flow_logs_enabled,omitempty"`
+	FlowLogsEnabled *bool `json:"flow_logs_enabled,omitempty"`
 
 	// FlowLogsGroups Legacy alias for network_traffic_logs_groups.
-	FlowLogsGroups []string `json:"flow_logs_groups,omitempty"`
+	FlowLogsGroups *[]string `json:"flow_logs_groups,omitempty"`
 
 	// FlowPacketCounterEnabled Legacy alias for network_traffic_packet_counter_enabled.
-	FlowPacketCounterEnabled bool `json:"flow_packet_counter_enabled,omitempty"`
+	FlowPacketCounterEnabled *bool `json:"flow_packet_counter_enabled,omitempty"`
+
+	// Groups Legacy alias for network_traffic_logs_groups.
+	Groups *[]string `json:"groups,omitempty"`
 
 	// NetworkTrafficDnsCollectionEnabled Enables or disables DNS collection in network traffic logs.
 	NetworkTrafficDnsCollectionEnabled bool `json:"network_traffic_dns_collection_enabled"`
@@ -1543,8 +1585,11 @@ type AccountSettings struct {
 	DnsDomain *string `json:"dns_domain,omitempty"`
 
 	// EmbeddedIdpEnabled Indicates whether the embedded identity provider (Dex) is enabled for this account. This is a read-only field.
-	EmbeddedIdpEnabled *bool                 `json:"embedded_idp_enabled,omitempty"`
-	Extra              *AccountExtraSettings `json:"extra,omitempty"`
+	EmbeddedIdpEnabled *bool `json:"embedded_idp_enabled,omitempty"`
+
+	// EnabledLoginOptions List of enabled login options. Supports email and identity providers. Empty list means all options are enabled.
+	EnabledLoginOptions *[]string             `json:"enabled_login_options,omitempty"`
+	Extra               *AccountExtraSettings `json:"extra,omitempty"`
 
 	// GroupsPropagationEnabled Allows propagate the new user auto groups to peers that belongs to the user
 	GroupsPropagationEnabled *bool `json:"groups_propagation_enabled,omitempty"`
@@ -1567,14 +1612,11 @@ type AccountSettings struct {
 	// LocalAuthDisabled Indicates whether local (email/password) authentication is disabled. When true, users can only authenticate via external identity providers. This is a read-only field.
 	LocalAuthDisabled *bool `json:"local_auth_disabled,omitempty"`
 
-	// LoginMethod Controls which login method is presented on the embedded identity provider login screen.
-	LoginMethod *AccountSettingsLoginMethod `json:"login_method,omitempty"`
-
-	// EnabledLoginOptions List of enabled login options. Supports email and identity providers. Empty list means all options are enabled.
-	EnabledLoginOptions *[]string `json:"enabled_login_options,omitempty"`
-
 	// LocalMfaEnabled Enables or disables TOTP multi-factor authentication for local users. Only applicable when the embedded identity provider is enabled.
 	LocalMfaEnabled *bool `json:"local_mfa_enabled,omitempty"`
+
+	// LoginMethod (Deprecated) Controls which login method is presented on the embedded identity provider login screen. Use enabled_login_options instead.
+	LoginMethod *AccountSettingsLoginMethod `json:"login_method,omitempty"`
 
 	// NetworkRange Allows to define a custom network range for the account in CIDR format
 	NetworkRange *string `json:"network_range,omitempty"`
@@ -1607,7 +1649,7 @@ type AccountSettings struct {
 	RoutingPeerDnsResolutionEnabled *bool `json:"routing_peer_dns_resolution_enabled,omitempty"`
 }
 
-// AccountSettingsLoginMethod Controls which login method is presented on the embedded identity provider login screen.
+// AccountSettingsLoginMethod (Deprecated) Controls which login method is presented on the embedded identity provider login screen. Use enabled_login_options instead.
 type AccountSettingsLoginMethod string
 
 // AvailablePorts defines model for AvailablePorts.
@@ -1728,7 +1770,9 @@ type Checks struct {
 	// OsVersionCheck Posture check for the version of operating system
 	OsVersionCheck *OSVersionCheck `json:"os_version_check,omitempty"`
 
-	// PeerNetworkRangeCheck Posture check for allow or deny access based on the peer's IP addresses. A range matches when it contains any of the peer's local network interface IPs or its public connection (NAT egress) IP, so ranges may target private subnets, public CIDRs, or single hosts via a /32 or /128.
+	// PeerNetworkRangeCheck Posture check for allow or deny access based on the peer's IP addresses. A range matches when it
+	// contains any of the peer's local network interface IPs or its public connection (NAT egress) IP,
+	// so ranges may target private subnets, public CIDRs, or single hosts via a /32 or /128.
 	PeerNetworkRangeCheck *PeerNetworkRangeCheck `json:"peer_network_range_check,omitempty"`
 
 	// ProcessCheck Posture Check for binaries exist and are running in the peer’s system
@@ -2602,28 +2646,28 @@ type IngressPortAllocationRequestPortRange struct {
 // IngressPortAllocationRequestPortRangeProtocol The protocol accepted by the port range
 type IngressPortAllocationRequestPortRangeProtocol string
 
+// InstanceBranding Public branding settings for unauthenticated entry pages
+type InstanceBranding struct {
+	// BrandingIconDataUrl Custom compact brand icon and favicon stored as a data URL. Allowed image types are PNG, JPEG, WebP, and SVG. Decoded image data must be 256 KB or smaller. SVG content must not contain scriptable elements, event handler attributes, javascript links, embedded data links, or external references.
+	BrandingIconDataUrl *string `json:"branding_icon_data_url,omitempty"`
+
+	// BrandingLogoDarkDataUrl Custom dashboard header logo for dark mode stored as a data URL. Allowed image types are PNG, JPEG, WebP, and SVG. Decoded image data must be 256 KB or smaller. SVG content must not contain scriptable elements, event handler attributes, javascript links, embedded data links, or external references.
+	BrandingLogoDarkDataUrl *string `json:"branding_logo_dark_data_url,omitempty"`
+
+	// BrandingLogoDataUrl Custom dashboard header logo stored as a data URL. Allowed image types are PNG, JPEG, WebP, and SVG. Decoded image data must be 256 KB or smaller. SVG content must not contain scriptable elements, event handler attributes, javascript links, embedded data links, or external references.
+	BrandingLogoDataUrl *string `json:"branding_logo_data_url,omitempty"`
+
+	// BrandingPrimaryColor Custom dashboard primary brand color as a 6-digit hex value.
+	BrandingPrimaryColor *string `json:"branding_primary_color,omitempty"`
+
+	// BrandingTabTitle Custom brand title shown in browser tabs.
+	BrandingTabTitle *string `json:"branding_tab_title,omitempty"`
+}
+
 // InstanceStatus Instance status information
 type InstanceStatus struct {
 	// SetupRequired Indicates whether the instance requires initial setup
 	SetupRequired bool `json:"setup_required"`
-}
-
-// InstanceBranding Public branding settings for unauthenticated entry pages
-type InstanceBranding struct {
-	// BrandingLogoDataUrl Custom dashboard header logo stored as a data URL.
-	BrandingLogoDataUrl string `json:"branding_logo_data_url,omitempty"`
-
-	// BrandingLogoDarkDataUrl Custom dashboard header logo for dark mode stored as a data URL.
-	BrandingLogoDarkDataUrl string `json:"branding_logo_dark_data_url,omitempty"`
-
-	// BrandingIconDataUrl Custom compact brand icon and favicon stored as a data URL.
-	BrandingIconDataUrl string `json:"branding_icon_data_url,omitempty"`
-
-	// BrandingTabTitle Custom brand title shown in browser tabs.
-	BrandingTabTitle string `json:"branding_tab_title,omitempty"`
-
-	// BrandingPrimaryColor Custom dashboard primary brand color as a 6-digit hex value.
-	BrandingPrimaryColor string `json:"branding_primary_color,omitempty"`
 }
 
 // InstanceVersionInfo Version information for NetBird components
@@ -2926,14 +2970,17 @@ type NetworkResourceType string
 
 // NetworkRouter defines model for NetworkRouter.
 type NetworkRouter struct {
+	// AdvertisedRoutes CIDR prefixes announced through this network router.
+	AdvertisedRoutes *[]string `json:"advertised_routes,omitempty"`
+
 	// Enabled Network router status
 	Enabled bool `json:"enabled"`
 
+	// ExcludedRoutes CIDR prefixes excluded from the announced network router routes.
+	ExcludedRoutes *[]string `json:"excluded_routes,omitempty"`
+
 	// Id Network Router Id
 	Id string `json:"id"`
-
-	// NetworkId Network ID this router belongs to
-	NetworkId string `json:"network_id"`
 
 	// Masquerade Indicate if peer should masquerade traffic to this route's prefix
 	Masquerade bool `json:"masquerade"`
@@ -2941,11 +2988,8 @@ type NetworkRouter struct {
 	// Metric Route metric number. Lowest number has higher priority
 	Metric int `json:"metric"`
 
-	// AdvertisedRoutes CIDR prefixes announced through this network router.
-	AdvertisedRoutes *[]string `json:"advertised_routes,omitempty"`
-
-	// ExcludedRoutes CIDR prefixes excluded from the announced network router routes.
-	ExcludedRoutes *[]string `json:"excluded_routes,omitempty"`
+	// NetworkId Network ID this router belongs to
+	NetworkId string `json:"network_id"`
 
 	// Peer Peer Identifier associated with route. This property can not be set together with `peer_groups`
 	Peer *string `json:"peer,omitempty"`
@@ -2956,20 +3000,20 @@ type NetworkRouter struct {
 
 // NetworkRouterRequest defines model for NetworkRouterRequest.
 type NetworkRouterRequest struct {
+	// AdvertisedRoutes CIDR prefixes announced through this network router.
+	AdvertisedRoutes *[]string `json:"advertised_routes,omitempty"`
+
 	// Enabled Network router status
 	Enabled bool `json:"enabled"`
+
+	// ExcludedRoutes CIDR prefixes excluded from the announced network router routes.
+	ExcludedRoutes *[]string `json:"excluded_routes,omitempty"`
 
 	// Masquerade Indicate if peer should masquerade traffic to this route's prefix
 	Masquerade bool `json:"masquerade"`
 
 	// Metric Route metric number. Lowest number has higher priority
 	Metric int `json:"metric"`
-
-	// AdvertisedRoutes CIDR prefixes announced through this network router.
-	AdvertisedRoutes *[]string `json:"advertised_routes,omitempty"`
-
-	// ExcludedRoutes CIDR prefixes excluded from the announced network router routes.
-	ExcludedRoutes *[]string `json:"excluded_routes,omitempty"`
 
 	// Peer Peer Identifier associated with route. This property can not be set together with `peer_groups`
 	Peer *string `json:"peer,omitempty"`
@@ -3487,7 +3531,9 @@ type PeerMinimum struct {
 	Name string `json:"name"`
 }
 
-// PeerNetworkRangeCheck Posture check for allow or deny access based on the peer's IP addresses. A range matches when it contains any of the peer's local network interface IPs or its public connection (NAT egress) IP, so ranges may target private subnets, public CIDRs, or single hosts via a /32 or /128.
+// PeerNetworkRangeCheck Posture check for allow or deny access based on the peer's IP addresses. A range matches when it
+// contains any of the peer's local network interface IPs or its public connection (NAT egress) IP,
+// so ranges may target private subnets, public CIDRs, or single hosts via a /32 or /128.
 type PeerNetworkRangeCheck struct {
 	// Action Action to take upon policy match
 	Action PeerNetworkRangeCheckAction `json:"action"`
@@ -3942,14 +3988,14 @@ type ProxyAccessLogsResponse struct {
 
 // ProxyCluster A proxy cluster represents a group of proxy nodes serving the same address
 type ProxyCluster struct {
-	// Id Unique identifier of a proxy in this cluster
-	Id string `json:"id"`
-
 	// Address Cluster address used for CNAME targets
 	Address string `json:"address"`
 
 	// ConnectedProxies Number of proxy nodes connected in this cluster
 	ConnectedProxies int `json:"connected_proxies"`
+
+	// Id Unique identifier of a proxy in this cluster
+	Id string `json:"id"`
 
 	// SelfHosted Whether this cluster is a self-hosted (BYOP) proxy managed by the account owner
 	SelfHosted bool `json:"self_hosted"`

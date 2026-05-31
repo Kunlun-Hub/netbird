@@ -15,6 +15,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/entitlements"
 	"github.com/netbirdio/netbird/management/server/idp"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
@@ -125,6 +126,7 @@ type MockAccountManager struct {
 	GetCurrentUserInfoFunc                func(ctx context.Context, userAuth auth.UserAuth) (*users.UserInfoWithPermissions, error)
 	GetAccountMetaFunc                    func(ctx context.Context, accountID, userID string) (*types.AccountMeta, error)
 	GetAccountOnboardingFunc              func(ctx context.Context, accountID, userID string) (*types.AccountOnboarding, error)
+	GetAccountEntitlementsFunc            func(ctx context.Context, accountID, userID string) (*entitlements.Entitlements, error)
 	UpdateAccountOnboardingFunc           func(ctx context.Context, accountID, userID string, onboarding *types.AccountOnboarding) (*types.AccountOnboarding, error)
 	GetOrCreateAccountByPrivateDomainFunc func(ctx context.Context, initiatorId, domain string) (*types.Account, bool, error)
 
@@ -987,6 +989,13 @@ func (am *MockAccountManager) GetAccountOnboarding(ctx context.Context, accountI
 		return am.GetAccountOnboardingFunc(ctx, accountID, userID)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method GetAccountOnboarding is not implemented")
+}
+
+func (am *MockAccountManager) GetAccountEntitlements(ctx context.Context, accountID string, userID string) (*entitlements.Entitlements, error) {
+	if am.GetAccountEntitlementsFunc != nil {
+		return am.GetAccountEntitlementsFunc(ctx, accountID, userID)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method GetAccountEntitlements is not implemented")
 }
 
 // UpdateAccountOnboarding mocks UpdateAccountOnboarding of the AccountManager interface

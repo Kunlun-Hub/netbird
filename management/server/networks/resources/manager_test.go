@@ -295,7 +295,7 @@ func Test_UpdateResourceSuccessfully(t *testing.T) {
 	groupsManager := groups.NewManagerMock()
 	ctrl := gomock.NewController(t)
 	serviceManager := reverseproxy.NewMockManager(ctrl)
-	serviceManager.EXPECT().ReloadAllServicesForAccount(gomock.Any(), accountID).Return(nil).AnyTimes()
+	serviceManager.EXPECT().ReloadServicesForResource(gomock.Any(), accountID, resourceID).Return(nil).AnyTimes()
 	manager := NewManager(store, permissionsManager, groupsManager, &am, serviceManager)
 
 	updatedResource, err := manager.UpdateResource(ctx, userID, resource)

@@ -19,6 +19,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/account"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
+	"github.com/netbirdio/netbird/management/server/entitlements"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/http/api"
@@ -45,6 +46,17 @@ const (
 type handler struct {
 	accountManager  account.Manager
 	settingsManager settings.Manager
+}
+
+type entitlementsAccountManager interface {
+	GetAccountEntitlements(ctx context.Context, accountID, userID string) (*entitlements.Entitlements, error)
+}
+
+type accountEntitlementsResponse struct {
+	AccountID string          `json:"account_id"`
+	Plan      string          `json:"plan"`
+	Features  map[string]bool `json:"features"`
+	Limits    map[string]int  `json:"limits"`
 }
 
 type accountFlowSettingsCompat struct {
@@ -124,27 +136,42 @@ func buildFlowCompatMap(extra *api.AccountExtraSettings) map[string]any {
 
 	return map[string]any{
 		"enabled":                                      extra.NetworkTrafficLogsEnabled,
-		"flow_enabled":                                 extra.FlowEnabled,
-		"flow_logs_enabled":                            extra.FlowLogsEnabled,
+		"flow_enabled":                                 boolOrDefault(extra.FlowEnabled, extra.NetworkTrafficLogsEnabled),
+		"flow_logs_enabled":                            boolOrDefault(extra.FlowLogsEnabled, extra.NetworkTrafficLogsEnabled),
 		"network_traffic_logs_enabled":                 extra.NetworkTrafficLogsEnabled,
-		"counters":                                     extra.Counters,
-		"flow_packet_counter_enabled":                  extra.FlowPacketCounterEnabled,
+		"counters":                                     boolOrDefault(extra.Counters, extra.NetworkTrafficPacketCounterEnabled),
+		"flow_packet_counter_enabled":                  boolOrDefault(extra.FlowPacketCounterEnabled, extra.NetworkTrafficPacketCounterEnabled),
 		"network_traffic_packet_counter_enabled":       extra.NetworkTrafficPacketCounterEnabled,
-		"dns_collection":                               extra.DnsCollection,
-		"flow_dns_collection_enabled":                  extra.FlowDnsCollectionEnabled,
+		"dns_collection":                               boolOrDefault(extra.DnsCollection, extra.NetworkTrafficDnsCollectionEnabled),
+		"flow_dns_collection_enabled":                  boolOrDefault(extra.FlowDnsCollectionEnabled, extra.NetworkTrafficDnsCollectionEnabled),
 		"network_traffic_dns_collection_enabled":       extra.NetworkTrafficDnsCollectionEnabled,
-		"exit_node_collection":                         extra.ExitNodeCollection,
-		"flow_exit_node_collection_enabled":            extra.FlowExitNodeCollectionEnabled,
+		"exit_node_collection":                         boolOrDefault(extra.ExitNodeCollection, extra.NetworkTrafficExitNodeCollectionEnabled),
+		"flow_exit_node_collection_enabled":            boolOrDefault(extra.FlowExitNodeCollectionEnabled, extra.NetworkTrafficExitNodeCollectionEnabled),
 		"network_traffic_exit_node_collection_enabled": extra.NetworkTrafficExitNodeCollectionEnabled,
-		"groups":                      extra.FlowGroups,
-		"flow_groups":                 extra.FlowGroups,
-		"flow_logs_groups":            extra.FlowLogsGroups,
+		"groups":                      stringsOrDefault(extra.Groups, extra.NetworkTrafficLogsGroups),
+		"flow_groups":                 stringsOrDefault(extra.FlowGroups, extra.NetworkTrafficLogsGroups),
+		"flow_logs_groups":            stringsOrDefault(extra.FlowLogsGroups, extra.NetworkTrafficLogsGroups),
 		"network_traffic_logs_groups": extra.NetworkTrafficLogsGroups,
 	}
 }
 
+func boolOrDefault(value *bool, fallback bool) bool {
+	if value == nil {
+		return fallback
+	}
+	return *value
+}
+
+func stringsOrDefault(value *[]string, fallback []string) []string {
+	if value == nil {
+		return fallback
+	}
+	return *value
+}
+
 func AddEndpoints(accountManager account.Manager, settingsManager settings.Manager, router *mux.Router) {
 	accountsHandler := newHandler(accountManager, settingsManager)
+	router.HandleFunc("/accounts/{accountId}/entitlements", accountsHandler.getAccountEntitlements).Methods("GET", "OPTIONS")
 	router.HandleFunc("/accounts/{accountId}", accountsHandler.updateAccount).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/accounts/{accountId}", accountsHandler.deleteAccount).Methods("DELETE", "OPTIONS")
 	router.HandleFunc("/accounts", accountsHandler.getAllAccounts).Methods("GET", "OPTIONS")
@@ -264,6 +291,61 @@ func calculateRequiredAddresses(peerCount int) int64 {
 	return requiredAddresses
 }
 
+func (h *handler) getAccountEntitlements(w http.ResponseWriter, r *http.Request) {
+	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	vars := mux.Vars(r)
+	accountID := vars["accountId"]
+	if len(accountID) == 0 {
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid account ID"), w)
+		return
+	}
+
+	entitlementsManager, ok := h.accountManager.(entitlementsAccountManager)
+	if !ok {
+		util.WriteError(r.Context(), status.Errorf(status.Internal, "account entitlements are not available"), w)
+		return
+	}
+
+	snapshot, err := entitlementsManager.GetAccountEntitlements(r.Context(), accountID, userAuth.UserId)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	util.WriteJSONObject(r.Context(), w, toAccountEntitlementsResponse(snapshot))
+}
+
+func toAccountEntitlementsResponse(snapshot *entitlements.Entitlements) accountEntitlementsResponse {
+	if snapshot == nil {
+		return accountEntitlementsResponse{
+			Features: map[string]bool{},
+			Limits:   map[string]int{},
+		}
+	}
+
+	features := make(map[string]bool, len(snapshot.Features))
+	for feature, enabled := range snapshot.Features {
+		features[string(feature)] = enabled
+	}
+
+	limits := make(map[string]int, len(snapshot.Limits))
+	for limit, value := range snapshot.Limits {
+		limits[string(limit)] = value
+	}
+
+	return accountEntitlementsResponse{
+		AccountID: snapshot.AccountID,
+		Plan:      string(snapshot.Plan),
+		Features:  features,
+		Limits:    limits,
+	}
+}
+
 // getAllAccounts is HTTP GET handler that returns a list of accounts. Effectively returns just a single account.
 func (h *handler) getAllAccounts(w http.ResponseWriter, r *http.Request) {
 	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
@@ -340,11 +422,11 @@ func (h *handler) updateAccountRequestSettings(req api.PutApiAccountsAccountIdJS
 			FlowPacketCounterEnabled: req.Settings.Extra.NetworkTrafficPacketCounterEnabled,
 			FlowENCollectionEnabled:  req.Settings.Extra.NetworkTrafficExitNodeCollectionEnabled,
 			FlowDnsCollectionEnabled: req.Settings.Extra.NetworkTrafficDnsCollectionEnabled,
-			BrandingLogoDataURL:      req.Settings.Extra.BrandingLogoDataUrl,
-			BrandingLogoDarkDataURL:  req.Settings.Extra.BrandingLogoDarkDataUrl,
-			BrandingIconDataURL:      req.Settings.Extra.BrandingIconDataUrl,
-			BrandingTabTitle:         req.Settings.Extra.BrandingTabTitle,
-			BrandingPrimaryColor:     req.Settings.Extra.BrandingPrimaryColor,
+			BrandingLogoDataURL:      stringValue(req.Settings.Extra.BrandingLogoDataUrl),
+			BrandingLogoDarkDataURL:  stringValue(req.Settings.Extra.BrandingLogoDarkDataUrl),
+			BrandingIconDataURL:      stringValue(req.Settings.Extra.BrandingIconDataUrl),
+			BrandingTabTitle:         stringValue(req.Settings.Extra.BrandingTabTitle),
+			BrandingPrimaryColor:     stringValue(req.Settings.Extra.BrandingPrimaryColor),
 		}
 	}
 
@@ -468,6 +550,34 @@ func firstStrings(values ...[]string) []string {
 		}
 	}
 	return nil
+}
+
+func stringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
+
+func optionalBool(value bool) *bool {
+	if !value {
+		return nil
+	}
+	return &value
+}
+
+func optionalString(value string) *string {
+	if value == "" {
+		return nil
+	}
+	return &value
+}
+
+func optionalStrings(value []string) *[]string {
+	if len(value) == 0 {
+		return nil
+	}
+	return &value
 }
 
 // updateAccount is HTTP PUT handler that updates the provided account. Updates only account settings (server.Settings)
@@ -644,16 +754,18 @@ func toAccountResponse(accountID string, settings *types.Settings, meta *types.A
 
 	if settings.Extra != nil {
 		apiSettings.Extra = &api.AccountExtraSettings{
-			Counters:                                settings.Extra.FlowPacketCounterEnabled,
-			DnsCollection:                           settings.Extra.FlowDnsCollectionEnabled,
-			ExitNodeCollection:                      settings.Extra.FlowENCollectionEnabled,
-			FlowEnabled:                             settings.Extra.FlowEnabled,
-			FlowGroups:                              settings.Extra.FlowGroups,
-			FlowLogsEnabled:                         settings.Extra.FlowEnabled,
-			FlowLogsGroups:                          settings.Extra.FlowGroups,
-			FlowDnsCollectionEnabled:                settings.Extra.FlowDnsCollectionEnabled,
-			FlowExitNodeCollectionEnabled:           settings.Extra.FlowENCollectionEnabled,
-			FlowPacketCounterEnabled:                settings.Extra.FlowPacketCounterEnabled,
+			Enabled:                                 optionalBool(settings.Extra.FlowEnabled),
+			Counters:                                optionalBool(settings.Extra.FlowPacketCounterEnabled),
+			DnsCollection:                           optionalBool(settings.Extra.FlowDnsCollectionEnabled),
+			ExitNodeCollection:                      optionalBool(settings.Extra.FlowENCollectionEnabled),
+			FlowEnabled:                             optionalBool(settings.Extra.FlowEnabled),
+			FlowGroups:                              optionalStrings(settings.Extra.FlowGroups),
+			FlowLogsEnabled:                         optionalBool(settings.Extra.FlowEnabled),
+			FlowLogsGroups:                          optionalStrings(settings.Extra.FlowGroups),
+			FlowDnsCollectionEnabled:                optionalBool(settings.Extra.FlowDnsCollectionEnabled),
+			FlowExitNodeCollectionEnabled:           optionalBool(settings.Extra.FlowENCollectionEnabled),
+			FlowPacketCounterEnabled:                optionalBool(settings.Extra.FlowPacketCounterEnabled),
+			Groups:                                  optionalStrings(settings.Extra.FlowGroups),
 			PeerApprovalEnabled:                     settings.Extra.PeerApprovalEnabled,
 			UserApprovalRequired:                    settings.Extra.UserApprovalRequired,
 			NetworkTrafficLogsEnabled:               settings.Extra.FlowEnabled,
@@ -661,11 +773,11 @@ func toAccountResponse(accountID string, settings *types.Settings, meta *types.A
 			NetworkTrafficPacketCounterEnabled:      settings.Extra.FlowPacketCounterEnabled,
 			NetworkTrafficExitNodeCollectionEnabled: settings.Extra.FlowENCollectionEnabled,
 			NetworkTrafficDnsCollectionEnabled:      settings.Extra.FlowDnsCollectionEnabled,
-			BrandingLogoDataUrl:                     settings.Extra.BrandingLogoDataURL,
-			BrandingLogoDarkDataUrl:                 settings.Extra.BrandingLogoDarkDataURL,
-			BrandingIconDataUrl:                     settings.Extra.BrandingIconDataURL,
-			BrandingTabTitle:                        settings.Extra.BrandingTabTitle,
-			BrandingPrimaryColor:                    settings.Extra.BrandingPrimaryColor,
+			BrandingLogoDataUrl:                     optionalString(settings.Extra.BrandingLogoDataURL),
+			BrandingLogoDarkDataUrl:                 optionalString(settings.Extra.BrandingLogoDarkDataURL),
+			BrandingIconDataUrl:                     optionalString(settings.Extra.BrandingIconDataURL),
+			BrandingTabTitle:                        optionalString(settings.Extra.BrandingTabTitle),
+			BrandingPrimaryColor:                    optionalString(settings.Extra.BrandingPrimaryColor),
 		}
 	}
 

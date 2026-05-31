@@ -16,6 +16,7 @@ import (
 
 	"github.com/netbirdio/netbird/idp/dex"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/entitlements"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
@@ -152,6 +153,10 @@ func (am *DefaultAccountManager) CreateIdentityProvider(ctx context.Context, acc
 		return nil, status.NewPermissionDeniedError()
 	}
 
+	if err := am.requireEntitledFeature(ctx, accountID, entitlements.FeatureIdentityProviders); err != nil {
+		return nil, err
+	}
+
 	if err := validateIdentityProviderConfig(ctx, idpConfig); err != nil {
 		return nil, err
 	}
@@ -187,6 +192,10 @@ func (am *DefaultAccountManager) UpdateIdentityProvider(ctx context.Context, acc
 	}
 	if !ok {
 		return nil, status.NewPermissionDeniedError()
+	}
+
+	if err := am.requireEntitledFeature(ctx, accountID, entitlements.FeatureIdentityProviders); err != nil {
+		return nil, err
 	}
 
 	if err := validateIdentityProviderConfig(ctx, idpConfig); err != nil {

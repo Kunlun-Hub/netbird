@@ -184,11 +184,11 @@ func TestGetBranding_ReturnsPrimaryAccountBranding(t *testing.T) {
 
 	var response api.InstanceBranding
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&response))
-	assert.Equal(t, "data:image/png;base64,logo", response.BrandingLogoDataUrl)
-	assert.Equal(t, "data:image/png;base64,dark-logo", response.BrandingLogoDarkDataUrl)
-	assert.Equal(t, "data:image/png;base64,icon", response.BrandingIconDataUrl)
-	assert.Equal(t, "Acme Dashboard", response.BrandingTabTitle)
-	assert.Equal(t, "#123456", response.BrandingPrimaryColor)
+	assert.Equal(t, "data:image/png;base64,logo", stringValue(response.BrandingLogoDataUrl))
+	assert.Equal(t, "data:image/png;base64,dark-logo", stringValue(response.BrandingLogoDarkDataUrl))
+	assert.Equal(t, "data:image/png;base64,icon", stringValue(response.BrandingIconDataUrl))
+	assert.Equal(t, "Acme Dashboard", stringValue(response.BrandingTabTitle))
+	assert.Equal(t, "#123456", stringValue(response.BrandingPrimaryColor))
 }
 
 func TestGetInstanceStatus_Error(t *testing.T) {
@@ -636,4 +636,11 @@ func TestGetVersionInfo_Error(t *testing.T) {
 	router.ServeHTTP(rec, req)
 
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+}
+
+func stringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }

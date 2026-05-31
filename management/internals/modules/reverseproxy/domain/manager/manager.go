@@ -11,6 +11,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/entitlements"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
@@ -38,11 +39,12 @@ type proxyManager interface {
 }
 
 type Manager struct {
-	store              store
-	validator          domain.Validator
-	proxyManager       proxyManager
-	permissionsManager permissions.Manager
-	accountManager     account.Manager
+	store               store
+	validator           domain.Validator
+	proxyManager        proxyManager
+	permissionsManager  permissions.Manager
+	accountManager      account.Manager
+	entitlementsChecker entitlements.Checker
 }
 
 func NewManager(store store, proxyMgr proxyManager, permissionsManager permissions.Manager, accountManager account.Manager) Manager {
@@ -53,6 +55,10 @@ func NewManager(store store, proxyMgr proxyManager, permissionsManager permissio
 		permissionsManager: permissionsManager,
 		accountManager:     accountManager,
 	}
+}
+
+func (m *Manager) SetEntitlementsChecker(checker entitlements.Checker) {
+	m.entitlementsChecker = checker
 }
 
 func (m Manager) GetDomains(ctx context.Context, accountID, userID string) ([]*domain.Domain, error) {
@@ -127,6 +133,10 @@ func (m Manager) CreateDomain(ctx context.Context, accountID, userID, domainName
 		return nil, status.NewPermissionDeniedError()
 	}
 
+	if err := m.validateCreateDomainEntitlements(ctx, accountID); err != nil {
+		return nil, err
+	}
+
 	// Verify the target cluster is in the available clusters for this account
 	allowList, err := m.getClusterAllowList(ctx, accountID)
 	if err != nil {
@@ -157,6 +167,23 @@ func (m Manager) CreateDomain(ctx context.Context, accountID, userID, domainName
 	m.accountManager.StoreEvent(ctx, userID, d.ID, accountID, activity.DomainAdded, d.EventMeta())
 
 	return d, nil
+}
+
+func (m Manager) validateCreateDomainEntitlements(ctx context.Context, accountID string) error {
+	if m.entitlementsChecker == nil {
+		return nil
+	}
+
+	if err := entitlements.RequireFeature(ctx, m.entitlementsChecker, accountID, entitlements.FeatureReverseProxy); err != nil {
+		return err
+	}
+
+	domains, err := m.store.ListCustomDomains(ctx, accountID)
+	if err != nil {
+		return fmt.Errorf("list custom domains for entitlement check: %w", err)
+	}
+
+	return entitlements.RequireLimit(ctx, m.entitlementsChecker, accountID, entitlements.LimitCustomDomains, len(domains)+1)
 }
 
 func (m Manager) DeleteDomain(ctx context.Context, accountID, userID, domainID string) error {

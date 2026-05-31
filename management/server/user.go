@@ -18,6 +18,7 @@ import (
 	"github.com/netbirdio/netbird/idp/dex"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/entitlements"
 	"github.com/netbirdio/netbird/management/server/idp"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
@@ -41,6 +42,10 @@ func (am *DefaultAccountManager) createServiceUser(ctx context.Context, accountI
 
 	if role == types.UserRoleOwner {
 		return nil, status.NewServiceUserRoleInvalidError()
+	}
+
+	if err := am.requireUserLimitForCreate(ctx, accountID); err != nil {
+		return nil, err
 	}
 
 	newUserID := uuid.New().String()
@@ -94,6 +99,10 @@ func (am *DefaultAccountManager) inviteNewUser(ctx context.Context, accountID, u
 		return nil, status.NewPermissionDeniedError()
 	}
 
+	if err := am.requireUserLimitForCreate(ctx, accountID); err != nil {
+		return nil, err
+	}
+
 	initiatorUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
 	if err != nil {
 		return nil, err
@@ -112,6 +121,9 @@ func (am *DefaultAccountManager) inviteNewUser(ctx context.Context, accountID, u
 	if IsEmbeddedIdp(am.idpManager) {
 		idpUser, err = am.createEmbeddedIdpUser(ctx, accountID, inviterID, invite)
 	} else {
+		if err := am.requireEntitledFeature(ctx, accountID, entitlements.FeatureIdentityProviders); err != nil {
+			return nil, err
+		}
 		idpUser, err = am.createNewIdpUser(ctx, accountID, inviterID, invite)
 	}
 	if err != nil {
@@ -1533,6 +1545,9 @@ func (am *DefaultAccountManager) CreateUserInvite(ctx context.Context, accountID
 			return nil, status.Errorf(status.UserAlreadyExists, "user with this email already exists")
 		}
 	}
+	if err := am.requireUserInviteLimitForCreate(ctx, accountID, len(existingUsers)); err != nil {
+		return nil, err
+	}
 
 	// Check if invite already exists for this email
 	existingInvite, err := am.Store.GetUserInviteByEmail(ctx, store.LockingStrengthNone, accountID, invite.Email)
@@ -1720,6 +1735,9 @@ func (am *DefaultAccountManager) AcceptUserInvite(ctx context.Context, token, pa
 	}
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		if err := am.requireUserLimitForCreateTx(ctx, transaction, invite.AccountID); err != nil {
+			return err
+		}
 		if err := transaction.SaveUser(ctx, newUser); err != nil {
 			return fmt.Errorf("failed to save user: %w", err)
 		}

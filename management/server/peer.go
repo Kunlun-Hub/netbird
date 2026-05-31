@@ -29,6 +29,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/entitlements"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
@@ -229,6 +230,11 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 		}
 
 		if peer.SSHEnabled != update.SSHEnabled {
+			if update.SSHEnabled {
+				if err = am.requireEntitledFeature(ctx, accountID, entitlements.FeatureWebSSH); err != nil {
+					return err
+				}
+			}
 			peer.SSHEnabled = update.SSHEnabled
 			sshChanged = true
 		}
@@ -311,6 +317,10 @@ func (am *DefaultAccountManager) CreatePeerJob(ctx context.Context, accountID, p
 	}
 	if !allowed {
 		return status.NewPermissionDeniedError()
+	}
+
+	if err := am.requireEntitledFeature(ctx, accountID, entitlements.FeatureWebSSH); err != nil {
+		return err
 	}
 
 	p, err := am.Store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
@@ -784,6 +794,10 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 		}
 
 		err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+			if err = am.requirePeerLimitForCreateTx(ctx, transaction, accountID); err != nil {
+				return err
+			}
+
 			err = transaction.AddPeerToAccount(ctx, newPeer)
 			if err != nil {
 				return err

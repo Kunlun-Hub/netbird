@@ -13,6 +13,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/entitlements"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
@@ -42,6 +43,17 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 	}
 	if !allowed {
 		return nil, status.NewPermissionDeniedError()
+	}
+
+	if len(policy.SourcePostureChecks) > 0 {
+		if err := am.requireEntitledFeature(ctx, accountID, entitlements.FeatureDevicePosture); err != nil {
+			return nil, err
+		}
+	}
+	if policyUsesNetbirdSSH(policy) {
+		if err := am.requireEntitledFeature(ctx, accountID, entitlements.FeatureWebSSH); err != nil {
+			return nil, err
+		}
 	}
 
 	var isUpdate = policy.ID != ""
@@ -267,6 +279,18 @@ func getValidPostureCheckIDs(postureChecks map[string]*posture.Checks, postureCh
 	}
 
 	return validIDs
+}
+
+func policyUsesNetbirdSSH(policy *types.Policy) bool {
+	if policy == nil {
+		return false
+	}
+	for _, rule := range policy.Rules {
+		if rule != nil && rule.Protocol == types.PolicyRuleProtocolNetbirdSSH {
+			return true
+		}
+	}
+	return false
 }
 
 // getValidGroupIDs filters and returns only the valid group IDs from the provided list.

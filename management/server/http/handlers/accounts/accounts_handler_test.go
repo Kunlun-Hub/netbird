@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
+	"github.com/netbirdio/netbird/management/server/entitlements"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -435,20 +436,20 @@ func TestUpdateAccountFlowCompatPayload(t *testing.T) {
 	err := json.Unmarshal(recorder.Body.Bytes(), &response)
 	assert.NoError(t, err)
 	if assert.NotNil(t, response.Settings.Extra) {
-		assert.True(t, response.Settings.Extra.FlowEnabled)
-		assert.True(t, response.Settings.Extra.FlowLogsEnabled)
+		assert.True(t, boolValue(response.Settings.Extra.FlowEnabled))
+		assert.True(t, boolValue(response.Settings.Extra.FlowLogsEnabled))
 		assert.True(t, response.Settings.Extra.NetworkTrafficLogsEnabled)
-		assert.True(t, response.Settings.Extra.Counters)
-		assert.True(t, response.Settings.Extra.FlowPacketCounterEnabled)
+		assert.True(t, boolValue(response.Settings.Extra.Counters))
+		assert.True(t, boolValue(response.Settings.Extra.FlowPacketCounterEnabled))
 		assert.True(t, response.Settings.Extra.NetworkTrafficPacketCounterEnabled)
-		assert.True(t, response.Settings.Extra.DnsCollection)
-		assert.True(t, response.Settings.Extra.FlowDnsCollectionEnabled)
+		assert.True(t, boolValue(response.Settings.Extra.DnsCollection))
+		assert.True(t, boolValue(response.Settings.Extra.FlowDnsCollectionEnabled))
 		assert.True(t, response.Settings.Extra.NetworkTrafficDnsCollectionEnabled)
-		assert.True(t, response.Settings.Extra.ExitNodeCollection)
-		assert.True(t, response.Settings.Extra.FlowExitNodeCollectionEnabled)
+		assert.True(t, boolValue(response.Settings.Extra.ExitNodeCollection))
+		assert.True(t, boolValue(response.Settings.Extra.FlowExitNodeCollectionEnabled))
 		assert.True(t, response.Settings.Extra.NetworkTrafficExitNodeCollectionEnabled)
-		assert.Equal(t, []string{"group-a", "group-b"}, response.Settings.Extra.FlowGroups)
-		assert.Equal(t, []string{"group-a", "group-b"}, response.Settings.Extra.FlowLogsGroups)
+		assert.Equal(t, []string{"group-a", "group-b"}, stringsValue(response.Settings.Extra.FlowGroups))
+		assert.Equal(t, []string{"group-a", "group-b"}, stringsValue(response.Settings.Extra.FlowLogsGroups))
 		assert.Equal(t, []string{"group-a", "group-b"}, response.Settings.Extra.NetworkTrafficLogsGroups)
 	}
 }
@@ -504,12 +505,65 @@ func TestUpdateAccountBrandingPayload(t *testing.T) {
 	err := json.Unmarshal(recorder.Body.Bytes(), &response)
 	assert.NoError(t, err)
 	if assert.NotNil(t, response.Settings.Extra) {
-		assert.Equal(t, "data:image/png;base64,logo", response.Settings.Extra.BrandingLogoDataUrl)
-		assert.Equal(t, "data:image/png;base64,dark-logo", response.Settings.Extra.BrandingLogoDarkDataUrl)
-		assert.Equal(t, "data:image/png;base64,icon", response.Settings.Extra.BrandingIconDataUrl)
-		assert.Equal(t, "Acme Dashboard", response.Settings.Extra.BrandingTabTitle)
-		assert.Equal(t, "#123456", response.Settings.Extra.BrandingPrimaryColor)
+		assert.Equal(t, "data:image/png;base64,logo", stringValue(response.Settings.Extra.BrandingLogoDataUrl))
+		assert.Equal(t, "data:image/png;base64,dark-logo", stringValue(response.Settings.Extra.BrandingLogoDarkDataUrl))
+		assert.Equal(t, "data:image/png;base64,icon", stringValue(response.Settings.Extra.BrandingIconDataUrl))
+		assert.Equal(t, "Acme Dashboard", stringValue(response.Settings.Extra.BrandingTabTitle))
+		assert.Equal(t, "#123456", stringValue(response.Settings.Extra.BrandingPrimaryColor))
 	}
+}
+
+func boolValue(value *bool) bool {
+	if value == nil {
+		return false
+	}
+	return *value
+}
+
+func stringsValue(value *[]string) []string {
+	if value == nil {
+		return nil
+	}
+	return *value
+}
+
+func TestGetAccountEntitlements(t *testing.T) {
+	accountID := "test_account"
+	adminUser := types.NewAdminUser("test_user")
+	basic, err := entitlements.PlanEntitlements(entitlements.PlanBasic)
+	assert.NoError(t, err)
+	basic.AccountID = accountID
+
+	handler := &handler{
+		accountManager: &mock_server.MockAccountManager{
+			GetAccountEntitlementsFunc: func(_ context.Context, gotAccountID, gotUserID string) (*entitlements.Entitlements, error) {
+				assert.Equal(t, accountID, gotAccountID)
+				assert.Equal(t, adminUser.Id, gotUserID)
+				return &basic, nil
+			},
+		},
+	}
+
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/accounts/"+accountID+"/entitlements", nil)
+	req = mux.SetURLVars(req, map[string]string{"accountId": accountID})
+	req = req.WithContext(nbcontext.SetUserAuthInContext(req.Context(), auth.UserAuth{
+		UserId:    adminUser.Id,
+		AccountId: accountID,
+		Domain:    "hotmail.com",
+	}))
+
+	handler.getAccountEntitlements(recorder, req)
+	assert.Equal(t, http.StatusOK, recorder.Code)
+
+	var response accountEntitlementsResponse
+	err = json.Unmarshal(recorder.Body.Bytes(), &response)
+	assert.NoError(t, err)
+	assert.Equal(t, accountID, response.AccountID)
+	assert.Equal(t, string(entitlements.PlanBasic), response.Plan)
+	assert.False(t, response.Features[string(entitlements.FeatureBranding)])
+	assert.True(t, response.Features[string(entitlements.FeatureLocalAuth)])
+	assert.Equal(t, 3, response.Limits[string(entitlements.LimitUsers)])
 }
 
 func TestGetAccountFlowCompatResponse(t *testing.T) {

@@ -22,6 +22,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/sessionkey"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/entitlements"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
@@ -84,13 +85,14 @@ type CapabilityProvider interface {
 }
 
 type Manager struct {
-	store              store.Store
-	accountManager     account.Manager
-	permissionsManager permissions.Manager
-	proxyController    proxy.Controller
-	capabilities       CapabilityProvider
-	clusterDeriver     ClusterDeriver
-	exposeReaper       *exposeReaper
+	store               store.Store
+	accountManager      account.Manager
+	permissionsManager  permissions.Manager
+	proxyController     proxy.Controller
+	capabilities        CapabilityProvider
+	clusterDeriver      ClusterDeriver
+	exposeReaper        *exposeReaper
+	entitlementsChecker entitlements.Checker
 }
 
 // NewManager creates a new service manager.
@@ -105,6 +107,10 @@ func NewManager(store store.Store, accountManager account.Manager, permissionsMa
 	}
 	mgr.exposeReaper = &exposeReaper{manager: mgr}
 	return mgr
+}
+
+func (m *Manager) SetEntitlementsChecker(checker entitlements.Checker) {
+	m.entitlementsChecker = checker
 }
 
 // StartExposeReaper starts the background goroutine that reaps expired ephemeral services.
@@ -311,6 +317,10 @@ func (m *Manager) persistNewService(ctx context.Context, accountID string, svc *
 	}
 
 	return m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		if err := m.validateServiceEntitlements(ctx, transaction, accountID, svc); err != nil {
+			return err
+		}
+
 		if svc.Domain != "" {
 			if err := m.checkDomainAvailable(ctx, transaction, svc.Domain, ""); err != nil {
 				return err
@@ -441,6 +451,10 @@ func (m *Manager) persistNewEphemeralService(ctx context.Context, accountID, pee
 
 	return m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		if err := m.validateEphemeralPreconditions(ctx, transaction, accountID, peerID, svc); err != nil {
+			return err
+		}
+
+		if err := m.validateServiceEntitlements(ctx, transaction, accountID, svc); err != nil {
 			return err
 		}
 
@@ -611,6 +625,10 @@ func (m *Manager) executeServiceUpdate(ctx context.Context, transaction store.St
 		return err
 	}
 
+	if err := m.validateServiceEntitlements(ctx, transaction, accountID, service); err != nil {
+		return err
+	}
+
 	updateInfo.oldCluster = existingService.ProxyCluster
 	updateInfo.domainChanged = existingService.Domain != service.Domain
 
@@ -641,6 +659,36 @@ func (m *Manager) executeServiceUpdate(ctx context.Context, transaction store.St
 	}
 
 	return nil
+}
+
+func (m *Manager) validateServiceEntitlements(ctx context.Context, transaction store.Store, accountID string, svc *service.Service) error {
+	if m.entitlementsChecker == nil {
+		return nil
+	}
+
+	if err := entitlements.RequireFeature(ctx, m.entitlementsChecker, accountID, entitlements.FeatureReverseProxy); err != nil {
+		return err
+	}
+
+	services, err := transaction.GetAccountServices(ctx, store.LockingStrengthUpdate, accountID)
+	if err != nil {
+		return fmt.Errorf("get account services for entitlement check: %w", err)
+	}
+
+	serviceCount := 1
+	customRuleCount := len(svc.Targets)
+	for _, existing := range services {
+		if existing.ID == svc.ID || existing.Terminated {
+			continue
+		}
+		serviceCount++
+		customRuleCount += len(existing.Targets)
+	}
+
+	if err := entitlements.RequireLimit(ctx, m.entitlementsChecker, accountID, entitlements.LimitReverseProxyServer, serviceCount); err != nil {
+		return err
+	}
+	return entitlements.RequireLimit(ctx, m.entitlementsChecker, accountID, entitlements.LimitCustomRules, customRuleCount)
 }
 
 // handleDomainChange validates the new domain is free inside the transaction
