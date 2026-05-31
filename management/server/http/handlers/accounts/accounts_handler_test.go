@@ -18,6 +18,7 @@ import (
 
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/entitlements"
+	"github.com/netbirdio/netbird/management/server/licensing"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -564,6 +565,101 @@ func TestGetAccountEntitlements(t *testing.T) {
 	assert.False(t, response.Features[string(entitlements.FeatureBranding)])
 	assert.True(t, response.Features[string(entitlements.FeatureLocalAuth)])
 	assert.Equal(t, 3, response.Limits[string(entitlements.LimitUsers)])
+}
+
+func TestGetAccountLicense(t *testing.T) {
+	accountID := "test_account"
+	adminUser := types.NewAdminUser("test_user")
+
+	handler := &handler{
+		accountManager: &mock_server.MockAccountManager{
+			GetAccountLicenseFunc: func(_ context.Context, gotAccountID, gotUserID, gotServerURL string) (*licensing.State, error) {
+				assert.Equal(t, accountID, gotAccountID)
+				assert.Equal(t, adminUser.Id, gotUserID)
+				assert.Equal(t, "cloink.4w.ink", gotServerURL)
+				return &licensing.State{
+					MachineID:        "cloink.4w.ink",
+					ServerURL:        "cloink.4w.ink",
+					Status:           licensing.StatusActive,
+					Plan:             entitlements.PlanPro,
+					LicenseKeyMasked: "aGVsbG8...BBBBBB",
+					LicenseTypes:     []licensing.LicenseType{licensing.LicenseTypeYear},
+					Message:          "Pro license is active.",
+				}, nil
+			},
+		},
+	}
+
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/accounts/"+accountID+"/license", nil)
+	req.Header.Set("X-Cloink-Dashboard-Host", "https://cloink.4w.ink/")
+	req = mux.SetURLVars(req, map[string]string{"accountId": accountID})
+	req = req.WithContext(nbcontext.SetUserAuthInContext(req.Context(), auth.UserAuth{
+		UserId:    adminUser.Id,
+		AccountId: accountID,
+		Domain:    "hotmail.com",
+	}))
+
+	handler.getAccountLicense(recorder, req)
+	assert.Equal(t, http.StatusOK, recorder.Code)
+
+	var response accountLicenseResponse
+	err := json.Unmarshal(recorder.Body.Bytes(), &response)
+	assert.NoError(t, err)
+	assert.Equal(t, "cloink.4w.ink", response.MachineID)
+	assert.Equal(t, "cloink.4w.ink", response.ServerURL)
+	assert.Equal(t, string(licensing.StatusActive), response.Status)
+	assert.Equal(t, string(entitlements.PlanPro), response.Plan)
+	assert.Equal(t, []string{string(licensing.LicenseTypeYear)}, response.License)
+	assert.True(t, response.Features[string(entitlements.FeatureBranding)])
+	assert.Equal(t, entitlements.Unlimited, response.Limits[string(entitlements.LimitUsers)])
+}
+
+func TestUpdateAccountLicense(t *testing.T) {
+	accountID := "test_account"
+	adminUser := types.NewAdminUser("test_user")
+	licenseKey := "CLOINK-PRO-ABCDEFGHIJKLMNOPQRSTUVWXYY-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+
+	handler := &handler{
+		accountManager: &mock_server.MockAccountManager{
+			UpdateAccountLicenseFunc: func(_ context.Context, gotAccountID, gotUserID, gotServerURL, gotLicenseKey string) (*licensing.State, error) {
+				assert.Equal(t, accountID, gotAccountID)
+				assert.Equal(t, adminUser.Id, gotUserID)
+				assert.Equal(t, "cloink.4w.ink", gotServerURL)
+				assert.Equal(t, licenseKey, gotLicenseKey)
+				return &licensing.State{
+					MachineID:    "cloink.4w.ink",
+					ServerURL:    "cloink.4w.ink",
+					Status:       licensing.StatusActive,
+					Plan:         entitlements.PlanPro,
+					LicenseTypes: []licensing.LicenseType{licensing.LicenseTypeEnterprise},
+					Message:      "Pro license is active.",
+				}, nil
+			},
+		},
+	}
+
+	body, err := json.Marshal(updateAccountLicenseRequest{LicenseKey: licenseKey, ServerURL: "https://cloink.4w.ink/"})
+	assert.NoError(t, err)
+
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/accounts/"+accountID+"/license", bytes.NewReader(body))
+	req = mux.SetURLVars(req, map[string]string{"accountId": accountID})
+	req = req.WithContext(nbcontext.SetUserAuthInContext(req.Context(), auth.UserAuth{
+		UserId:    adminUser.Id,
+		AccountId: accountID,
+		Domain:    "hotmail.com",
+	}))
+
+	handler.updateAccountLicense(recorder, req)
+	assert.Equal(t, http.StatusOK, recorder.Code)
+
+	var response accountLicenseResponse
+	err = json.Unmarshal(recorder.Body.Bytes(), &response)
+	assert.NoError(t, err)
+	assert.Equal(t, string(licensing.StatusActive), response.Status)
+	assert.Equal(t, string(entitlements.PlanPro), response.Plan)
+	assert.Equal(t, []string{string(licensing.LicenseTypeEnterprise)}, response.License)
 }
 
 func TestGetAccountFlowCompatResponse(t *testing.T) {

@@ -24,6 +24,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/idp"
+	"github.com/netbirdio/netbird/management/server/licensing"
 	"github.com/netbirdio/netbird/management/server/networks"
 	"github.com/netbirdio/netbird/management/server/networks/resources"
 	"github.com/netbirdio/netbird/management/server/networks/routers"
@@ -107,6 +108,7 @@ func (s *BaseServer) AccountManager() account.Manager {
 			log.Fatalf("failed to create account service: %v", err)
 		}
 		accountManager.SetEntitlementsChecker(s.EntitlementsChecker())
+		accountManager.SetLicenseManager(s.LicenseManager())
 
 		s.AfterInit(func(s *BaseServer) {
 			accountManager.SetServiceManager(s.ServiceManager())
@@ -118,7 +120,13 @@ func (s *BaseServer) AccountManager() account.Manager {
 
 func (s *BaseServer) EntitlementsChecker() entitlements.Checker {
 	return Create(s, func() entitlements.Checker {
-		return entitlements.NewChecker(entitlements.NewBasicStaticProvider())
+		return entitlements.NewChecker(licensing.NewEntitlementsProvider(s.LicenseManager()))
+	})
+}
+
+func (s *BaseServer) LicenseManager() *licensing.Manager {
+	return Create(s, func() *licensing.Manager {
+		return licensing.NewManager(s.Config.Datadir)
 	})
 }
 

@@ -20,6 +20,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/account"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/entitlements"
+	"github.com/netbirdio/netbird/management/server/licensing"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/http/api"
@@ -52,11 +53,36 @@ type entitlementsAccountManager interface {
 	GetAccountEntitlements(ctx context.Context, accountID, userID string) (*entitlements.Entitlements, error)
 }
 
+type licenseAccountManager interface {
+	GetAccountLicense(ctx context.Context, accountID, userID, serverURL string) (*licensing.State, error)
+	UpdateAccountLicense(ctx context.Context, accountID, userID, serverURL, licenseKey string) (*licensing.State, error)
+}
+
 type accountEntitlementsResponse struct {
 	AccountID string          `json:"account_id"`
 	Plan      string          `json:"plan"`
 	Features  map[string]bool `json:"features"`
 	Limits    map[string]int  `json:"limits"`
+}
+
+type accountLicenseResponse struct {
+	MachineID        string          `json:"machine_id"`
+	ServerURL        string          `json:"server_url,omitempty"`
+	Status           string          `json:"status"`
+	Plan             string          `json:"plan"`
+	LicenseKeyMasked string          `json:"license_key_masked,omitempty"`
+	License          []string        `json:"license"`
+	Message          string          `json:"message,omitempty"`
+	StartTime        *time.Time      `json:"start_time,omitempty"`
+	EndTime          *time.Time      `json:"end_time,omitempty"`
+	UpdatedAt        *time.Time      `json:"updated_at,omitempty"`
+	Features         map[string]bool `json:"features"`
+	Limits           map[string]int  `json:"limits"`
+}
+
+type updateAccountLicenseRequest struct {
+	LicenseKey string `json:"license_key"`
+	ServerURL  string `json:"server_url,omitempty"`
 }
 
 type accountFlowSettingsCompat struct {
@@ -172,6 +198,8 @@ func stringsOrDefault(value *[]string, fallback []string) []string {
 func AddEndpoints(accountManager account.Manager, settingsManager settings.Manager, router *mux.Router) {
 	accountsHandler := newHandler(accountManager, settingsManager)
 	router.HandleFunc("/accounts/{accountId}/entitlements", accountsHandler.getAccountEntitlements).Methods("GET", "OPTIONS")
+	router.HandleFunc("/accounts/{accountId}/license", accountsHandler.getAccountLicense).Methods("GET", "OPTIONS")
+	router.HandleFunc("/accounts/{accountId}/license", accountsHandler.updateAccountLicense).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/accounts/{accountId}", accountsHandler.updateAccount).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/accounts/{accountId}", accountsHandler.deleteAccount).Methods("DELETE", "OPTIONS")
 	router.HandleFunc("/accounts", accountsHandler.getAllAccounts).Methods("GET", "OPTIONS")
@@ -344,6 +372,141 @@ func toAccountEntitlementsResponse(snapshot *entitlements.Entitlements) accountE
 		Features:  features,
 		Limits:    limits,
 	}
+}
+
+func (h *handler) getAccountLicense(w http.ResponseWriter, r *http.Request) {
+	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	accountID := mux.Vars(r)["accountId"]
+	if len(accountID) == 0 {
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid account ID"), w)
+		return
+	}
+
+	licenseManager, ok := h.accountManager.(licenseAccountManager)
+	if !ok {
+		util.WriteError(r.Context(), status.Errorf(status.Internal, "account license is not available"), w)
+		return
+	}
+
+	state, err := licenseManager.GetAccountLicense(r.Context(), accountID, userAuth.UserId, dashboardServerURL(r))
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	util.WriteJSONObject(r.Context(), w, toAccountLicenseResponse(state))
+}
+
+func (h *handler) updateAccountLicense(w http.ResponseWriter, r *http.Request) {
+	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	accountID := mux.Vars(r)["accountId"]
+	if len(accountID) == 0 {
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid account ID"), w)
+		return
+	}
+
+	var request updateAccountLicenseRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid request body: %v", err), w)
+		return
+	}
+
+	licenseManager, ok := h.accountManager.(licenseAccountManager)
+	if !ok {
+		util.WriteError(r.Context(), status.Errorf(status.Internal, "account license is not available"), w)
+		return
+	}
+
+	serverURL := request.ServerURL
+	if serverURL == "" {
+		serverURL = dashboardServerURL(r)
+	}
+	serverURL = licensing.NormalizeServerURL(serverURL)
+	if serverURL == "" {
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid dashboard server URL"), w)
+		return
+	}
+
+	state, err := licenseManager.UpdateAccountLicense(r.Context(), accountID, userAuth.UserId, serverURL, request.LicenseKey)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	util.WriteJSONObject(r.Context(), w, toAccountLicenseResponse(state))
+}
+
+func toAccountLicenseResponse(state *licensing.State) accountLicenseResponse {
+	if state == nil {
+		return accountLicenseResponse{
+			License:  []string{},
+			Features: map[string]bool{},
+			Limits:   map[string]int{},
+		}
+	}
+
+	features := map[string]bool{}
+	limits := map[string]int{}
+	if snapshot, err := entitlements.PlanEntitlements(state.Plan); err == nil {
+		features = make(map[string]bool, len(snapshot.Features))
+		for feature, enabled := range snapshot.Features {
+			features[string(feature)] = enabled
+		}
+
+		limits = make(map[string]int, len(snapshot.Limits))
+		for limit, value := range snapshot.Limits {
+			limits[string(limit)] = value
+		}
+	}
+
+	return accountLicenseResponse{
+		MachineID:        state.MachineID,
+		ServerURL:        state.ServerURL,
+		Status:           string(state.Status),
+		Plan:             string(state.Plan),
+		LicenseKeyMasked: state.LicenseKeyMasked,
+		License:          licenseTypesToStrings(state.LicenseTypes),
+		Message:          state.Message,
+		StartTime:        state.StartTime,
+		EndTime:          state.EndTime,
+		UpdatedAt:        state.UpdatedAt,
+		Features:         features,
+		Limits:           limits,
+	}
+}
+
+func dashboardServerURL(r *http.Request) string {
+	for _, value := range []string{
+		r.Header.Get("X-Cloink-Dashboard-Host"),
+		r.Header.Get("X-Forwarded-Host"),
+		r.Host,
+	} {
+		if normalized := licensing.NormalizeServerURL(value); normalized != "" {
+			return normalized
+		}
+	}
+	return ""
+}
+
+func licenseTypesToStrings(licenseTypes []licensing.LicenseType) []string {
+	if len(licenseTypes) == 0 {
+		return []string{}
+	}
+	result := make([]string, 0, len(licenseTypes))
+	for _, licenseType := range licenseTypes {
+		result = append(result, string(licenseType))
+	}
+	return result
 }
 
 // getAllAccounts is HTTP GET handler that returns a list of accounts. Effectively returns just a single account.

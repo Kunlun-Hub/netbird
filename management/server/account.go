@@ -45,6 +45,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
+	"github.com/netbirdio/netbird/management/server/licensing"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
@@ -122,6 +123,7 @@ type DefaultAccountManager struct {
 	disableDefaultPolicy bool
 
 	entitlementsChecker entitlements.Checker
+	licenseManager      *licensing.Manager
 }
 
 var _ account.Manager = (*DefaultAccountManager)(nil)
@@ -143,6 +145,10 @@ func (am *DefaultAccountManager) SetServiceManager(serviceManager service.Manage
 
 func (am *DefaultAccountManager) SetEntitlementsChecker(checker entitlements.Checker) {
 	am.entitlementsChecker = checker
+}
+
+func (am *DefaultAccountManager) SetLicenseManager(manager *licensing.Manager) {
+	am.licenseManager = manager
 }
 
 func isUniqueConstraintError(err error) bool {

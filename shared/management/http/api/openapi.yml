@@ -302,6 +302,89 @@ components:
         - plan
         - features
         - limits
+    AccountLicense:
+      type: object
+      description: Account license status, dashboard domain machine code, and effective plan capabilities.
+      properties:
+        machine_id:
+          description: Dashboard domain without scheme, path, or trailing slash. This is the machine code used to issue licenses.
+          type: string
+          example: cloink.4w.ink
+        server_url:
+          description: Dashboard domain embedded in the installed license.
+          type: string
+          example: cloink.4w.ink
+        status:
+          description: Current license status.
+          type: string
+          enum: [ unlicensed, active, invalid, url_mismatch, not_started, expired ]
+          example: active
+        plan:
+          description: Effective entitlement plan.
+          type: string
+          enum: [ basic, pro ]
+          example: pro
+        license_key_masked:
+          description: Masked installed license key.
+          type: string
+          example: dGVzdGtleQ...BBBBBB
+        license:
+          description: License types included in the installed key.
+          type: array
+          items:
+            type: string
+            enum: [ try, year, enterprise ]
+          example: [ year ]
+        message:
+          description: Human-readable license status detail.
+          type: string
+          example: Pro license is active.
+        start_time:
+          description: License validity start date.
+          type: string
+          format: date-time
+          example: "2020-01-01T00:00:00Z"
+        end_time:
+          description: License validity end date.
+          type: string
+          format: date-time
+          example: "2099-12-31T00:00:00Z"
+        updated_at:
+          description: Last license update time.
+          type: string
+          format: date-time
+          example: "2026-05-31T12:00:00Z"
+        features:
+          description: Feature availability keyed by feature ID.
+          type: object
+          additionalProperties:
+            type: boolean
+        limits:
+          description: Numeric quota limits keyed by limit ID. A value of -1 means unlimited.
+          type: object
+          additionalProperties:
+            type: integer
+      required:
+        - machine_id
+        - status
+        - plan
+        - license
+        - features
+        - limits
+    UpdateAccountLicenseRequest:
+      type: object
+      description: Request body for installing or clearing an account license key.
+      properties:
+        license_key:
+          description: AES-encrypted base64 license key. Send an empty string to clear the installed key.
+          type: string
+          example: dGVzdC1saWNlbnNlLWtleQ==
+        server_url:
+          description: Current dashboard domain without scheme, path, or trailing slash.
+          type: string
+          example: cloink.4w.ink
+      required:
+        - license_key
     AccountOnboarding:
       type: object
       properties:
@@ -5616,6 +5699,73 @@ paths:
           "$ref": "#/components/responses/requires_authentication"
         '403':
           "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/accounts/{accountId}/license:
+    get:
+      summary: Get Account License
+      description: Returns the machine code, installed license status, and effective entitlement plan.
+      tags: [ Accounts ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: accountId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of an account
+      responses:
+        '200':
+          description: Account license status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountLicense'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    put:
+      summary: Update Account License
+      description: Installs or clears a machine-bound license key and returns the resulting license status.
+      tags: [ Accounts ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: accountId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of an account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAccountLicenseRequest'
+      responses:
+        '200':
+          description: Updated account license status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountLicense'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '422':
+          "$ref": "#/components/responses/validation_failed"
         '500':
           "$ref": "#/components/responses/internal_error"
   /api/users:

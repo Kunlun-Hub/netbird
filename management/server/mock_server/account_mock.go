@@ -17,6 +17,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/entitlements"
 	"github.com/netbirdio/netbird/management/server/idp"
+	"github.com/netbirdio/netbird/management/server/licensing"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -127,6 +128,8 @@ type MockAccountManager struct {
 	GetAccountMetaFunc                    func(ctx context.Context, accountID, userID string) (*types.AccountMeta, error)
 	GetAccountOnboardingFunc              func(ctx context.Context, accountID, userID string) (*types.AccountOnboarding, error)
 	GetAccountEntitlementsFunc            func(ctx context.Context, accountID, userID string) (*entitlements.Entitlements, error)
+	GetAccountLicenseFunc                 func(ctx context.Context, accountID, userID, serverURL string) (*licensing.State, error)
+	UpdateAccountLicenseFunc              func(ctx context.Context, accountID, userID, serverURL, licenseKey string) (*licensing.State, error)
 	UpdateAccountOnboardingFunc           func(ctx context.Context, accountID, userID string, onboarding *types.AccountOnboarding) (*types.AccountOnboarding, error)
 	GetOrCreateAccountByPrivateDomainFunc func(ctx context.Context, initiatorId, domain string) (*types.Account, bool, error)
 
@@ -996,6 +999,20 @@ func (am *MockAccountManager) GetAccountEntitlements(ctx context.Context, accoun
 		return am.GetAccountEntitlementsFunc(ctx, accountID, userID)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method GetAccountEntitlements is not implemented")
+}
+
+func (am *MockAccountManager) GetAccountLicense(ctx context.Context, accountID string, userID string, serverURL string) (*licensing.State, error) {
+	if am.GetAccountLicenseFunc != nil {
+		return am.GetAccountLicenseFunc(ctx, accountID, userID, serverURL)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method GetAccountLicense is not implemented")
+}
+
+func (am *MockAccountManager) UpdateAccountLicense(ctx context.Context, accountID string, userID string, serverURL string, licenseKey string) (*licensing.State, error) {
+	if am.UpdateAccountLicenseFunc != nil {
+		return am.UpdateAccountLicenseFunc(ctx, accountID, userID, serverURL, licenseKey)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method UpdateAccountLicense is not implemented")
 }
 
 // UpdateAccountOnboarding mocks UpdateAccountOnboarding of the AccountManager interface

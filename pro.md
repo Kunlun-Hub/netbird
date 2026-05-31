@@ -151,6 +151,17 @@
 - [x] 账号授权状态查询 API 测试。
 - [x] 受影响包 `go test`。
 
+### 15. 离线授权中心 / 机器码
+
+- [x] 机器码使用 Dashboard 当前访问域名生成，去掉 `http(s)://`、端口、路径和结尾 `/`，例如 `cloink.4w.ink`。
+- [x] 授权 key 使用 AES-256-GCM 加密后输出 base64，解密密码默认内置为约定 key，并支持 `CLOINK_LICENSE_AES_KEY` 覆盖。
+- [x] 授权明文格式：`server_url=cloink.4w.ink,license=[year],key=<password>,start_time=2020/1/1,end_time=2099/12/31;`。
+- [x] `license` 支持 `try`、`year`、`enterprise`，当前任一有效授权均映射为 Pro 权益。
+- [x] 授权 key 持久化到 management `Datadir/license.json`。
+- [x] Dashboard 新增授权中心，展示机器码、授权 URL、授权类型、状态、Key 掩码并支持更新/清除授权。
+- [x] Dashboard 每次 API 请求携带当前域名，后端据此判断授权 URL 是否匹配。
+- [x] 当当前 Dashboard URL 与授权 `server_url` 不一致时，前端全局劫持到授权页并显示“授权 URL 不符，请联系售后解决”，覆盖冻结其他操作。
+
 ## 接入点记录
 
 ### 账号设置 / ExtraSettings
@@ -251,3 +262,9 @@
 - 2026-05-31：错误模型回归通过：`go test ./management/server/entitlements`、`go test ./shared/management/http/util`、`go test ./management/server/http/handlers/idp`、`go test ./management/server/http/handlers/...`、`go test ./shared/management/...`、`go test ./management/server/...`。
 - 2026-05-31：同步 OpenAPI `ErrorResponse` schema 并重新生成 `shared/management/http/api/types.gen.go`，授权错误结构化字段已进入生成类型；生成后回归通过 `go test ./shared/management/...`、`go test ./management/server/http/handlers/...`、`go test ./management/server/... -run TestDoesNotExist`。
 - 2026-05-31：确认 RDP 授权策略调整为仅 Dashboard 入口层控制：无 `web_rdp` 授权隐藏入口，有授权显示入口，不做服务端临时 TCP 访问防绕过。
+- 2026-05-31：新增离线授权中心后端闭环：机器码改为 Dashboard 域名，新增 AES-256-GCM/base64 license 解析校验、`Datadir/license.json` 持久化、`GET/PUT /api/accounts/{accountId}/license`，并由 license 状态驱动 Basic/Pro entitlement provider。
+- 2026-05-31：license 明文格式按 `server_url/license/key/start_time/end_time` 解析，`license=[try|year|enterprise]` 中任一有效项都会开启 Pro；授权 URL 不符、未生效、过期、无效 key 都会回落基础版并返回明确状态。
+- 2026-05-31：Dashboard 新增“授权中心”设置页，展示当前域名机器码、授权 URL、授权类型、授权状态和已安装 key 掩码；更新/清除授权后刷新 entitlements 缓存。
+- 2026-05-31：Dashboard API 请求统一携带 `X-Cloink-Dashboard-Host` 当前域名；当后端返回 `url_mismatch` 时，全局冻结前端并劫持到授权页显示“授权 URL 不符，请联系售后解决”。
+- 2026-05-31：同步 OpenAPI `AccountLicense` / `UpdateAccountLicenseRequest` 并重新生成 `shared/management/http/api/types.gen.go`。
+- 2026-05-31：授权中心回归通过：`go test ./management/server/licensing`、`go test ./management/server -run 'Test(GetAccountLicense|UpdateAccountLicense|GetAccountEntitlements)'`、`go test ./management/server/http/handlers/accounts -run 'Test(GetAccountLicense|UpdateAccountLicense|GetAccountEntitlements)'`、`go test ./management/server/licensing ./management/server ./management/server/http/handlers/accounts ./shared/management/http/api`、Dashboard `npx tsc --noEmit`、`npm run lint`。
