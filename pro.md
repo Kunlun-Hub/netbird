@@ -153,7 +153,7 @@
 
 ### 15. 离线授权中心 / 机器码
 
-- [x] 机器码使用 Dashboard 当前访问域名生成，去掉 `http(s)://`、端口、路径和结尾 `/`，例如 `cloink.4w.ink`。
+- [x] 机器码使用 `server_url=<Dashboard域名>,key=<password>` 生成，Dashboard 域名去掉 `http(s)://`、端口、路径和结尾 `/`，再用授权密钥 AES 加密并 base64 输出到授权中心。
 - [x] 授权 key 使用 OpenSSL/CryptoJS 兼容 AES-256-CBC salted passphrase 格式加密后输出 base64，解密密码默认内置为约定 key，并支持 `CLOINK_LICENSE_AES_KEY` 覆盖；后端保留旧 AES-256-GCM 格式解密兼容。
 - [x] 授权明文格式：`server_url=cloink.4w.ink,license=enterprise,key=<password>,start_time=2020/1/1,end_time=2099/12/31,name=<授权使用方>;`，`name` 支持直接 UTF-8 中文或 base64 编码后的 UTF-8 值。
 - [x] `license` 支持 `try`、`year`、`enterprise`，可写成 `license=enterprise` 或 `license=[enterprise]`；当前任一有效授权均映射为 Pro 权益，`license=[]` 按企业版授权处理。
@@ -162,6 +162,7 @@
 - [x] Dashboard 授权中心展示授权使用方，并移除授权 Key 的生成说明文案。
 - [x] Dashboard 每次 API 请求携带当前域名，后端据此判断授权 URL 是否匹配。
 - [x] 当当前 Dashboard URL 与授权 `server_url` 不一致时，前端全局劫持到授权页并显示“授权 URL 不符，请联系售后解决”，覆盖冻结其他操作。
+- [x] 新增交互式授权 Key 生成脚本 `scripts/generate-cloink-license.sh`：输入机器码、授权使用方、授权版本、有效期和密钥后输出授权 Key；选择 `enterprise` 时跳过日期输入并固定到 2099 年。
 
 ## 接入点记录
 
@@ -262,6 +263,9 @@
 - 2026-05-31：授权明文新增 `name` 字段作为授权使用方，后端支持 UTF-8 中文与 base64 编码 UTF-8 解析，Dashboard 授权中心展示该字段并移除 Key 生成说明。
 - 2026-05-31：授权中心前端不再因本地权限态禁用 Key 输入框和按钮，写入权限继续由后端接口校验；后端兼容 `license=[]` 并按企业版授权处理。
 - 2026-05-31：授权 key 加密格式切换为 OpenSSL/CryptoJS 兼容的 `Salted__` AES-256-CBC base64 输出，支持用户给出的 `U2FsdGVkX1...` 示例；旧 AES-GCM key 仍可解密。
+- 2026-05-31：授权更新接口权限从 `accounts.update` 调整为 `settings.update`，避免 Admin 角色因账号模块更新权限为 false 导致授权中心保存返回 403；无授权码仍默认基础版。
+- 2026-05-31：机器码由明文域名改为 AES/base64 加密机器码，明文为 `server_url=<domain>,key=<password>`；授权方解密机器码后补充 `license`、`start_time`、`end_time`、`name` 字段，再反向加密生成授权 Key。
+- 2026-05-31：新增交互式授权 Key 生成脚本 `scripts/generate-cloink-license.sh`，并将 Dashboard 中 `enterprise` 授权显示为“长期授权”。
 - 2026-05-31：补齐授权错误结构化响应，`feature_not_entitled` / `limit_exceeded` 会通过 HTTP JSON 返回 `error_code`、`feature` / `limit`、`current`、`allowed`、`required_plan` 等字段，避免前端解析 message。
 - 2026-05-31：错误模型回归通过：`go test ./management/server/entitlements`、`go test ./shared/management/http/util`、`go test ./management/server/http/handlers/idp`、`go test ./management/server/http/handlers/...`、`go test ./shared/management/...`、`go test ./management/server/...`。
 - 2026-05-31：同步 OpenAPI `ErrorResponse` schema 并重新生成 `shared/management/http/api/types.gen.go`，授权错误结构化字段已进入生成类型；生成后回归通过 `go test ./shared/management/...`、`go test ./management/server/http/handlers/...`、`go test ./management/server/... -run TestDoesNotExist`。

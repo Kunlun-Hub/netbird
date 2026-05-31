@@ -307,9 +307,9 @@ components:
       description: Account license status, dashboard domain machine code, and effective plan capabilities.
       properties:
         machine_id:
-          description: Dashboard domain without scheme, path, or trailing slash. This is the machine code used to issue licenses.
+          description: AES encrypted base64 machine code. Decrypting it yields the dashboard server_url and shared key used to issue licenses.
           type: string
-          example: cloink.4w.ink
+          example: U2FsdGVkX1+86EPyCJ/iuA==
         server_url:
           description: Dashboard domain embedded in the installed license.
           type: string

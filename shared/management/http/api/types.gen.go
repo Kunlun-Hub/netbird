@@ -1644,7 +1644,7 @@ type AccountLicense struct {
 	// Limits Numeric quota limits keyed by limit ID. A value of -1 means unlimited.
 	Limits map[string]int `json:"limits"`
 
-	// MachineId Dashboard domain without scheme, path, or trailing slash. This is the machine code used to issue licenses.
+	// MachineId AES encrypted base64 machine code. Decrypting it yields the dashboard server_url and shared key used to issue licenses.
 	MachineId string `json:"machine_id"`
 
 	// Message Human-readable license status detail.

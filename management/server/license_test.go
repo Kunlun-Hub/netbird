@@ -43,7 +43,7 @@ func TestUpdateAccountLicenseActivatesPro(t *testing.T) {
 
 	permissionsManager := permissions.NewMockManager(ctrl)
 	permissionsManager.EXPECT().
-		ValidateUserPermissions(gomock.Any(), "account-a", "user-a", modules.Accounts, operations.Update).
+		ValidateUserPermissions(gomock.Any(), "account-a", "user-a", modules.Settings, operations.Update).
 		Return(true, nil)
 
 	licenseManager := licensing.NewManager(t.TempDir(), licensing.WithSecret("test-secret"))
@@ -75,7 +75,7 @@ func TestUpdateAccountLicenseRequiresAccountUpdatePermission(t *testing.T) {
 
 	permissionsManager := permissions.NewMockManager(ctrl)
 	permissionsManager.EXPECT().
-		ValidateUserPermissions(gomock.Any(), "account-a", "user-a", modules.Accounts, operations.Update).
+		ValidateUserPermissions(gomock.Any(), "account-a", "user-a", modules.Settings, operations.Update).
 		Return(false, nil)
 
 	manager := &DefaultAccountManager{

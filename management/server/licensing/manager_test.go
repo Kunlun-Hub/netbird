@@ -21,11 +21,20 @@ func TestNormalizeServerURL(t *testing.T) {
 }
 
 func TestManagerUsesDashboardDomainAsMachineID(t *testing.T) {
-	manager := NewManager(t.TempDir())
+	manager := NewManager(t.TempDir(), WithSecret("test-secret"))
 
 	machineID, err := manager.MachineID(context.Background(), "https://cloink.4w.ink/")
 	require.NoError(t, err)
-	assert.Equal(t, "cloink.4w.ink", machineID)
+	assert.NotEqual(t, "cloink.4w.ink", machineID)
+	assert.True(t, strings.HasPrefix(machineID, "U2FsdGVkX1"))
+
+	plaintext, err := DecryptLicenseString(machineID, "test-secret")
+	require.NoError(t, err)
+	assert.Equal(t, "server_url=cloink.4w.ink,key=test-secret", plaintext)
+
+	again, err := manager.MachineID(context.Background(), "https://cloink.4w.ink/")
+	require.NoError(t, err)
+	assert.Equal(t, machineID, again)
 }
 
 func TestManagerAcceptsAESLicenseForCurrentDashboardDomain(t *testing.T) {
@@ -47,7 +56,9 @@ func TestManagerAcceptsAESLicenseForCurrentDashboardDomain(t *testing.T) {
 	state, err := manager.UpdateKey(context.Background(), "https://cloink.4w.ink/", key)
 	require.NoError(t, err)
 	require.NotNil(t, state)
-	assert.Equal(t, "cloink.4w.ink", state.MachineID)
+	machinePayload, err := DecryptLicenseString(state.MachineID, "test-secret")
+	require.NoError(t, err)
+	assert.Equal(t, "server_url=cloink.4w.ink,key=test-secret", machinePayload)
 	assert.Equal(t, "cloink.4w.ink", state.ServerURL)
 	assert.Equal(t, StatusActive, state.Status)
 	assert.Equal(t, entitlements.PlanPro, state.Plan)
@@ -58,8 +69,23 @@ func TestManagerAcceptsAESLicenseForCurrentDashboardDomain(t *testing.T) {
 
 	storedState, err := manager.GetState(context.Background(), "cloink.4w.ink")
 	require.NoError(t, err)
+	assert.Equal(t, state.MachineID, storedState.MachineID)
 	assert.Equal(t, StatusActive, storedState.Status)
 	assert.Equal(t, entitlements.PlanPro, storedState.Plan)
+}
+
+func TestEncryptMachinePayloadUsesStableOpenSSLSaltedFormat(t *testing.T) {
+	payload := BuildMachinePayload("https://cloink.4w.ink/", "test-secret")
+	first, err := EncryptMachinePayload(payload, "test-secret")
+	require.NoError(t, err)
+	second, err := EncryptMachinePayload(payload, "test-secret")
+	require.NoError(t, err)
+	assert.Equal(t, first, second)
+	assert.True(t, strings.HasPrefix(first, "U2FsdGVkX1"))
+
+	plaintext, err := DecryptLicenseString(first, "test-secret")
+	require.NoError(t, err)
+	assert.Equal(t, "server_url=cloink.4w.ink,key=test-secret", plaintext)
 }
 
 func TestManagerAcceptsOpenSSLSaltedAESLicense(t *testing.T) {

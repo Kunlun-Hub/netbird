@@ -27,7 +27,7 @@ func (am *DefaultAccountManager) GetAccountLicense(ctx context.Context, accountI
 }
 
 func (am *DefaultAccountManager) UpdateAccountLicense(ctx context.Context, accountID, userID, serverURL, licenseKey string) (*licensing.State, error) {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Accounts, operations.Update)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Settings, operations.Update)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}

@@ -147,15 +147,19 @@ func (p *EntitlementsProvider) GetEntitlements(ctx context.Context, accountID st
 }
 
 func (m *Manager) MachineID(_ context.Context, serverURL string) (string, error) {
-	machineID := NormalizeServerURL(serverURL)
-	if machineID == "" {
+	currentServerURL := NormalizeServerURL(serverURL)
+	if currentServerURL == "" {
 		return "", errors.New("dashboard server URL is empty")
 	}
-	return machineID, nil
+	return m.machineIDForServerURL(currentServerURL)
 }
 
 func (m *Manager) GetState(ctx context.Context, serverURL string) (*State, error) {
-	machineID := NormalizeServerURL(serverURL)
+	currentServerURL := NormalizeServerURL(serverURL)
+	machineID, err := m.machineIDForServerURL(currentServerURL)
+	if err != nil {
+		return nil, err
+	}
 
 	stored, found, err := m.readStoredLicense()
 	if err != nil {
@@ -165,13 +169,17 @@ func (m *Manager) GetState(ctx context.Context, serverURL string) (*State, error
 		return m.state(machineID, "", "", "", StatusUnlicensed, entitlements.PlanBasic, nil, nil, nil, "No license key has been installed."), nil
 	}
 
-	state := m.validate(ctx, machineID, stored.Key)
+	state := m.validate(ctx, currentServerURL, machineID, stored.Key)
 	state.UpdatedAt = &stored.UpdatedAt
 	return state, nil
 }
 
 func (m *Manager) UpdateKey(ctx context.Context, serverURL, key string) (*State, error) {
-	machineID, err := m.MachineID(ctx, serverURL)
+	currentServerURL := NormalizeServerURL(serverURL)
+	if currentServerURL == "" {
+		return nil, errors.New("dashboard server URL is empty")
+	}
+	machineID, err := m.machineIDForServerURL(currentServerURL)
 	if err != nil {
 		return nil, err
 	}
@@ -184,7 +192,7 @@ func (m *Manager) UpdateKey(ctx context.Context, serverURL, key string) (*State,
 		return m.state(machineID, "", "", "", StatusUnlicensed, entitlements.PlanBasic, nil, nil, nil, "No license key has been installed."), nil
 	}
 
-	state := m.validate(ctx, machineID, key)
+	state := m.validate(ctx, currentServerURL, machineID, key)
 	if state.Status != StatusActive {
 		return state, ErrInvalidLicenseKey
 	}
@@ -200,7 +208,7 @@ func (m *Manager) UpdateKey(ctx context.Context, serverURL, key string) (*State,
 	return state, nil
 }
 
-func (m *Manager) validate(_ context.Context, machineID, key string) *State {
+func (m *Manager) validate(_ context.Context, currentServerURL, machineID, key string) *State {
 	payload, err := DecryptLicensePayload(key, m.secret)
 	if err != nil {
 		return m.state(machineID, "", "", key, StatusInvalid, entitlements.PlanBasic, nil, nil, nil, "License key cannot be decrypted.")
@@ -224,11 +232,20 @@ func (m *Manager) validate(_ context.Context, machineID, key string) *State {
 	if payload.EndTime != nil && now.After(endOfDay(*payload.EndTime)) {
 		return m.state(machineID, payload.ServerURL, payload.Name, key, StatusExpired, entitlements.PlanBasic, payload.LicenseTypes, payload.StartTime, payload.EndTime, "License has expired.")
 	}
-	if machineID != "" && payload.ServerURL != machineID {
+	if currentServerURL != "" && payload.ServerURL != currentServerURL {
 		return m.state(machineID, payload.ServerURL, payload.Name, key, StatusURLMismatch, entitlements.PlanBasic, payload.LicenseTypes, payload.StartTime, payload.EndTime, "License URL does not match the current dashboard URL.")
 	}
 
 	return m.state(machineID, payload.ServerURL, payload.Name, key, StatusActive, entitlements.PlanPro, payload.LicenseTypes, payload.StartTime, payload.EndTime, "Pro license is active.")
+}
+
+func (m *Manager) machineIDForServerURL(serverURL string) (string, error) {
+	serverURL = NormalizeServerURL(serverURL)
+	if serverURL == "" {
+		return "", nil
+	}
+	payload := BuildMachinePayload(serverURL, m.secret)
+	return EncryptMachinePayload(payload, m.secret)
 }
 
 func (m *Manager) state(machineID, serverURL, name, key string, status Status, plan entitlements.Plan, licenseTypes []LicenseType, startTime, endTime *time.Time, message string) *State {
@@ -324,6 +341,22 @@ func EncryptLicensePayload(rawPayload, secret string) (string, error) {
 	salt := make([]byte, 8)
 	if _, err := io.ReadFull(rand.Reader, salt); err != nil {
 		return "", fmt.Errorf("generate license salt: %w", err)
+	}
+	return encryptOpenSSLSaltedPayload(rawPayload, secret, salt)
+}
+
+func EncryptMachinePayload(rawPayload, secret string) (string, error) {
+	if strings.TrimSpace(secret) == "" {
+		secret = defaultSecret
+	}
+
+	sum := sha256.Sum256([]byte("cloink-machine-code:" + rawPayload))
+	return encryptOpenSSLSaltedPayload(rawPayload, secret, sum[:8])
+}
+
+func encryptOpenSSLSaltedPayload(rawPayload, secret string, salt []byte) (string, error) {
+	if len(salt) != 8 {
+		return "", errors.New("license salt must be 8 bytes")
 	}
 
 	key, iv := opensslKeyIV([]byte(secret), salt)
@@ -464,6 +497,10 @@ func pkcs7Unpad(data []byte, blockSize int) ([]byte, error) {
 
 func BuildLicensePayload(serverURL string, licenseTypes []LicenseType, secret string, startTime, endTime string) string {
 	return BuildLicensePayloadWithName(serverURL, licenseTypes, secret, startTime, endTime, "")
+}
+
+func BuildMachinePayload(serverURL, secret string) string {
+	return fmt.Sprintf("server_url=%s,key=%s", NormalizeServerURL(serverURL), secret)
 }
 
 func BuildLicensePayloadWithName(serverURL string, licenseTypes []LicenseType, secret string, startTime, endTime, name string) string {
