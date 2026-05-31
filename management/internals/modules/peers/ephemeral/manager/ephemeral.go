@@ -28,6 +28,7 @@ type ephemeralPeer struct {
 	id        string
 	accountID string
 	deadline  time.Time
+	force     bool
 	next      *ephemeralPeer
 }
 
@@ -69,9 +70,7 @@ func (e *EphemeralManager) LoadInitialPeers(ctx context.Context) {
 
 	e.loadEphemeralPeers(ctx)
 	if e.headPeer != nil {
-		e.timer = time.AfterFunc(e.lifeTime, func() {
-			e.cleanup(ctx)
-		})
+		e.scheduleCleanup(ctx)
 	}
 }
 
@@ -85,10 +84,19 @@ func (e *EphemeralManager) Stop() {
 	}
 }
 
-// OnPeerConnected remove the peer from the linked list of ephemeral peers. Because it has been called when the peer
-// is active the manager will not delete it while it is active.
+// OnPeerConnected remove regular ephemeral peers from the linked list because they should only be deleted after
+// inactivity. Browser temporary-access peers keep their absolute deadline and are deleted even while connected.
 func (e *EphemeralManager) OnPeerConnected(ctx context.Context, peer *nbpeer.Peer) {
 	if !peer.Ephemeral {
+		return
+	}
+
+	if isBrowserTemporaryPeer(peer) {
+		log.WithContext(ctx).Tracef("keep browser temporary peer on ephemeral list: %s", peer.ID)
+		e.peersLock.Lock()
+		defer e.peersLock.Unlock()
+		e.trackPeer(peer, e.absoluteDeadline(peer), true)
+		e.scheduleCleanup(ctx)
 		return
 	}
 
@@ -103,6 +111,8 @@ func (e *EphemeralManager) OnPeerConnected(ctx context.Context, peer *nbpeer.Pee
 	if e.headPeer == nil && e.timer != nil {
 		e.timer.Stop()
 		e.timer = nil
+	} else {
+		e.scheduleCleanup(ctx)
 	}
 }
 
@@ -118,20 +128,15 @@ func (e *EphemeralManager) OnPeerDisconnected(ctx context.Context, peer *nbpeer.
 	e.peersLock.Lock()
 	defer e.peersLock.Unlock()
 
-	if e.isPeerOnList(peer.ID) {
-		return
+	deadline := e.disconnectDeadline()
+	force := false
+	if isBrowserTemporaryPeer(peer) {
+		deadline = e.absoluteDeadline(peer)
+		force = true
 	}
 
-	e.addPeer(peer.AccountID, peer.ID, e.newDeadLine())
-	if e.timer == nil {
-		delay := e.headPeer.deadline.Sub(timeNow()) + e.cleanupWindow
-		if delay < 0 {
-			delay = 0
-		}
-		e.timer = time.AfterFunc(delay, func() {
-			e.cleanup(ctx)
-		})
-	}
+	e.trackPeer(peer, deadline, force)
+	e.scheduleCleanup(ctx)
 }
 
 func (e *EphemeralManager) loadEphemeralPeers(ctx context.Context) {
@@ -141,9 +146,12 @@ func (e *EphemeralManager) loadEphemeralPeers(ctx context.Context) {
 		return
 	}
 
-	t := e.newDeadLine()
 	for _, p := range peers {
-		e.addPeer(p.AccountID, p.ID, t)
+		if isBrowserTemporaryPeer(p) {
+			e.addPeer(p.AccountID, p.ID, e.absoluteDeadline(p), true)
+			continue
+		}
+		e.addPeer(p.AccountID, p.ID, e.disconnectDeadline(), false)
 	}
 
 	log.WithContext(ctx).Debugf("loaded ephemeral peer(s): %d", len(peers))
@@ -167,48 +175,103 @@ func (e *EphemeralManager) cleanup(ctx context.Context) {
 		}
 	}
 
-	if e.headPeer != nil {
-		delay := e.headPeer.deadline.Sub(timeNow()) + e.cleanupWindow
-		if delay < 0 {
-			delay = 0
-		}
-		e.timer = time.AfterFunc(delay, func() {
-			e.cleanup(ctx)
-		})
-	} else {
-		e.timer = nil
-	}
+	e.scheduleCleanup(ctx)
 
 	e.peersLock.Unlock()
 
-	peerIDsPerAccount := make(map[string][]string)
+	regularPeerIDsPerAccount := make(map[string][]string)
 	for id, p := range deletePeers {
-		peerIDsPerAccount[p.accountID] = append(peerIDsPerAccount[p.accountID], id)
+		if p.force {
+			continue
+		}
+		regularPeerIDsPerAccount[p.accountID] = append(regularPeerIDsPerAccount[p.accountID], id)
 	}
 
-	for accountID, peerIDs := range peerIDsPerAccount {
+	for accountID, peerIDs := range regularPeerIDsPerAccount {
 		log.WithContext(ctx).Tracef("cleanup: deleting %d ephemeral peers for account %s", len(peerIDs), accountID)
 		err := e.peersManager.DeletePeers(ctx, accountID, peerIDs, activity.SystemInitiator, true)
 		if err != nil {
 			log.WithContext(ctx).Errorf("failed to delete ephemeral peers: %s", err)
 		}
 	}
+
+	forcePeerIDsPerAccount := make(map[string][]string)
+	for _, p := range deletePeers {
+		if !p.force {
+			continue
+		}
+		forcePeerIDsPerAccount[p.accountID] = append(forcePeerIDsPerAccount[p.accountID], p.id)
+	}
+	for accountID, peerIDs := range forcePeerIDsPerAccount {
+		log.WithContext(ctx).Tracef("cleanup: force deleting %d browser temporary peers for account %s", len(peerIDs), accountID)
+		err := e.peersManager.DeletePeers(ctx, accountID, peerIDs, activity.SystemInitiator, false)
+		if err != nil {
+			log.WithContext(ctx).Errorf("failed to force delete browser temporary peers: %s", err)
+		}
+	}
 }
 
-func (e *EphemeralManager) addPeer(accountID string, peerID string, deadline time.Time) {
+func (e *EphemeralManager) trackPeer(peer *nbpeer.Peer, deadline time.Time, force bool) {
+	if existing := e.findPeer(peer.ID); existing != nil {
+		force = force || existing.force
+		if existing.deadline.Before(deadline) {
+			deadline = existing.deadline
+		}
+		e.removePeer(peer.ID)
+	}
+	e.addPeer(peer.AccountID, peer.ID, deadline, force)
+}
+
+func (e *EphemeralManager) scheduleCleanup(ctx context.Context) {
+	if e.timer != nil {
+		e.timer.Stop()
+		e.timer = nil
+	}
+	if e.headPeer == nil {
+		return
+	}
+
+	delay := e.headPeer.deadline.Sub(timeNow()) + e.cleanupWindow
+	if delay < 0 {
+		delay = 0
+	}
+	e.timer = time.AfterFunc(delay, func() {
+		e.cleanup(ctx)
+	})
+}
+
+func (e *EphemeralManager) addPeer(accountID string, peerID string, deadline time.Time, force bool) {
 	ep := &ephemeralPeer{
 		id:        peerID,
 		accountID: accountID,
 		deadline:  deadline,
+		force:     force,
 	}
 
 	if e.headPeer == nil {
 		e.headPeer = ep
+		e.tailPeer = ep
+		return
 	}
-	if e.tailPeer != nil {
-		e.tailPeer.next = ep
+
+	if deadline.Before(e.headPeer.deadline) {
+		ep.next = e.headPeer
+		e.headPeer = ep
+		return
 	}
-	e.tailPeer = ep
+
+	for p := e.headPeer; p != nil; p = p.next {
+		if p.next == nil {
+			p.next = ep
+			e.tailPeer = ep
+			return
+		}
+		if deadline.Before(p.next.deadline) {
+			ep.next = p.next
+			p.next = ep
+			return
+		}
+	}
 }
 
 func (e *EphemeralManager) removePeer(id string) {
@@ -236,15 +299,26 @@ func (e *EphemeralManager) removePeer(id string) {
 	}
 }
 
-func (e *EphemeralManager) isPeerOnList(id string) bool {
+func (e *EphemeralManager) findPeer(id string) *ephemeralPeer {
 	for p := e.headPeer; p != nil; p = p.next {
 		if p.id == id {
-			return true
+			return p
 		}
 	}
-	return false
+	return nil
 }
 
-func (e *EphemeralManager) newDeadLine() time.Time {
+func (e *EphemeralManager) disconnectDeadline() time.Time {
 	return timeNow().Add(e.lifeTime)
+}
+
+func (e *EphemeralManager) absoluteDeadline(peer *nbpeer.Peer) time.Time {
+	if peer.CreatedAt.IsZero() {
+		return e.disconnectDeadline()
+	}
+	return peer.CreatedAt.Add(e.lifeTime)
+}
+
+func isBrowserTemporaryPeer(peer *nbpeer.Peer) bool {
+	return peer.Meta.GoOS == "js" && peer.Meta.KernelVersion == "wasm"
 }

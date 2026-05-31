@@ -163,6 +163,55 @@ func TestNewManagerPeerConnected(t *testing.T) {
 	}
 }
 
+func TestBrowserTemporaryPeerExpiresEvenWhenConnected(t *testing.T) {
+	t.Cleanup(func() {
+		timeNow = time.Now
+	})
+	startTime := time.Now()
+	timeNow = func() time.Time {
+		return startTime
+	}
+
+	store := &MockStore{}
+	account := newAccountWithId(context.Background(), "account", "", "", false)
+	store.account = account
+
+	peer := &nbpeer.Peer{
+		ID:        "browser-temporary-peer",
+		AccountID: account.Id,
+		Ephemeral: true,
+		CreatedAt: startTime,
+		Status: &nbpeer.PeerStatus{
+			Connected: true,
+			LastSeen:  startTime,
+		},
+		Meta: nbpeer.PeerSystemMeta{
+			GoOS:          "js",
+			KernelVersion: "wasm",
+		},
+	}
+	store.account.Peers[peer.ID] = peer
+
+	ctrl := gomock.NewController(t)
+	peersManager := peers.NewMockManager(ctrl)
+	peersManager.EXPECT().
+		DeletePeers(gomock.Any(), account.Id, []string{peer.ID}, gomock.Any(), false).
+		DoAndReturn(func(ctx context.Context, accountID string, peerIDs []string, userID string, checkConnected bool) error {
+			delete(store.account.Peers, peer.ID)
+			return nil
+		}).
+		Times(1)
+
+	mgr := NewEphemeralManager(store, peersManager)
+	mgr.loadEphemeralPeers(context.Background())
+	mgr.OnPeerConnected(context.Background(), peer)
+
+	startTime = startTime.Add(ephemeral.EphemeralLifeTime + 1)
+	mgr.cleanup(context.Background())
+
+	assert.Empty(t, store.account.Peers, "browser temporary peer should be deleted after absolute lifetime even when connected")
+}
+
 func TestNewManagerPeerDisconnected(t *testing.T) {
 	t.Cleanup(func() {
 		timeNow = time.Now
