@@ -29,6 +29,22 @@ func TestRequireUserLimitForCreateBasicDeniesFourthUser(t *testing.T) {
 	assertLimitDenied(t, err, entitlements.LimitUsers)
 }
 
+func TestRequireUserInviteLimitForCreateBasicDeniesFourthUserOrInvite(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+	mockStore.EXPECT().
+		GetAccountUserInvites(gomock.Any(), store.LockingStrengthNone, "account-a").
+		Return([]*types.UserInviteRecord{{}}, nil)
+
+	manager := basicEntitlementsAccountManager()
+	manager.Store = mockStore
+
+	err := manager.requireUserInviteLimitForCreate(context.Background(), "account-a", 2)
+	assertLimitDenied(t, err, entitlements.LimitUsers)
+}
+
 func TestRequirePeerLimitForCreateBasicDeniesEleventhPeer(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()

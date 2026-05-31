@@ -78,6 +78,10 @@ func (am *DefaultAccountManager) requireEntitledLimit(ctx context.Context, accou
 	return entitlements.RequireLimit(ctx, am.entitlementsChecker, accountID, limit, current)
 }
 
+func (am *DefaultAccountManager) RequireEntitledLimit(ctx context.Context, accountID string, limit entitlements.Limit, current int) error {
+	return am.requireEntitledLimit(ctx, accountID, limit, current)
+}
+
 func flowLogsEnabled(extra *types.ExtraSettings) bool {
 	return extra.FlowEnabled ||
 		len(extra.FlowGroups) > 0 ||

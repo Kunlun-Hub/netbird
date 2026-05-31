@@ -25,6 +25,7 @@ import (
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/account"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
+	"github.com/netbirdio/netbird/management/server/entitlements"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -52,6 +53,10 @@ type Handler struct {
 
 type relayConfigPusher interface {
 	PushRelayList(ctx context.Context, accountID string, peerIDs []string) int
+}
+
+type relayEntitlementsManager interface {
+	RequireEntitledLimit(ctx context.Context, accountID string, limit entitlements.Limit, current int) error
 }
 
 type RelayStatus struct {
@@ -312,6 +317,10 @@ func (h *Handler) createSetupToken(w http.ResponseWriter, r *http.Request) {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
+	if err := h.requireRelayLimitForCreate(r.Context(), userAuth.AccountId); err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
 
 	token, err := signRelaySetupToken(h.config.Secret, relaySetupTokenNeverExpires, userAuth.AccountId)
 	if err != nil {
@@ -414,12 +423,13 @@ func (h *Handler) registerRelay(w http.ResponseWriter, r *http.Request) {
 		ConnectedClients: req.ConnectedClients,
 		LastSeen:         time.Now(),
 	}
-	activeRelayRegistry.upsert(relay)
 	if accountID != "" {
 		if err := h.persistRegisteredRelay(r.Context(), accountID, relay); err != nil {
-			log.WithContext(r.Context()).Warnf("failed to persist registered relay %s for account %s: %v", relay.ID, accountID, err)
+			util.WriteError(r.Context(), err, w)
+			return
 		}
 	}
+	activeRelayRegistry.upsert(relay)
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(registerRelayResponse{Status: "ok"}); err != nil {
@@ -711,12 +721,46 @@ func (h *Handler) storedRelayPriority(ctx context.Context, accountID, id, addres
 	return 0, false
 }
 
+func (h *Handler) requireRelayLimitForCreate(ctx context.Context, accountID string) error {
+	if accountID == "" || h.accountManager == nil {
+		return nil
+	}
+	storeManager := h.accountManager.GetStore()
+	if storeManager == nil {
+		return nil
+	}
+	settings, err := storeManager.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		return err
+	}
+	return h.requireRelayLimit(ctx, accountID, countRegisteredRelays(settings)+1)
+}
+
+func (h *Handler) requireRelayLimit(ctx context.Context, accountID string, projected int) error {
+	if h.accountManager == nil {
+		return nil
+	}
+	entitlementsManager, ok := h.accountManager.(relayEntitlementsManager)
+	if !ok {
+		return nil
+	}
+	return entitlementsManager.RequireEntitledLimit(ctx, accountID, entitlements.LimitSelfHostedRelays, projected)
+}
+
+func countRegisteredRelays(settings *types.Settings) int {
+	if settings == nil || settings.Extra == nil {
+		return 0
+	}
+	return len(settings.Extra.RegisteredRelays)
+}
+
 func (h *Handler) persistRegisteredRelay(ctx context.Context, accountID string, relay registeredRelay) error {
 	return h.accountManager.GetStore().ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		settings, err := transaction.GetAccountSettings(ctx, store.LockingStrengthUpdate, accountID)
 		if err != nil {
 			return err
 		}
+		beforeCount := countRegisteredRelays(settings)
 		settings = settings.Copy()
 		if settings.Extra == nil {
 			settings.Extra = &types.ExtraSettings{}
@@ -741,6 +785,12 @@ func (h *Handler) persistRegisteredRelay(ctx context.Context, accountID string, 
 			Version:          relay.Version,
 			ConnectedClients: relay.ConnectedClients,
 			LastSeen:         relay.LastSeen,
+		}
+		afterCount := countRegisteredRelays(settings)
+		if afterCount > beforeCount {
+			if err := h.requireRelayLimit(ctx, accountID, afterCount); err != nil {
+				return err
+			}
 		}
 		return transaction.SaveAccountSettings(ctx, accountID, settings)
 	})

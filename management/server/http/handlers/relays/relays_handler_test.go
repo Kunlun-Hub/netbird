@@ -15,6 +15,7 @@ import (
 
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
+	"github.com/netbirdio/netbird/management/server/entitlements"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -87,6 +88,56 @@ func TestApplyRelayConfigPushesGlobalRelayList(t *testing.T) {
 		Status:      "ok",
 		TargetPeers: 3,
 	}, response)
+}
+
+func TestCreateSetupTokenDeniesWhenRelayLimitExceeded(t *testing.T) {
+	const (
+		accountID = "account-id"
+		userID    = "user-id"
+	)
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	storeMock := store.NewMockStore(ctrl)
+	storeMock.EXPECT().
+		GetAccountSettings(gomock.Any(), store.LockingStrengthNone, accountID).
+		Return(&types.Settings{
+			Extra: &types.ExtraSettings{
+				RegisteredRelays: map[string]types.RegisteredRelay{
+					"relay-a": {ID: "relay-a", Address: "rels://relay-a.example.com:443"},
+				},
+			},
+		}, nil)
+
+	checker := entitlements.NewChecker(entitlements.NewBasicStaticProvider())
+	handler := &Handler{
+		config: &nbconfig.Relay{Secret: "relay-secret"},
+		accountManager: &mock_server.MockAccountManager{
+			GetStoreFunc: func() store.Store {
+				return storeMock
+			},
+			RequireEntitledLimitFunc: func(ctx context.Context, requestedAccountID string, limit entitlements.Limit, current int) error {
+				require.Equal(t, accountID, requestedAccountID)
+				require.Equal(t, entitlements.LimitSelfHostedRelays, limit)
+				require.Equal(t, 2, current)
+				return entitlements.RequireLimit(ctx, checker, requestedAccountID, limit, current)
+			},
+		},
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/relays/setup-token", nil)
+	req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{
+		AccountId: accountID,
+		UserId:    userID,
+	})
+	recorder := httptest.NewRecorder()
+
+	handler.createSetupToken(recorder, req)
+
+	require.Equal(t, http.StatusForbidden, recorder.Code)
+	require.Contains(t, recorder.Body.String(), "limit_exceeded")
+	require.Contains(t, recorder.Body.String(), string(entitlements.LimitSelfHostedRelays))
 }
 
 func TestUpdateRelayPriorityUpdatesConfigAndPushesRelayList(t *testing.T) {
@@ -279,6 +330,86 @@ func TestRegisterRelayKeepsStoredPriorityForSameAddressWhenIDChanges(t *testing.
 	activePriority, ok := activeRelayRegistry.priorityFor(newRelayID, relayAddress)
 	require.True(t, ok)
 	require.Equal(t, 80, activePriority)
+}
+
+func TestRegisterRelayDeniesNewRelayWhenLimitExceeded(t *testing.T) {
+	const (
+		accountID    = "account-id"
+		secret       = "relay-secret"
+		existingID   = "relay-a"
+		newRelayID   = "relay-b"
+		relayAddress = "rels://relay-b.example.com:443"
+	)
+
+	activeRelayRegistry = &relayRegistry{relays: make(map[string]registeredRelay)}
+	t.Cleanup(func() {
+		activeRelayRegistry = &relayRegistry{relays: make(map[string]registeredRelay)}
+	})
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	settings := &types.Settings{
+		Extra: &types.ExtraSettings{
+			RegisteredRelays: map[string]types.RegisteredRelay{
+				existingID: {
+					ID:       existingID,
+					Address:  "rels://relay-a.example.com:443",
+					Priority: 30,
+					LastSeen: time.Now(),
+				},
+			},
+		},
+	}
+	storeMock := store.NewMockStore(ctrl)
+	gomock.InOrder(
+		storeMock.EXPECT().
+			GetAccountSettings(gomock.Any(), store.LockingStrengthNone, accountID).
+			Return(settings, nil),
+		storeMock.EXPECT().
+			ExecuteInTransaction(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(ctx context.Context, f func(store.Store) error) error {
+				return f(storeMock)
+			}),
+		storeMock.EXPECT().
+			GetAccountSettings(gomock.Any(), store.LockingStrengthUpdate, accountID).
+			Return(settings, nil),
+	)
+
+	checker := entitlements.NewChecker(entitlements.NewBasicStaticProvider())
+	handler := &Handler{
+		config: &nbconfig.Relay{Secret: secret},
+		accountManager: &mock_server.MockAccountManager{
+			GetStoreFunc: func() store.Store {
+				return storeMock
+			},
+			RequireEntitledLimitFunc: func(ctx context.Context, requestedAccountID string, limit entitlements.Limit, current int) error {
+				require.Equal(t, accountID, requestedAccountID)
+				require.Equal(t, entitlements.LimitSelfHostedRelays, limit)
+				require.Equal(t, 2, current)
+				return entitlements.RequireLimit(ctx, checker, requestedAccountID, limit, current)
+			},
+		},
+	}
+
+	setupKey, err := signRelaySetupToken(secret, relaySetupTokenNeverExpires, accountID)
+	require.NoError(t, err)
+	body, err := json.Marshal(registerRelayRequest{
+		SetupKey: setupKey,
+		ID:       newRelayID,
+		Address:  relayAddress,
+		Priority: 30,
+	})
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/relays/register", bytes.NewReader(body))
+	recorder := httptest.NewRecorder()
+	handler.registerRelay(recorder, req)
+
+	require.Equal(t, http.StatusForbidden, recorder.Code)
+	require.Contains(t, recorder.Body.String(), "limit_exceeded")
+	_, ok := activeRelayRegistry.priorityFor(newRelayID, relayAddress)
+	require.False(t, ok)
 }
 
 func TestRelayAddressesForAccountSortsByGlobalPriority(t *testing.T) {
