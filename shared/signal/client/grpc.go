@@ -17,6 +17,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	nbgrpc "github.com/netbirdio/netbird/client/grpc"
+	clientretry "github.com/netbirdio/netbird/client/retry"
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/shared/management/client"
 	"github.com/netbirdio/netbird/shared/signal/proto"
@@ -114,15 +115,7 @@ func (c *GrpcClient) SetConnStateListener(notifier ConnStateNotifier) {
 
 // defaultBackoff is a basic backoff mechanism for general issues
 func defaultBackoff(ctx context.Context) backoff.BackOff {
-	return backoff.WithContext(&backoff.ExponentialBackOff{
-		InitialInterval:     800 * time.Millisecond,
-		RandomizationFactor: 1,
-		Multiplier:          1.7,
-		MaxInterval:         10 * time.Second,
-		MaxElapsedTime:      3 * 30 * 24 * time.Hour, // 3 months
-		Stop:                backoff.Stop,
-		Clock:               backoff.SystemClock,
-	}, ctx)
+	return clientretry.NewBackOff(ctx, clientretry.ControlStreamPolicy)
 }
 
 // Receive Connects to the Signal Exchange message stream and starts receiving messages.
@@ -153,7 +146,7 @@ func (c *GrpcClient) Receive(ctx context.Context, msgHandler func(msg *proto.Mes
 		stream, err := c.connect(ctx, c.key.PublicKey().String())
 		if err != nil {
 			log.Warnf("disconnected from the Signal Exchange due to an error: %v", err)
-			return err
+			return clientretry.PermanentIfClassified(err)
 		}
 
 		c.notifyStreamConnected()
@@ -170,6 +163,9 @@ func (c *GrpcClient) Receive(ctx context.Context, msgHandler func(msg *proto.Mes
 			if ctx.Err() != nil {
 				log.Debugf("signal connection context has been canceled, this usually indicates shutdown")
 				return nil
+			}
+			if clientretry.IsPermanent(err) {
+				return backoff.Permanent(err)
 			}
 			// we need this reset because after a successful connection and a consequent error, backoff lib doesn't
 			// reset times and next try will start with a long delay

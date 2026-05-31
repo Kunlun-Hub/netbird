@@ -25,6 +25,21 @@ func newDummyConnectClient(ctx context.Context) *internal.ConnectClient {
 	return internal.NewConnectClient(ctx, nil, nil)
 }
 
+func TestStableConnectionResetter(t *testing.T) {
+	start := time.Unix(100, 0)
+	resetter := stableConnectionResetter{stableFor: time.Minute}
+
+	require.False(t, resetter.ShouldReset(start, true, false))
+	require.False(t, resetter.ShouldReset(start, true, true))
+	require.False(t, resetter.ShouldReset(start.Add(59*time.Second), true, true))
+	require.True(t, resetter.ShouldReset(start.Add(time.Minute), true, true))
+	require.False(t, resetter.ShouldReset(start.Add(2*time.Minute), true, true))
+
+	require.False(t, resetter.ShouldReset(start.Add(3*time.Minute), false, true))
+	require.False(t, resetter.ShouldReset(start.Add(4*time.Minute), true, true))
+	require.True(t, resetter.ShouldReset(start.Add(5*time.Minute), true, true))
+}
+
 // TestConnectSetsClientWithMutex validates that connect() sets s.connectClient
 // under mutex protection so concurrent readers see a consistent value.
 func TestConnectSetsClientWithMutex(t *testing.T) {

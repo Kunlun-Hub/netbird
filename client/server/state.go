@@ -17,7 +17,12 @@ import (
 
 // ListStates returns a list of all saved states
 func (s *Server) ListStates(_ context.Context, _ *proto.ListStatesRequest) (*proto.ListStatesResponse, error) {
-	mgr := statemanager.New(s.profileManager.GetStatePath())
+	statePath, err := s.getStatePath()
+	if err != nil {
+		return nil, err
+	}
+
+	mgr := statemanager.New(statePath)
 
 	stateNames, err := mgr.GetSavedStateNames()
 	if err != nil {
@@ -42,7 +47,10 @@ func (s *Server) CleanState(ctx context.Context, req *proto.CleanStateRequest) (
 		return nil, status.Errorf(codes.FailedPrecondition, "cannot clean state while connecting or connected, run 'cloink down' first.")
 	}
 
-	statePath := s.profileManager.GetStatePath()
+	statePath, err := s.getStatePath()
+	if err != nil {
+		return nil, err
+	}
 
 	if req.All {
 		// Reuse existing cleanup logic for all states
@@ -85,10 +93,14 @@ func (s *Server) DeleteState(ctx context.Context, req *proto.DeleteStateRequest)
 		return nil, status.Errorf(codes.FailedPrecondition, "cannot clean state while connecting or connected, run 'cloink down' first.")
 	}
 
-	mgr := statemanager.New(s.profileManager.GetStatePath())
+	statePath, err := s.getStatePath()
+	if err != nil {
+		return nil, err
+	}
+
+	mgr := statemanager.New(statePath)
 
 	var count int
-	var err error
 
 	if req.All {
 		count, err = mgr.DeleteAllStates()
@@ -111,6 +123,13 @@ func (s *Server) DeleteState(ctx context.Context, req *proto.DeleteStateRequest)
 	return &proto.DeleteStateResponse{
 		DeletedStates: int32(count),
 	}, nil
+}
+
+func (s *Server) getStatePath() (string, error) {
+	if s.profileManager == nil {
+		return "", status.Error(codes.FailedPrecondition, "profile manager is not initialized")
+	}
+	return s.profileManager.GetStatePath(), nil
 }
 
 // restoreResidualState checks if the client was not shut down in a clean way and restores residual if required.

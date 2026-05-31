@@ -33,6 +33,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 	"github.com/netbirdio/netbird/client/internal/updater"
 	"github.com/netbirdio/netbird/client/proto"
+	clientretry "github.com/netbirdio/netbird/client/retry"
 	"github.com/netbirdio/netbird/util/capture"
 	"github.com/netbirdio/netbird/version"
 )
@@ -47,6 +48,8 @@ const (
 	defaultMaxRetryInterval = 60 * time.Minute
 	defaultMaxRetryTime     = 14 * 24 * time.Hour
 	defaultRetryMultiplier  = 1.7
+	retryStatusPollInterval = 30 * time.Second
+	retryStableResetAfter   = 2 * time.Minute
 
 	// JWT token cache TTL for the client daemon (disabled by default)
 	defaultJWTCacheTTL = 0
@@ -108,6 +111,32 @@ type oauthAuthFlow struct {
 	flow       auth.OAuthFlow
 	info       auth.AuthFlowInfo
 	waitCancel context.CancelFunc
+}
+
+type stableConnectionResetter struct {
+	stableFor      time.Duration
+	connectedSince time.Time
+	resetDone      bool
+}
+
+func (r *stableConnectionResetter) ShouldReset(now time.Time, managementConnected, signalConnected bool) bool {
+	if !managementConnected || !signalConnected {
+		r.connectedSince = time.Time{}
+		r.resetDone = false
+		return false
+	}
+
+	if r.connectedSince.IsZero() {
+		r.connectedSince = now
+		return false
+	}
+
+	if r.resetDone || now.Sub(r.connectedSince) < r.stableFor {
+		return false
+	}
+
+	r.resetDone = true
+	return true
 }
 
 // New server instance constructor.
@@ -236,7 +265,8 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, profileConfig *profil
 
 	backOff := getConnectWithBackoff(ctx)
 	go func() {
-		t := time.NewTicker(24 * time.Hour)
+		t := time.NewTicker(retryStatusPollInterval)
+		resetter := stableConnectionResetter{stableFor: retryStableResetAfter}
 		for {
 			select {
 			case <-ctx.Done():
@@ -245,11 +275,11 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, profileConfig *profil
 			case <-t.C:
 				mgmtState := statusRecorder.GetManagementState()
 				signalState := statusRecorder.GetSignalState()
-				if mgmtState.Connected && signalState.Connected {
-					log.Tracef("resetting status")
+				if resetter.ShouldReset(time.Now(), mgmtState.Connected, signalState.Connected) {
+					log.Tracef("resetting client connection backoff after stable management and signal connectivity")
 					backOff.Reset()
 				} else {
-					log.Tracef("not resetting status: mgmt: %v, signal: %v", mgmtState.Connected, signalState.Connected)
+					log.Tracef("not resetting client connection backoff: mgmt: %v, signal: %v", mgmtState.Connected, signalState.Connected)
 				}
 			}
 		}
@@ -258,6 +288,10 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, profileConfig *profil
 	runOperation := func() error {
 		err := s.connect(ctx, profileConfig, statusRecorder, runningChan)
 		if err != nil {
+			if clientretry.IsPermanent(err) {
+				log.Debugf("run client connection exited with permanent error: %v. Will not retry", err)
+				return backoff.Permanent(err)
+			}
 			log.Debugf("run client connection exited with error: %v. Will retry in the background", err)
 			return err
 		}

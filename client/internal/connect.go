@@ -35,6 +35,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/updater/installer"
 	nbnet "github.com/netbirdio/netbird/client/net"
 	cProto "github.com/netbirdio/netbird/client/proto"
+	clientretry "github.com/netbirdio/netbird/client/retry"
 	"github.com/netbirdio/netbird/client/ssh"
 	sshconfig "github.com/netbirdio/netbird/client/ssh/config"
 	"github.com/netbirdio/netbird/client/system"
@@ -175,15 +176,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		}
 	}
 
-	backOff := &backoff.ExponentialBackOff{
-		InitialInterval:     time.Second,
-		RandomizationFactor: 1,
-		Multiplier:          1.7,
-		MaxInterval:         15 * time.Second,
-		MaxElapsedTime:      3 * 30 * 24 * time.Hour, // 3 months
-		Stop:                backoff.Stop,
-		Clock:               backoff.SystemClock,
-	}
+	backOff := clientretry.NewBackOff(c.ctx, clientretry.ClientSessionPolicy)
 
 	state := CtxGetState(c.ctx)
 	defer func() {
@@ -284,10 +277,13 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		if err != nil {
 			c.clientMetrics.RecordLoginDuration(engineCtx, time.Since(loginStarted), false)
 			log.Debug(err)
-			if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.PermissionDenied) {
+			if clientretry.IsPermissionDenied(err) {
 				state.Set(StatusNeedsLogin)
 				_ = c.Stop()
 				return backoff.Permanent(wrapErr(err)) // unrecoverable error
+			}
+			if clientretry.IsPermanent(err) {
+				return backoff.Permanent(wrapErr(err))
 			}
 			return wrapErr(err)
 		}
@@ -427,7 +423,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 	err = backoff.Retry(operation, backOff)
 	if err != nil {
 		log.Debugf("exiting client retry loop due to unrecoverable error: %s", err)
-		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.PermissionDenied) {
+		if clientretry.IsPermissionDenied(err) {
 			state.Set(StatusNeedsLogin)
 			_ = c.Stop()
 		}

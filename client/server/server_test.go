@@ -61,9 +61,9 @@ var (
 	}
 )
 
-// TestConnectWithRetryRuns checks that the connectWithRetry function runs and runs the retries according to the times specified via environment variables
-// we will use a management server started via to simulate the server and capture the number of retries
-func TestConnectWithRetryRuns(t *testing.T) {
+// TestConnectWithRetryRunsStopsOnPermanentLoginError checks that permanent login errors are not retried by the
+// outer supervisor.
+func TestConnectWithRetryRunsStopsOnPermanentLoginError(t *testing.T) {
 	// start the signal server
 	_, signalAddr, err := startSignal(t)
 	if err != nil {
@@ -115,8 +115,8 @@ func TestConnectWithRetryRuns(t *testing.T) {
 	t.Setenv(retryMultiplierVar, "1")
 
 	s.connectWithRetryRuns(ctx, config, s.statusRecorder, nil, nil)
-	if counter < 3 {
-		t.Fatalf("expected counter > 2, got %d", counter)
+	if counter != 1 {
+		t.Fatalf("expected one login attempt for permanent error, got %d", counter)
 	}
 }
 
