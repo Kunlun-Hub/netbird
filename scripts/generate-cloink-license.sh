@@ -32,7 +32,7 @@ read_required() {
     read -r -p "$prompt" value
     value="$(trim "$value")"
     if [[ -z "$value" ]]; then
-      echo "不能为空，请重新输入。"
+      echo "不能为空，请重新输入。" >&2
     fi
   done
   printf '%s' "$value"
@@ -43,10 +43,10 @@ read_secret() {
   local value=""
   while [[ -z "$value" ]]; do
     read -r -s -p "$prompt" value
-    echo
+    echo >&2
     value="$(trim "$value")"
     if [[ -z "$value" ]]; then
-      echo "密钥不能为空，请重新输入。"
+      echo "密钥不能为空，请重新输入。" >&2
     fi
   done
   printf '%s' "$value"
@@ -67,17 +67,17 @@ read_date() {
       printf '%s' "$value"
       return 0
     fi
-    echo "日期格式不正确，请按示例输入：2016/1/1。"
+    echo "日期格式不正确，请按示例输入：2016/1/1。" >&2
   done
 }
 
 read_license_type() {
   local choice=""
   while true; do
-    echo "请选择授权版本："
-    echo "  1) try"
-    echo "  2) year"
-    echo "  3) enterprise"
+    echo "请选择授权版本：" >&2
+    echo "  1) try" >&2
+    echo "  2) year" >&2
+    echo "  3) enterprise" >&2
     read -r -p "请输入 1/2/3 或版本名： " choice
     choice="$(trim "$choice")"
     case "${choice,,}" in
@@ -94,7 +94,7 @@ read_license_type() {
         return 0
         ;;
       *)
-        echo "选择无效，请重新输入。"
+        echo "选择无效，请重新输入。" >&2
         ;;
     esac
   done

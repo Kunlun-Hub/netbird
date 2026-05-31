@@ -63,6 +63,7 @@ type State struct {
 	Plan             entitlements.Plan
 	LicenseKeyMasked string
 	LicenseTypes     []LicenseType
+	Usage            map[entitlements.Limit]int
 	Message          string
 	StartTime        *time.Time
 	EndTime          *time.Time
@@ -257,6 +258,7 @@ func (m *Manager) state(machineID, serverURL, name, key string, status Status, p
 		Plan:             plan,
 		LicenseKeyMasked: MaskLicenseKey(key),
 		LicenseTypes:     append([]LicenseType(nil), licenseTypes...),
+		Usage:            map[entitlements.Limit]int{},
 		Message:          message,
 		StartTime:        startTime,
 		EndTime:          endTime,

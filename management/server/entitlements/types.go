@@ -107,6 +107,7 @@ type Entitlements struct {
 	Plan      Plan
 	Features  map[Feature]bool
 	Limits    map[Limit]int
+	Usage     map[Limit]int
 }
 
 func (e Entitlements) FeatureEnabled(feature Feature) bool {
@@ -127,6 +128,7 @@ func (e Entitlements) Clone() Entitlements {
 		Plan:      e.Plan,
 		Features:  cloneFeatureMap(e.Features),
 		Limits:    cloneLimitMap(e.Limits),
+		Usage:     cloneLimitMap(e.Usage),
 	}
 }
 

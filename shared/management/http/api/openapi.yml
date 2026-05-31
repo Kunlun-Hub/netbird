@@ -276,7 +276,7 @@ components:
         - onboarding
     AccountEntitlements:
       type: object
-      description: Account plan capabilities and quota limits.
+      description: Account plan capabilities, quota limits, and current resource usage.
       properties:
         account_id:
           description: Account ID
@@ -297,14 +297,20 @@ components:
           type: object
           additionalProperties:
             type: integer
+        usage:
+          description: Current resource usage keyed by limit ID.
+          type: object
+          additionalProperties:
+            type: integer
       required:
         - account_id
         - plan
         - features
         - limits
+        - usage
     AccountLicense:
       type: object
-      description: Account license status, dashboard domain machine code, and effective plan capabilities.
+      description: Account license status, dashboard domain machine code, effective plan capabilities, and current resource usage.
       properties:
         machine_id:
           description: AES encrypted base64 machine code. Decrypting it yields the dashboard server_url and shared key used to issue licenses.
@@ -368,6 +374,11 @@ components:
           type: object
           additionalProperties:
             type: integer
+        usage:
+          description: Current resource usage keyed by limit ID.
+          type: object
+          additionalProperties:
+            type: integer
       required:
         - machine_id
         - status
@@ -375,6 +386,7 @@ components:
         - license
         - features
         - limits
+        - usage
     UpdateAccountLicenseRequest:
       type: object
       description: Request body for installing or clearing an account license key.
@@ -5678,7 +5690,7 @@ paths:
   /api/accounts/{accountId}/entitlements:
     get:
       summary: Get Account Entitlements
-      description: Returns the current account entitlement plan, feature switches, and quota limits.
+      description: Returns the current account entitlement plan, feature switches, quota limits, and current resource usage.
       tags: [ Accounts ]
       security:
         - BearerAuth: [ ]
@@ -5708,7 +5720,7 @@ paths:
   /api/accounts/{accountId}/license:
     get:
       summary: Get Account License
-      description: Returns the machine code, installed license status, and effective entitlement plan.
+      description: Returns the machine code, installed license status, effective entitlement plan, and current resource usage.
       tags: [ Accounts ]
       security:
         - BearerAuth: [ ]
@@ -5737,7 +5749,7 @@ paths:
           "$ref": "#/components/responses/internal_error"
     put:
       summary: Update Account License
-      description: Installs or clears a machine-bound license key and returns the resulting license status.
+      description: Installs or clears a machine-bound license key and returns the resulting license status with current resource usage.
       tags: [ Accounts ]
       security:
         - BearerAuth: [ ]

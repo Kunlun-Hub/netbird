@@ -23,7 +23,16 @@ func (am *DefaultAccountManager) GetAccountLicense(ctx context.Context, accountI
 	if am.licenseManager == nil {
 		return nil, status.Errorf(status.Internal, "license manager is not available")
 	}
-	return am.licenseManager.GetState(ctx, serverURL)
+	state, err := am.licenseManager.GetState(ctx, serverURL)
+	if err != nil {
+		return nil, err
+	}
+	usage, err := am.accountEntitlementUsage(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	state.Usage = usage
+	return state, nil
 }
 
 func (am *DefaultAccountManager) UpdateAccountLicense(ctx context.Context, accountID, userID, serverURL, licenseKey string) (*licensing.State, error) {
@@ -54,5 +63,10 @@ func (am *DefaultAccountManager) UpdateAccountLicense(ctx context.Context, accou
 	if err != nil {
 		return nil, err
 	}
+	usage, err := am.accountEntitlementUsage(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	state.Usage = usage
 	return state, nil
 }

@@ -160,6 +160,7 @@
 - [x] 授权 key 持久化到 management `Datadir/license.json`。
 - [x] Dashboard 新增授权中心，展示机器码、授权 URL、授权类型、状态、Key 掩码并支持更新/清除授权。
 - [x] Dashboard 授权中心展示授权使用方，并移除授权 Key 的生成说明文案。
+- [x] Dashboard 授权中心和用户、客户端、中继页面展示基础版当前用量、总额度和剩余额度，例如用户 `1/3`、客户端 `8/10`、中继 `0/1`。
 - [x] Dashboard 每次 API 请求携带当前域名，后端据此判断授权 URL 是否匹配。
 - [x] 当当前 Dashboard URL 与授权 `server_url` 不一致时，前端全局劫持到授权页并显示“授权 URL 不符，请联系售后解决”，覆盖冻结其他操作。
 - [x] 新增交互式授权 Key 生成脚本 `scripts/generate-cloink-license.sh`：输入机器码、授权使用方、授权版本、有效期和密钥后输出授权 Key；选择 `enterprise` 时跳过日期输入并固定到 2099 年。
@@ -252,7 +253,7 @@
 - 2026-05-31：补充 HA route 授权测试，基础版同一 HA 组的第二条路由会被 `FeatureHARoutes` 拒绝。
 - 2026-05-31：修正 networks/resources 既有测试中过期的 reverse proxy reload mock 预期，恢复 `management/server/...` 全包回归。
 - 2026-05-31：回归通过：`go test ./management/server/...`、`go test ./management/internals/...`。
-- 2026-05-31：新增账号授权状态查询 API：`GET /api/accounts/{accountId}/entitlements`，返回 `plan`、`features`、`limits`，并复用账号读取权限校验；同步 OpenAPI 与生成类型，供 Dashboard 后续读取。
+- 2026-05-31：新增账号授权状态查询 API：`GET /api/accounts/{accountId}/entitlements`，返回 `plan`、`features`、`limits`、`usage`，并复用账号读取权限校验；同步 OpenAPI 与生成类型，供 Dashboard 后续读取。
 - 2026-05-31：补充账号授权状态 handler / manager 测试，基础版默认快照会返回本地认证、品牌禁用、用户 3、设备 10 等授权信息。
 - 2026-05-31：回归通过：`go test ./management/server`、`go test ./management/server/...`、`go test ./management/internals/...`、`go test ./shared/management/...`。
 - 2026-05-31：Dashboard 接入账号授权状态查询，新增授权 hook 和升级提示组件；基础版会隐藏 DNS、设备合规、网络/DNS 日志、网页 SSH/RDP 等导航或按钮，并禁用 flow logs、branding、DNS 域名、JWT/group propagation 等设置入口。
@@ -276,3 +277,5 @@
 - 2026-05-31：Dashboard API 请求统一携带 `X-Cloink-Dashboard-Host` 当前域名；当后端返回 `url_mismatch` 时，全局冻结前端并劫持到授权页显示“授权 URL 不符，请联系售后解决”。
 - 2026-05-31：同步 OpenAPI `AccountLicense` / `UpdateAccountLicenseRequest` 并重新生成 `shared/management/http/api/types.gen.go`。
 - 2026-05-31：授权中心回归通过：`go test ./management/server/licensing`、`go test ./management/server -run 'Test(GetAccountLicense|UpdateAccountLicense|GetAccountEntitlements)'`、`go test ./management/server/http/handlers/accounts -run 'Test(GetAccountLicense|UpdateAccountLicense|GetAccountEntitlements)'`、`go test ./management/server/licensing ./management/server ./management/server/http/handlers/accounts ./shared/management/http/api`、Dashboard `npx tsc --noEmit`、`npm run lint`。
+- 2026-05-31：基础版用量展示补齐：`GET /entitlements` 和 `GET/PUT /license` 返回 `usage`，Dashboard 授权中心展示账号资源用量卡片，用户、服务用户、客户端、中继页面顶部展示对应资源的已用/总额/剩余。
+- 2026-05-31：基础版用量回归通过：`go test ./management/server -run 'Test(GetAccountEntitlements|AccountEntitlementUsage|GetAccountLicense|UpdateAccountLicense)' -count=1 -timeout=2m`、`go test ./management/server/http/handlers/accounts -run 'Test(GetAccountEntitlements|GetAccountLicense|UpdateAccountLicense)' -count=1 -timeout=2m`、`go test ./management/server/licensing ./shared/management/http/api -count=1 -timeout=2m`、Dashboard `npx tsc --noEmit`、`npx eslint src/modules/account/ResourceUsage.tsx`。

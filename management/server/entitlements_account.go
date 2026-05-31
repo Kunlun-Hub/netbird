@@ -23,5 +23,10 @@ func (am *DefaultAccountManager) GetAccountEntitlements(ctx context.Context, acc
 	if err != nil {
 		return nil, fmt.Errorf("get account entitlements: %w", err)
 	}
+	usage, err := am.accountEntitlementUsage(ctx, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("get account entitlement usage: %w", err)
+	}
+	snapshot.Usage = usage
 	return &snapshot, nil
 }

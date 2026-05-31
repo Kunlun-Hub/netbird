@@ -63,6 +63,7 @@ type accountEntitlementsResponse struct {
 	Plan      string          `json:"plan"`
 	Features  map[string]bool `json:"features"`
 	Limits    map[string]int  `json:"limits"`
+	Usage     map[string]int  `json:"usage"`
 }
 
 type accountLicenseResponse struct {
@@ -79,6 +80,7 @@ type accountLicenseResponse struct {
 	UpdatedAt        *time.Time      `json:"updated_at,omitempty"`
 	Features         map[string]bool `json:"features"`
 	Limits           map[string]int  `json:"limits"`
+	Usage            map[string]int  `json:"usage"`
 }
 
 type updateAccountLicenseRequest struct {
@@ -354,6 +356,7 @@ func toAccountEntitlementsResponse(snapshot *entitlements.Entitlements) accountE
 		return accountEntitlementsResponse{
 			Features: map[string]bool{},
 			Limits:   map[string]int{},
+			Usage:    map[string]int{},
 		}
 	}
 
@@ -366,12 +369,17 @@ func toAccountEntitlementsResponse(snapshot *entitlements.Entitlements) accountE
 	for limit, value := range snapshot.Limits {
 		limits[string(limit)] = value
 	}
+	usage := make(map[string]int, len(snapshot.Usage))
+	for limit, value := range snapshot.Usage {
+		usage[string(limit)] = value
+	}
 
 	return accountEntitlementsResponse{
 		AccountID: snapshot.AccountID,
 		Plan:      string(snapshot.Plan),
 		Features:  features,
 		Limits:    limits,
+		Usage:     usage,
 	}
 }
 
@@ -453,11 +461,16 @@ func toAccountLicenseResponse(state *licensing.State) accountLicenseResponse {
 			License:  []string{},
 			Features: map[string]bool{},
 			Limits:   map[string]int{},
+			Usage:    map[string]int{},
 		}
 	}
 
 	features := map[string]bool{}
 	limits := map[string]int{}
+	usage := make(map[string]int, len(state.Usage))
+	for limit, value := range state.Usage {
+		usage[string(limit)] = value
+	}
 	if snapshot, err := entitlements.PlanEntitlements(state.Plan); err == nil {
 		features = make(map[string]bool, len(snapshot.Features))
 		for feature, enabled := range snapshot.Features {
@@ -484,6 +497,7 @@ func toAccountLicenseResponse(state *licensing.State) accountLicenseResponse {
 		UpdatedAt:        state.UpdatedAt,
 		Features:         features,
 		Limits:           limits,
+		Usage:            usage,
 	}
 }
 

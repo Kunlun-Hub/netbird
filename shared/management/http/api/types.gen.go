@@ -1534,7 +1534,7 @@ type Account struct {
 	Settings   AccountSettings   `json:"settings"`
 }
 
-// AccountEntitlements Account plan capabilities and quota limits.
+// AccountEntitlements Account plan capabilities, quota limits, and current resource usage.
 type AccountEntitlements struct {
 	// AccountId Account ID
 	AccountId string `json:"account_id"`
@@ -1547,6 +1547,9 @@ type AccountEntitlements struct {
 
 	// Plan Current entitlement plan.
 	Plan AccountEntitlementsPlan `json:"plan"`
+
+	// Usage Current resource usage keyed by limit ID.
+	Usage map[string]int `json:"usage"`
 }
 
 // AccountEntitlementsPlan Current entitlement plan.
@@ -1627,7 +1630,7 @@ type AccountExtraSettings struct {
 	UserApprovalRequired bool `json:"user_approval_required"`
 }
 
-// AccountLicense Account license status, dashboard domain machine code, and effective plan capabilities.
+// AccountLicense Account license status, dashboard domain machine code, effective plan capabilities, and current resource usage.
 type AccountLicense struct {
 	// EndTime License validity end date.
 	EndTime *time.Time `json:"end_time,omitempty"`
@@ -1667,6 +1670,9 @@ type AccountLicense struct {
 
 	// UpdatedAt Last license update time.
 	UpdatedAt *time.Time `json:"updated_at,omitempty"`
+
+	// Usage Current resource usage keyed by limit ID.
+	Usage map[string]int `json:"usage"`
 }
 
 // AccountLicenseLicense defines model for AccountLicense.License.

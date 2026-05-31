@@ -534,6 +534,10 @@ func TestGetAccountEntitlements(t *testing.T) {
 	basic, err := entitlements.PlanEntitlements(entitlements.PlanBasic)
 	assert.NoError(t, err)
 	basic.AccountID = accountID
+	basic.Usage = map[entitlements.Limit]int{
+		entitlements.LimitUsers: 1,
+		entitlements.LimitPeers: 8,
+	}
 
 	handler := &handler{
 		accountManager: &mock_server.MockAccountManager{
@@ -565,6 +569,8 @@ func TestGetAccountEntitlements(t *testing.T) {
 	assert.False(t, response.Features[string(entitlements.FeatureBranding)])
 	assert.True(t, response.Features[string(entitlements.FeatureLocalAuth)])
 	assert.Equal(t, 3, response.Limits[string(entitlements.LimitUsers)])
+	assert.Equal(t, 1, response.Usage[string(entitlements.LimitUsers)])
+	assert.Equal(t, 8, response.Usage[string(entitlements.LimitPeers)])
 }
 
 func TestGetAccountLicense(t *testing.T) {
@@ -585,7 +591,11 @@ func TestGetAccountLicense(t *testing.T) {
 					Plan:             entitlements.PlanPro,
 					LicenseKeyMasked: "aGVsbG8...BBBBBB",
 					LicenseTypes:     []licensing.LicenseType{licensing.LicenseTypeYear},
-					Message:          "Pro license is active.",
+					Usage: map[entitlements.Limit]int{
+						entitlements.LimitUsers:            1,
+						entitlements.LimitSelfHostedRelays: 0,
+					},
+					Message: "Pro license is active.",
 				}, nil
 			},
 		},
@@ -615,6 +625,8 @@ func TestGetAccountLicense(t *testing.T) {
 	assert.Equal(t, []string{string(licensing.LicenseTypeYear)}, response.License)
 	assert.True(t, response.Features[string(entitlements.FeatureBranding)])
 	assert.Equal(t, entitlements.Unlimited, response.Limits[string(entitlements.LimitUsers)])
+	assert.Equal(t, 1, response.Usage[string(entitlements.LimitUsers)])
+	assert.Equal(t, 0, response.Usage[string(entitlements.LimitSelfHostedRelays)])
 }
 
 func TestUpdateAccountLicense(t *testing.T) {
@@ -636,7 +648,10 @@ func TestUpdateAccountLicense(t *testing.T) {
 					Status:       licensing.StatusActive,
 					Plan:         entitlements.PlanPro,
 					LicenseTypes: []licensing.LicenseType{licensing.LicenseTypeEnterprise},
-					Message:      "Pro license is active.",
+					Usage: map[entitlements.Limit]int{
+						entitlements.LimitPeers: 8,
+					},
+					Message: "Pro license is active.",
 				}, nil
 			},
 		},
@@ -664,6 +679,7 @@ func TestUpdateAccountLicense(t *testing.T) {
 	assert.Equal(t, string(entitlements.PlanPro), response.Plan)
 	assert.Equal(t, "xxx公司", response.Name)
 	assert.Equal(t, []string{string(licensing.LicenseTypeEnterprise)}, response.License)
+	assert.Equal(t, 8, response.Usage[string(entitlements.LimitPeers)])
 }
 
 func TestGetAccountFlowCompatResponse(t *testing.T) {
