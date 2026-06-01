@@ -130,6 +130,7 @@ type MockAccountManager struct {
 	GetAccountEntitlementsFunc            func(ctx context.Context, accountID, userID string) (*entitlements.Entitlements, error)
 	GetAccountLicenseFunc                 func(ctx context.Context, accountID, userID, serverURL string) (*licensing.State, error)
 	UpdateAccountLicenseFunc              func(ctx context.Context, accountID, userID, serverURL, licenseKey string) (*licensing.State, error)
+	RequireEntitledFeatureFunc            func(ctx context.Context, accountID string, feature entitlements.Feature) error
 	RequireEntitledLimitFunc              func(ctx context.Context, accountID string, limit entitlements.Limit, current int) error
 	UpdateAccountOnboardingFunc           func(ctx context.Context, accountID, userID string, onboarding *types.AccountOnboarding) (*types.AccountOnboarding, error)
 	GetOrCreateAccountByPrivateDomainFunc func(ctx context.Context, initiatorId, domain string) (*types.Account, bool, error)
@@ -1000,6 +1001,13 @@ func (am *MockAccountManager) GetAccountEntitlements(ctx context.Context, accoun
 		return am.GetAccountEntitlementsFunc(ctx, accountID, userID)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method GetAccountEntitlements is not implemented")
+}
+
+func (am *MockAccountManager) RequireEntitledFeature(ctx context.Context, accountID string, feature entitlements.Feature) error {
+	if am.RequireEntitledFeatureFunc != nil {
+		return am.RequireEntitledFeatureFunc(ctx, accountID, feature)
+	}
+	return nil
 }
 
 func (am *MockAccountManager) RequireEntitledLimit(ctx context.Context, accountID string, limit entitlements.Limit, current int) error {

@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/netbird/management/server/entitlements"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	"github.com/netbirdio/netbird/management/server/networks/routers/types"
 	"github.com/netbirdio/netbird/management/server/permissions"
@@ -122,6 +123,49 @@ func Test_CreateRouterSuccessfully(t *testing.T) {
 	require.Equal(t, router.Peer, createdRouter.Peer)
 	require.Equal(t, router.Metric, createdRouter.Metric)
 	require.Equal(t, router.Masquerade, createdRouter.Masquerade)
+}
+
+func Test_CreateRouterFailsWithHARoutesEntitlementDenied(t *testing.T) {
+	ctx := context.Background()
+	accountID := "testAccountId"
+	networkID := "testNetworkId"
+	userID := "testAdminId"
+	router, err := types.NewNetworkRouter(accountID, networkID, "secondPeerId", []string{}, false, 9999, true)
+	require.NoError(t, err)
+
+	s, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "../../testdata/networks.sql", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(cleanUp)
+
+	err = s.SaveNetworkRouter(ctx, &types.NetworkRouter{
+		ID:        "existingRouterId",
+		AccountID: accountID,
+		NetworkID: networkID,
+		Peer:      "testPeerId",
+		Metric:    9999,
+		Enabled:   true,
+	})
+	require.NoError(t, err)
+
+	permissionsManager := permissions.NewManager(s)
+	checker := entitlements.NewChecker(entitlements.NewBasicStaticProvider())
+	am := mock_server.MockAccountManager{
+		RequireEntitledFeatureFunc: func(ctx context.Context, requestedAccountID string, feature entitlements.Feature) error {
+			return entitlements.RequireFeature(ctx, checker, requestedAccountID, feature)
+		},
+	}
+	manager := NewManager(s, permissionsManager, &am)
+
+	createdRouter, err := manager.CreateRouter(ctx, userID, router)
+	require.Error(t, err)
+	require.Nil(t, createdRouter)
+
+	sErr, ok := status.FromError(err)
+	require.True(t, ok)
+	require.Equal(t, status.PermissionDenied, sErr.Type())
+	require.Contains(t, err.Error(), string(entitlements.FeatureHARoutes))
 }
 
 func Test_CreateRouterFailsWithPermissionDenied(t *testing.T) {

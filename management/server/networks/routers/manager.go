@@ -9,6 +9,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/entitlements"
 	"github.com/netbirdio/netbird/management/server/networks/routers/types"
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
 	"github.com/netbirdio/netbird/management/server/permissions"
@@ -33,6 +34,10 @@ type managerImpl struct {
 	store              store.Store
 	permissionsManager permissions.Manager
 	accountManager     account.Manager
+}
+
+type featureEntitlementsManager interface {
+	RequireEntitledFeature(ctx context.Context, accountID string, feature entitlements.Feature) error
 }
 
 type mockManager struct {
@@ -102,6 +107,10 @@ func (m *managerImpl) CreateRouter(ctx context.Context, userID string, router *t
 
 		router.ID = xid.New().String()
 
+		if err = m.validateHARouterEntitlement(ctx, transaction, router.AccountID, router.NetworkID, router); err != nil {
+			return err
+		}
+
 		err = transaction.SaveNetworkRouter(ctx, router)
 		if err != nil {
 			return fmt.Errorf("failed to create network router: %w", err)
@@ -164,6 +173,10 @@ func (m *managerImpl) UpdateRouter(ctx context.Context, userID string, router *t
 
 		if network.ID != router.NetworkID {
 			return status.NewRouterNotPartOfNetworkError(router.ID, router.NetworkID)
+		}
+
+		if err = m.validateHARouterEntitlement(ctx, transaction, router.AccountID, router.NetworkID, router); err != nil {
+			return err
 		}
 
 		err = transaction.SaveNetworkRouter(ctx, router)
@@ -248,6 +261,86 @@ func (m *managerImpl) DeleteRouterInTransaction(ctx context.Context, transaction
 	}
 
 	return event, nil
+}
+
+func (m *managerImpl) validateHARouterEntitlement(ctx context.Context, transaction store.Store, accountID, networkID string, routerToSave *types.NetworkRouter) error {
+	entitlementsManager, ok := m.accountManager.(featureEntitlementsManager)
+	if !ok {
+		return nil
+	}
+
+	existingRouters, err := transaction.GetNetworkRoutersByNetID(ctx, store.LockingStrengthUpdate, accountID, networkID)
+	if err != nil {
+		return fmt.Errorf("failed to get routers in network for entitlement check: %w", err)
+	}
+
+	projectedRouters := replaceOrAppendRouter(existingRouters, routerToSave)
+	routingPeerCount, err := m.routingPeerCount(ctx, transaction, accountID, projectedRouters)
+	if err != nil {
+		return err
+	}
+	if routingPeerCount < 2 {
+		return nil
+	}
+
+	return entitlementsManager.RequireEntitledFeature(ctx, accountID, entitlements.FeatureHARoutes)
+}
+
+func replaceOrAppendRouter(existingRouters []*types.NetworkRouter, routerToSave *types.NetworkRouter) []*types.NetworkRouter {
+	projectedRouters := make([]*types.NetworkRouter, 0, len(existingRouters)+1)
+	replaced := false
+	for _, router := range existingRouters {
+		if router.ID == routerToSave.ID {
+			projectedRouters = append(projectedRouters, routerToSave)
+			replaced = true
+			continue
+		}
+		projectedRouters = append(projectedRouters, router)
+	}
+	if !replaced {
+		projectedRouters = append(projectedRouters, routerToSave)
+	}
+	return projectedRouters
+}
+
+func (m *managerImpl) routingPeerCount(ctx context.Context, transaction store.Store, accountID string, routers []*types.NetworkRouter) (int, error) {
+	groupIDs := make([]string, 0)
+	seenGroupIDs := make(map[string]struct{})
+	routingPeerCount := 0
+
+	for _, router := range routers {
+		if router.Peer != "" {
+			routingPeerCount++
+		}
+		for _, groupID := range router.PeerGroups {
+			if _, seen := seenGroupIDs[groupID]; seen {
+				continue
+			}
+			seenGroupIDs[groupID] = struct{}{}
+			groupIDs = append(groupIDs, groupID)
+		}
+	}
+
+	if len(groupIDs) == 0 {
+		return routingPeerCount, nil
+	}
+
+	groups, err := transaction.GetGroupsByIDs(ctx, store.LockingStrengthUpdate, accountID, groupIDs)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get router groups for entitlement check: %w", err)
+	}
+
+	for _, router := range routers {
+		for _, groupID := range router.PeerGroups {
+			group, ok := groups[groupID]
+			if !ok {
+				continue
+			}
+			routingPeerCount += len(group.Peers)
+		}
+	}
+
+	return routingPeerCount, nil
 }
 
 func NewManagerMock() Manager {

@@ -74,6 +74,10 @@ func (am *DefaultAccountManager) requireEntitledFeature(ctx context.Context, acc
 	return entitlements.RequireFeature(ctx, am.entitlementsChecker, accountID, feature)
 }
 
+func (am *DefaultAccountManager) RequireEntitledFeature(ctx context.Context, accountID string, feature entitlements.Feature) error {
+	return am.requireEntitledFeature(ctx, accountID, feature)
+}
+
 func (am *DefaultAccountManager) requireEntitledLimit(ctx context.Context, accountID string, limit entitlements.Limit, current int) error {
 	return entitlements.RequireLimit(ctx, am.entitlementsChecker, accountID, limit, current)
 }
