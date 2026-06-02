@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"time"
 
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
@@ -22,6 +23,11 @@ import (
 type handler struct {
 	accountManager account.Manager
 }
+
+const (
+	networkTrafficSummaryBucketSeconds = networktraffic.SummaryBucketSeconds
+	networkTrafficSummaryMaxPoints     = 12000
+)
 
 func AddEndpoints(accountManager account.Manager, router *mux.Router) {
 	eventsHandler := newHandler(accountManager)
@@ -161,15 +167,23 @@ func aggregateNetworkTrafficFlowEvents(events []api.NetworkTrafficEvent) []api.N
 }
 
 type networkTrafficSummaryPoint struct {
-	Timestamp   string `json:"timestamp"`
-	BucketStart string `json:"bucket_start"`
-	BucketEnd   string `json:"bucket_end"`
-	RxBytes     int64  `json:"rx_bytes"`
-	TxBytes     int64  `json:"tx_bytes"`
+	Timestamp      string  `json:"timestamp"`
+	BucketStart    string  `json:"bucket_start"`
+	BucketEnd      string  `json:"bucket_end"`
+	CoveredSeconds float64 `json:"covered_seconds"`
+	RxBytes        int64   `json:"rx_bytes"`
+	TxBytes        int64   `json:"tx_bytes"`
+	DownloadRate   float64 `json:"download_rate"`
+	UploadRate     float64 `json:"upload_rate"`
 }
 
 type networkTrafficSummaryResponse struct {
-	Data []networkTrafficSummaryPoint `json:"data"`
+	BucketSeconds int                          `json:"bucket_seconds"`
+	Data          []networkTrafficSummaryPoint `json:"data"`
+	DownloadPeak  float64                      `json:"download_peak"`
+	DownloadTotal int64                        `json:"download_total"`
+	UploadPeak    float64                      `json:"upload_peak"`
+	UploadTotal   int64                        `json:"upload_total"`
 }
 
 func (h *handler) getNetworkTrafficSummary(w http.ResponseWriter, r *http.Request) {
@@ -183,6 +197,11 @@ func (h *handler) getNetworkTrafficSummary(w http.ResponseWriter, r *http.Reques
 	filter.ParseFromRequest(r)
 
 	bucketSeconds := parseBucketSeconds(r)
+	if countSummaryPoints(filter, bucketSeconds) > networkTrafficSummaryMaxPoints {
+		util.WriteErrorResponse("network traffic summary range is too large", http.StatusBadRequest, w)
+		return
+	}
+
 	points, err := h.accountManager.GetStore().GetAccountNetworkTrafficSummary(
 		r.Context(),
 		userAuth.AccountId,
@@ -194,14 +213,29 @@ func (h *handler) getNetworkTrafficSummary(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	response := networkTrafficSummaryResponse{Data: make([]networkTrafficSummaryPoint, 0, len(points))}
+	response := networkTrafficSummaryResponse{
+		BucketSeconds: bucketSeconds,
+		Data:          make([]networkTrafficSummaryPoint, 0, len(points)),
+	}
 	for _, point := range points {
+		response.DownloadTotal += point.RxBytes
+		response.UploadTotal += point.TxBytes
+		if point.DownloadRate > response.DownloadPeak {
+			response.DownloadPeak = point.DownloadRate
+		}
+		if point.UploadRate > response.UploadPeak {
+			response.UploadPeak = point.UploadRate
+		}
+
 		response.Data = append(response.Data, networkTrafficSummaryPoint{
-			Timestamp:   point.Timestamp.Format("2006-01-02T15:04:05.000Z07:00"),
-			BucketStart: point.BucketStart.Format("2006-01-02T15:04:05.000Z07:00"),
-			BucketEnd:   point.BucketEnd.Format("2006-01-02T15:04:05.000Z07:00"),
-			RxBytes:     point.RxBytes,
-			TxBytes:     point.TxBytes,
+			Timestamp:      point.Timestamp.Format("2006-01-02T15:04:05.000Z07:00"),
+			BucketStart:    point.BucketStart.Format("2006-01-02T15:04:05.000Z07:00"),
+			BucketEnd:      point.BucketEnd.Format("2006-01-02T15:04:05.000Z07:00"),
+			CoveredSeconds: point.CoveredSeconds,
+			RxBytes:        point.RxBytes,
+			TxBytes:        point.TxBytes,
+			DownloadRate:   point.DownloadRate,
+			UploadRate:     point.UploadRate,
 		})
 	}
 	util.WriteJSONObject(r.Context(), w, response)
@@ -210,15 +244,40 @@ func (h *handler) getNetworkTrafficSummary(w http.ResponseWriter, r *http.Reques
 func parseBucketSeconds(r *http.Request) int {
 	bucketSeconds, err := strconv.Atoi(r.URL.Query().Get("bucket_seconds"))
 	if err != nil || bucketSeconds <= 0 {
-		return 300
+		return networkTrafficSummaryBucketSeconds
 	}
-	if bucketSeconds < 60 {
-		return 60
+	if bucketSeconds < networkTrafficSummaryBucketSeconds {
+		return networkTrafficSummaryBucketSeconds
 	}
 	if bucketSeconds > 24*60*60 {
 		return 24 * 60 * 60
 	}
 	return bucketSeconds
+}
+
+func countSummaryPoints(filter networktraffic.Filter, bucketSeconds int) int64 {
+	startTime, endTime := networkTrafficSummaryRange(filter)
+	if !endTime.After(startTime) {
+		return 0
+	}
+
+	firstBucket := startTime.Unix() / int64(bucketSeconds)
+	lastBucket := endTime.Add(-time.Nanosecond).Unix() / int64(bucketSeconds)
+	return lastBucket - firstBucket + 1
+}
+
+func networkTrafficSummaryRange(filter networktraffic.Filter) (time.Time, time.Time) {
+	endTime := time.Now().UTC()
+	if filter.EndDate != nil {
+		endTime = filter.EndDate.UTC()
+	}
+
+	startTime := endTime.Add(-6 * time.Hour)
+	if filter.StartDate != nil {
+		startTime = filter.StartDate.UTC()
+	}
+
+	return startTime, endTime
 }
 
 func getTotalPageCount(totalCount, pageSize int) int {

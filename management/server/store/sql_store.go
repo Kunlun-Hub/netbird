@@ -5711,7 +5711,11 @@ func (s *SqlStore) getAccountNetworkTrafficFlowEvents(ctx context.Context, lockS
 
 func (s *SqlStore) GetAccountNetworkTrafficSummary(ctx context.Context, accountID string, filter networktraffic.Filter, bucketSeconds int) ([]networktraffic.SummaryPoint, error) {
 	if bucketSeconds <= 0 {
-		bucketSeconds = 300
+		bucketSeconds = networktraffic.SummaryBucketSeconds
+	}
+	startTime, endTime := networkTrafficSummaryRange(filter)
+	if !endTime.After(startTime) {
+		return []networktraffic.SummaryPoint{}, nil
 	}
 
 	type summaryRow struct {
@@ -5725,6 +5729,7 @@ func (s *SqlStore) GetAccountNetworkTrafficSummary(ctx context.Context, accountI
 	query := s.db.Model(&networktraffic.Event{}).
 		Where(accountIDCondition, accountID)
 	query = s.applyNetworkTrafficFilters(query, filter).
+		Where("timestamp >= ? AND timestamp < ?", startTime, endTime).
 		Select(fmt.Sprintf("%s AS bucket, COALESCE(SUM(rx_bytes), 0) AS rx_bytes, COALESCE(SUM(tx_bytes), 0) AS tx_bytes", bucketExpr), bucketSeconds).
 		Group("bucket").
 		Order("bucket ASC")
@@ -5734,19 +5739,66 @@ func (s *SqlStore) GetAccountNetworkTrafficSummary(ctx context.Context, accountI
 		return nil, status.Errorf(status.Internal, "failed to summarize network traffic events")
 	}
 
-	points := make([]networktraffic.SummaryPoint, 0, len(rows))
+	rowsByBucket := make(map[int64]summaryRow, len(rows))
 	for _, row := range rows {
-		bucketStart := time.Unix(row.Bucket*int64(bucketSeconds), 0).UTC()
-		bucketEnd := bucketStart.Add(time.Duration(bucketSeconds) * time.Second)
+		rowsByBucket[row.Bucket] = row
+	}
+
+	bucketDuration := time.Duration(bucketSeconds) * time.Second
+	firstBucket := startTime.Unix() / int64(bucketSeconds)
+	lastBucket := (endTime.Add(-time.Nanosecond).Unix()) / int64(bucketSeconds)
+	points := make([]networktraffic.SummaryPoint, 0, int(lastBucket-firstBucket+1))
+	for bucket := firstBucket; bucket <= lastBucket; bucket++ {
+		bucketStart := time.Unix(bucket*int64(bucketSeconds), 0).UTC()
+		bucketEnd := bucketStart.Add(bucketDuration)
+		visibleStart := maxTime(bucketStart, startTime)
+		visibleEnd := minTime(bucketEnd, endTime)
+		coveredSeconds := visibleEnd.Sub(visibleStart).Seconds()
+		if coveredSeconds <= 0 {
+			continue
+		}
+
+		row := rowsByBucket[bucket]
 		points = append(points, networktraffic.SummaryPoint{
-			Timestamp:   bucketStart,
-			BucketStart: bucketStart,
-			BucketEnd:   bucketEnd,
-			RxBytes:     row.RxBytes,
-			TxBytes:     row.TxBytes,
+			Timestamp:      visibleStart,
+			BucketStart:    visibleStart,
+			BucketEnd:      visibleEnd,
+			CoveredSeconds: coveredSeconds,
+			RxBytes:        row.RxBytes,
+			TxBytes:        row.TxBytes,
+			DownloadRate:   float64(row.RxBytes) / coveredSeconds,
+			UploadRate:     float64(row.TxBytes) / coveredSeconds,
 		})
 	}
 	return points, nil
+}
+
+func networkTrafficSummaryRange(filter networktraffic.Filter) (time.Time, time.Time) {
+	endTime := time.Now().UTC()
+	if filter.EndDate != nil {
+		endTime = filter.EndDate.UTC()
+	}
+
+	startTime := endTime.Add(-6 * time.Hour)
+	if filter.StartDate != nil {
+		startTime = filter.StartDate.UTC()
+	}
+
+	return startTime, endTime
+}
+
+func minTime(a, b time.Time) time.Time {
+	if a.Before(b) {
+		return a
+	}
+	return b
+}
+
+func maxTime(a, b time.Time) time.Time {
+	if a.After(b) {
+		return a
+	}
+	return b
 }
 
 func (s *SqlStore) networkTrafficBucketExpression() string {

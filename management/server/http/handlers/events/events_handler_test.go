@@ -12,7 +12,9 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/netbird/management/internals/modules/networktraffic"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/shared/auth"
 
@@ -36,6 +38,34 @@ func initEventsTestData(account string, events ...*activity.Event) *handler {
 			},
 		},
 	}
+}
+
+func TestNetworkTrafficSummaryBucketSeconds(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/api/events/network-traffic/summary?bucket_seconds=30", nil)
+
+	assert.Equal(t, 60, parseBucketSeconds(req))
+
+	req = httptest.NewRequest(http.MethodGet, "/api/events/network-traffic/summary?bucket_seconds=60", nil)
+
+	assert.Equal(t, 60, parseBucketSeconds(req))
+}
+
+func TestNetworkTrafficSummaryPointLimit(t *testing.T) {
+	endTime := time.Date(2026, 6, 2, 12, 0, 0, 0, time.UTC)
+	startTime := endTime.Add(-7 * 24 * time.Hour)
+	filter := networktraffic.Filter{
+		StartDate: &startTime,
+		EndDate:   &endTime,
+	}
+
+	points := countSummaryPoints(filter, networkTrafficSummaryBucketSeconds)
+	require.Positive(t, points)
+	assert.LessOrEqual(t, points, int64(networkTrafficSummaryMaxPoints))
+
+	tooWideStart := endTime.Add(-9 * 24 * time.Hour)
+	filter.StartDate = &tooWideStart
+
+	assert.Greater(t, countSummaryPoints(filter, networkTrafficSummaryBucketSeconds), int64(networkTrafficSummaryMaxPoints))
 }
 
 func generateEvents(accountID, userID string) []*activity.Event {

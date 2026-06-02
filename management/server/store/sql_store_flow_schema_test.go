@@ -54,6 +54,93 @@ func TestCreateNetworkTrafficEventIgnoresDuplicateID(t *testing.T) {
 	require.Equal(t, int64(1), count)
 }
 
+func TestGetAccountNetworkTrafficSummaryReturnsBackendPoints(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup, err := NewTestStoreFromSQL(ctx, "", t.TempDir())
+	require.NoError(t, err)
+	defer cleanup()
+
+	sqlStore, ok := store.(*SqlStore)
+	require.True(t, ok)
+
+	accountID := "account-id"
+	startTime := time.Date(2026, 6, 2, 12, 0, 0, 0, time.UTC)
+	endTime := startTime.Add(3 * time.Minute)
+	events := []*networktraffic.Event{
+		{
+			ID:             "first-bucket",
+			AccountID:      accountID,
+			FlowID:         "flow-a",
+			Timestamp:      startTime.Add(10 * time.Second),
+			ConnectionType: networktraffic.ConnectionTypeRouted,
+			RxBytes:        120,
+			TxBytes:        60,
+		},
+		{
+			ID:             "third-bucket",
+			AccountID:      accountID,
+			FlowID:         "flow-b",
+			Timestamp:      startTime.Add(2*time.Minute + 5*time.Second),
+			ConnectionType: networktraffic.ConnectionTypeRouted,
+			RxBytes:        300,
+			TxBytes:        180,
+		},
+		{
+			ID:             "filtered-out",
+			AccountID:      accountID,
+			FlowID:         "flow-c",
+			Timestamp:      startTime.Add(time.Minute),
+			ConnectionType: networktraffic.ConnectionTypeP2P,
+			RxBytes:        999,
+			TxBytes:        999,
+		},
+		{
+			ID:             "end-exclusive",
+			AccountID:      accountID,
+			FlowID:         "flow-d",
+			Timestamp:      endTime,
+			ConnectionType: networktraffic.ConnectionTypeRouted,
+			RxBytes:        999,
+			TxBytes:        999,
+		},
+	}
+
+	for _, event := range events {
+		require.NoError(t, sqlStore.CreateNetworkTrafficEvent(ctx, event))
+	}
+
+	connectionType := networktraffic.ConnectionTypeRouted
+	filter := networktraffic.Filter{
+		StartDate:      &startTime,
+		EndDate:        &endTime,
+		ConnectionType: &connectionType,
+	}
+
+	points, err := sqlStore.GetAccountNetworkTrafficSummary(ctx, accountID, filter, 0)
+	require.NoError(t, err)
+	require.Len(t, points, 3)
+
+	require.Equal(t, startTime, points[0].BucketStart)
+	require.Equal(t, startTime.Add(time.Minute), points[0].BucketEnd)
+	require.Equal(t, float64(networktraffic.SummaryBucketSeconds), points[0].CoveredSeconds)
+	require.Equal(t, int64(120), points[0].RxBytes)
+	require.Equal(t, int64(60), points[0].TxBytes)
+	require.InDelta(t, 2.0, points[0].DownloadRate, 0.001)
+	require.InDelta(t, 1.0, points[0].UploadRate, 0.001)
+
+	require.Equal(t, startTime.Add(time.Minute), points[1].BucketStart)
+	require.Equal(t, int64(0), points[1].RxBytes)
+	require.Equal(t, int64(0), points[1].TxBytes)
+	require.InDelta(t, 0.0, points[1].DownloadRate, 0.001)
+	require.InDelta(t, 0.0, points[1].UploadRate, 0.001)
+
+	require.Equal(t, startTime.Add(2*time.Minute), points[2].BucketStart)
+	require.Equal(t, int64(300), points[2].RxBytes)
+	require.Equal(t, int64(180), points[2].TxBytes)
+	require.InDelta(t, 5.0, points[2].DownloadRate, 0.001)
+	require.InDelta(t, 3.0, points[2].UploadRate, 0.001)
+}
+
 func TestGetAccountNetworkTrafficEventsNetworkOnlyFiltersNoise(t *testing.T) {
 	ctx := context.Background()
 	store, cleanup, err := NewTestStoreFromSQL(ctx, "", t.TempDir())

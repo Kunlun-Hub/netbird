@@ -16,6 +16,8 @@ const (
 
 	ConnectionTypeP2P    = "P2P"
 	ConnectionTypeRouted = "ROUTED"
+
+	SummaryBucketSeconds = 60
 )
 
 type Event struct {
@@ -69,11 +71,14 @@ type Event struct {
 }
 
 type SummaryPoint struct {
-	Timestamp   time.Time
-	BucketStart time.Time
-	BucketEnd   time.Time
-	RxBytes     int64
-	TxBytes     int64
+	Timestamp      time.Time
+	BucketStart    time.Time
+	BucketEnd      time.Time
+	CoveredSeconds float64
+	RxBytes        int64
+	TxBytes        int64
+	DownloadRate   float64
+	UploadRate     float64
 }
 
 func FormatAddress(ip net.IP, port uint32) string {
