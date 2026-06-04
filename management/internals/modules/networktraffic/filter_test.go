@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -72,4 +73,50 @@ func TestFilterParseFromRequestNetworkOnly(t *testing.T) {
 	if assert.NotNil(t, filter.InternalDNS) {
 		assert.True(t, *filter.InternalDNS)
 	}
+}
+
+func TestFilterNormalizeDateRangeDefaultsToLast15Days(t *testing.T) {
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+
+	var filter Filter
+	filter.normalizeDateRange(now)
+
+	assert.Equal(t, now, *filter.EndDate)
+	assert.Equal(t, now.Add(-15*24*time.Hour), *filter.StartDate)
+}
+
+func TestFilterNormalizeDateRangeCapsLongRanges(t *testing.T) {
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	startDate := now.Add(-30 * 24 * time.Hour)
+	endDate := now.Add(-2 * time.Hour)
+
+	filter := Filter{StartDate: &startDate, EndDate: &endDate}
+	filter.normalizeDateRange(now)
+
+	assert.Equal(t, endDate, *filter.EndDate)
+	assert.Equal(t, endDate.Add(-15*24*time.Hour), *filter.StartDate)
+}
+
+func TestFilterNormalizeDateRangeKeepsShortRanges(t *testing.T) {
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	startDate := now.Add(-2 * time.Hour)
+	endDate := now.Add(-time.Hour)
+
+	filter := Filter{StartDate: &startDate, EndDate: &endDate}
+	filter.normalizeDateRange(now)
+
+	assert.Equal(t, endDate, *filter.EndDate)
+	assert.Equal(t, startDate, *filter.StartDate)
+}
+
+func TestFilterNormalizeDateRangeStartAfterEnd(t *testing.T) {
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	startDate := now.Add(time.Hour)
+	endDate := now
+
+	filter := Filter{StartDate: &startDate, EndDate: &endDate}
+	filter.normalizeDateRange(now)
+
+	assert.Equal(t, endDate, *filter.EndDate)
+	assert.Equal(t, endDate, *filter.StartDate)
 }

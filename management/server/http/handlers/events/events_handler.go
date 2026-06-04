@@ -26,7 +26,7 @@ type handler struct {
 
 const (
 	networkTrafficSummaryBucketSeconds = networktraffic.SummaryBucketSeconds
-	networkTrafficSummaryMaxPoints     = 12000
+	networkTrafficSummaryMaxPoints     = networktraffic.MaxDateRangeDays * 24 * 60
 )
 
 func AddEndpoints(accountManager account.Manager, router *mux.Router) {
@@ -34,6 +34,8 @@ func AddEndpoints(accountManager account.Manager, router *mux.Router) {
 	router.HandleFunc("/events", eventsHandler.getAllEvents).Methods("GET", "OPTIONS")
 	router.HandleFunc("/events/audit", eventsHandler.getAllEvents).Methods("GET", "OPTIONS")
 	router.HandleFunc("/events/network-traffic", eventsHandler.getAllNetworkTrafficEvents).Methods("GET", "OPTIONS")
+	router.HandleFunc("/events/network-traffic/groups", eventsHandler.getNetworkTrafficClientGroups).Methods("GET", "OPTIONS")
+	router.HandleFunc("/events/network-traffic/group-flows", eventsHandler.getNetworkTrafficGroupFlows).Methods("GET", "OPTIONS")
 	router.HandleFunc("/events/network-traffic/summary", eventsHandler.getNetworkTrafficSummary).Methods("GET", "OPTIONS")
 }
 
@@ -124,6 +126,142 @@ func (h *handler) getAllNetworkTrafficEvents(w http.ResponseWriter, r *http.Requ
 		TotalRecords: int(totalCount),
 		TotalPages:   getTotalPageCount(int(totalCount), filter.PageSize),
 	})
+}
+
+type networkTrafficClientGroupResponse struct {
+	Id              string                       `json:"id"`
+	ClientKey       string                       `json:"client_key"`
+	Client          api.NetworkTrafficEndpoint   `json:"client"`
+	User            api.NetworkTrafficUser       `json:"user"`
+	LatestTimestamp time.Time                    `json:"latest_timestamp"`
+	FlowCount       int64                        `json:"flow_count"`
+	RxBytes         int64                        `json:"rx_bytes"`
+	RxPackets       int64                        `json:"rx_packets"`
+	TxBytes         int64                        `json:"tx_bytes"`
+	TxPackets       int64                        `json:"tx_packets"`
+	Protocols       []int                        `json:"protocols"`
+	Destinations    []api.NetworkTrafficEndpoint `json:"destinations"`
+}
+
+type networkTrafficClientGroupsResponse struct {
+	Data         []networkTrafficClientGroupResponse `json:"data"`
+	Page         int                                 `json:"page"`
+	PageSize     int                                 `json:"page_size"`
+	TotalRecords int                                 `json:"total_records"`
+	TotalPages   int                                 `json:"total_pages"`
+}
+
+func (h *handler) getNetworkTrafficClientGroups(w http.ResponseWriter, r *http.Request) {
+	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	var filter networktraffic.Filter
+	filter.ParseFromRequest(r)
+
+	groups, totalCount, err := h.accountManager.GetStore().GetAccountNetworkTrafficClientGroups(
+		r.Context(),
+		store.LockingStrengthNone,
+		userAuth.AccountId,
+		filter,
+	)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	responseGroups := make([]networkTrafficClientGroupResponse, 0, len(groups))
+	for _, group := range groups {
+		destinations := make([]api.NetworkTrafficEndpoint, 0, len(group.Destinations))
+		for _, destination := range group.Destinations {
+			destinations = append(destinations, toNetworkTrafficEndpoint(destination))
+		}
+		responseGroups = append(responseGroups, networkTrafficClientGroupResponse{
+			Id:              group.ID,
+			ClientKey:       group.ID,
+			Client:          toNetworkTrafficEndpoint(group.Client),
+			User:            api.NetworkTrafficUser{Id: group.UserID, Name: group.UserName, Email: group.UserEmail},
+			LatestTimestamp: group.LatestTimestamp,
+			FlowCount:       group.FlowCount,
+			RxBytes:         group.RxBytes,
+			RxPackets:       group.RxPackets,
+			TxBytes:         group.TxBytes,
+			TxPackets:       group.TxPackets,
+			Protocols:       group.Protocols,
+			Destinations:    destinations,
+		})
+	}
+
+	util.WriteJSONObject(r.Context(), w, &networkTrafficClientGroupsResponse{
+		Data:         responseGroups,
+		Page:         filter.Page,
+		PageSize:     filter.PageSize,
+		TotalRecords: int(totalCount),
+		TotalPages:   getTotalPageCount(int(totalCount), filter.PageSize),
+	})
+}
+
+func (h *handler) getNetworkTrafficGroupFlows(w http.ResponseWriter, r *http.Request) {
+	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	var filter networktraffic.Filter
+	filter.ParseFromRequest(r)
+	if filter.PageSize > 10000 {
+		filter.PageSize = 10000
+	}
+
+	events, totalCount, err := h.accountManager.GetStore().GetAccountNetworkTrafficGroupFlows(
+		r.Context(),
+		store.LockingStrengthNone,
+		userAuth.AccountId,
+		filter,
+	)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	apiEvents := make([]api.NetworkTrafficEvent, 0, len(events))
+	for _, event := range events {
+		apiEvents = append(apiEvents, *event.ToAPIResponse())
+	}
+	apiEvents = aggregateNetworkTrafficFlowEvents(apiEvents)
+
+	util.WriteJSONObject(r.Context(), w, &api.NetworkTrafficEventsResponse{
+		Data:         apiEvents,
+		Page:         filter.Page,
+		PageSize:     filter.PageSize,
+		TotalRecords: int(totalCount),
+		TotalPages:   getTotalPageCount(int(totalCount), filter.PageSize),
+	})
+}
+
+func toNetworkTrafficEndpoint(endpoint networktraffic.Endpoint) api.NetworkTrafficEndpoint {
+	return api.NetworkTrafficEndpoint{
+		Id:       endpoint.ID,
+		Type:     endpoint.Type,
+		Name:     endpoint.Name,
+		Address:  endpoint.Address,
+		DnsLabel: optionalString(endpoint.DNSLabel),
+		Os:       optionalString(endpoint.OS),
+		GeoLocation: api.NetworkTrafficLocation{
+			CountryCode: endpoint.CountryCode,
+			CityName:    endpoint.CityName,
+		},
+	}
+}
+
+func optionalString(value string) *string {
+	if value == "" {
+		return nil
+	}
+	return &value
 }
 
 func aggregateNetworkTrafficFlowEvents(events []api.NetworkTrafficEvent) []api.NetworkTrafficEvent {

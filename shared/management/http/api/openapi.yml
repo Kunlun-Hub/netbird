@@ -345,6 +345,14 @@ components:
             type: string
             enum: [ try, year, enterprise ]
           example: [ year ]
+        resource_limits:
+          description: Resource quota limits embedded in the installed license key.
+          type: object
+          additionalProperties:
+            type: integer
+          example:
+            users: 50
+            peers: 200
         message:
           description: Human-readable license status detail.
           type: string

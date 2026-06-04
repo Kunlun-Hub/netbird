@@ -140,7 +140,7 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 		&installation{}, &types.ExtraSettings{}, &posture.Checks{}, &nbpeer.NetworkAddress{},
 		&networkTypes.Network{}, &routerTypes.NetworkRouter{}, &resourceTypes.NetworkResource{}, &types.AccountOnboarding{},
 		&types.Job{}, &zones.Zone{}, &records.Record{}, &types.UserInviteRecord{}, &rpservice.Service{}, &rpservice.Target{}, &domain.Domain{},
-		&accesslogs.AccessLogEntry{}, &networktraffic.Event{}, &proxy.Proxy{},
+		&accesslogs.AccessLogEntry{}, &networktraffic.Event{}, &networktraffic.FlowSummary{}, &proxy.Proxy{},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("auto migratePreAuto: %w", err)
@@ -161,6 +161,9 @@ func ensureFlowLogStorage(ctx context.Context, db *gorm.DB) error {
 		if err := db.AutoMigrate(&networktraffic.Event{}); err != nil {
 			return err
 		}
+	}
+	if err := db.AutoMigrate(&networktraffic.FlowSummary{}); err != nil {
+		return err
 	}
 
 	accountModel := &types.Account{}
@@ -5533,12 +5536,84 @@ func (s *SqlStore) CreateAccessLog(ctx context.Context, logEntry *accesslogs.Acc
 }
 
 func (s *SqlStore) CreateNetworkTrafficEvent(ctx context.Context, event *networktraffic.Event) error {
-	result := s.db.Clauses(clause.OnConflict{DoNothing: true}).Create(event)
-	if result.Error != nil {
-		log.WithContext(ctx).Errorf("failed to create network traffic event in store: %v", result.Error)
-		return status.Errorf(status.Internal, "failed to create network traffic event in store")
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		result := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(event)
+		if result.Error != nil {
+			log.WithContext(ctx).Errorf("failed to create network traffic event in store: %v", result.Error)
+			return status.Errorf(status.Internal, "failed to create network traffic event in store")
+		}
+		if result.RowsAffected == 0 {
+			return nil
+		}
+		if err := updateNetworkTrafficFlowSummary(tx, event); err != nil {
+			log.WithContext(ctx).Errorf("failed to update network traffic flow summary: %v", err)
+			return status.Errorf(status.Internal, "failed to update network traffic flow summary")
+		}
+		return nil
+	})
+}
+
+func updateNetworkTrafficFlowSummary(tx *gorm.DB, event *networktraffic.Event) error {
+	var summary networktraffic.FlowSummary
+	err := tx.
+		Where("account_id = ? AND flow_id = ?", event.AccountID, event.FlowID).
+		First(&summary).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return tx.Create(networktraffic.NewFlowSummary(event)).Error
 	}
-	return nil
+	if err != nil {
+		return err
+	}
+
+	updates := map[string]any{
+		"event_count": summary.EventCount + 1,
+		"rx_bytes":    max(summary.RxBytes, event.RxBytes),
+		"rx_packets":  max(summary.RxPackets, event.RxPackets),
+		"tx_bytes":    max(summary.TxBytes, event.TxBytes),
+		"tx_packets":  max(summary.TxPackets, event.TxPackets),
+	}
+
+	if event.Timestamp.Before(summary.FirstTimestamp) {
+		updates["first_timestamp"] = event.Timestamp
+	}
+	if event.Timestamp.After(summary.LatestTimestamp) || event.Timestamp.Equal(summary.LatestTimestamp) {
+		updates["latest_timestamp"] = event.Timestamp
+		updates["event_type"] = event.EventType
+		updates["direction"] = event.Direction
+		updates["protocol"] = event.Protocol
+		updates["connection_type"] = event.ConnectionType
+		updates["reporter_id"] = event.ReporterID
+		updates["user_id"] = event.UserID
+		updates["source_id"] = event.SourceID
+		updates["source_type"] = event.SourceType
+		updates["source_name"] = event.SourceName
+		updates["source_address"] = event.SourceAddress
+		updates["source_dns_label"] = event.SourceDNSLabel
+		updates["source_os"] = event.SourceOS
+		updates["source_country_code"] = event.SourceCountryCode
+		updates["source_city_name"] = event.SourceCityName
+		updates["destination_id"] = event.DestinationID
+		updates["destination_type"] = event.DestinationType
+		updates["destination_name"] = event.DestinationName
+		updates["destination_address"] = event.DestinationAddress
+		updates["destination_dns_label"] = event.DestinationDNSLabel
+		updates["destination_os"] = event.DestinationOS
+		updates["destination_country_code"] = event.DestinationCountryCode
+		updates["destination_city_name"] = event.DestinationCityName
+		updates["policy_id"] = event.PolicyID
+		updates["policy_name"] = event.PolicyName
+		updates["icmp_type"] = event.ICMPType
+		updates["icmp_code"] = event.ICMPCode
+		updates["dns_domain"] = event.DNSDomain
+		updates["dns_query_type"] = event.DNSQueryType
+		updates["dns_answers"] = event.DNSAnswers
+		updates["dns_r_code"] = event.DNSRCode
+		updates["user_name"] = event.UserName
+		updates["user_email"] = event.UserEmail
+		updates["client_key"] = networktraffic.ClientKey(event)
+	}
+
+	return tx.Model(&summary).Updates(updates).Error
 }
 
 // GetAccountAccessLogs retrieves access logs for a given account with pagination and filtering
@@ -5658,6 +5733,8 @@ func (s *SqlStore) getAccountNetworkTrafficFlowEvents(ctx context.Context, lockS
 	}
 
 	var flowRows []flowPageRow
+	sortOrder := strings.ToUpper(filter.GetSortOrder())
+	orderExpression := networkTrafficFlowOrderExpression(filter.GetSortColumn())
 	pageQuery := s.db.Model(&networktraffic.Event{}).
 		Where(accountIDCondition, accountID)
 	pageQuery = s.applyNetworkTrafficFilters(pageQuery, filter).
@@ -5665,7 +5742,7 @@ func (s *SqlStore) getAccountNetworkTrafficFlowEvents(ctx context.Context, lockS
 		Select("flow_id").
 		Group("flow_id").
 		Having(flowTrafficHaving).
-		Order("MAX(timestamp) " + strings.ToUpper(filter.GetSortOrder())).
+		Order(orderExpression + " " + sortOrder + ", flow_id " + sortOrder).
 		Limit(filter.GetLimit()).
 		Offset(filter.GetOffset())
 
@@ -5707,6 +5784,493 @@ func (s *SqlStore) getAccountNetworkTrafficFlowEvents(ctx context.Context, lockS
 	})
 
 	return events, totalCount, nil
+}
+
+func networkTrafficFlowOrderExpression(sortColumn string) string {
+	switch sortColumn {
+	case "timestamp":
+		return "MAX(timestamp)"
+	case "protocol":
+		return "MIN(protocol)"
+	case "direction":
+		return "MIN(direction)"
+	case "event_type":
+		return "MIN(event_type)"
+	case "user_id":
+		return "MIN(user_id)"
+	case "reporter_id":
+		return "MIN(reporter_id)"
+	default:
+		return "MAX(timestamp)"
+	}
+}
+
+func (s *SqlStore) GetAccountNetworkTrafficClientGroups(ctx context.Context, lockStrength LockingStrength, accountID string, filter networktraffic.Filter) ([]networktraffic.ClientGroup, int64, error) {
+	return s.getAccountNetworkTrafficClientGroupsFromEvents(ctx, lockStrength, accountID, filter)
+}
+
+func (s *SqlStore) getAccountNetworkTrafficClientGroupsFromSummaries(ctx context.Context, lockStrength LockingStrength, accountID string, filter networktraffic.Filter) ([]networktraffic.ClientGroup, int64, error) {
+	type clientPageRow struct {
+		ClientKey       string
+		LatestTimestamp time.Time
+	}
+
+	baseQuery := s.db.Model(&networktraffic.FlowSummary{}).Where(accountIDCondition, accountID)
+	baseQuery = s.applyNetworkTrafficSummaryFilters(baseQuery, filter)
+
+	groupedQuery := baseQuery.
+		Select("client_key").
+		Group("client_key")
+
+	var totalCount int64
+	if err := s.db.Table("(?) as client_groups", groupedQuery).Count(&totalCount).Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to count network traffic client groups: %v", err)
+		return nil, 0, status.Errorf(status.Internal, "failed to count network traffic client groups")
+	}
+	sortOrder := strings.ToUpper(filter.GetSortOrder())
+	var clientRows []clientPageRow
+	pageQuery := s.db.Model(&networktraffic.FlowSummary{}).Where(accountIDCondition, accountID)
+	pageQuery = s.applyNetworkTrafficSummaryFilters(pageQuery, filter).
+		Select("client_key, MAX(latest_timestamp) as latest_timestamp").
+		Group("client_key").
+		Order("MAX(latest_timestamp) " + sortOrder + ", client_key " + sortOrder).
+		Limit(filter.GetLimit()).
+		Offset(filter.GetOffset())
+	if err := pageQuery.Scan(&clientRows).Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to page network traffic client groups: %v", err)
+		return nil, 0, status.Errorf(status.Internal, "failed to page network traffic client groups")
+	}
+	if len(clientRows) == 0 {
+		return []networktraffic.ClientGroup{}, totalCount, nil
+	}
+
+	clientKeys := make([]string, 0, len(clientRows))
+	clientOrder := make(map[string]int, len(clientRows))
+	for i, row := range clientRows {
+		clientKeys = append(clientKeys, row.ClientKey)
+		clientOrder[row.ClientKey] = i
+	}
+
+	var summaries []*networktraffic.FlowSummary
+	query := s.db.Where(accountIDCondition, accountID).Where("client_key IN ?", clientKeys)
+	query = s.applyNetworkTrafficSummaryFilters(query, filter)
+	if lockStrength != LockingStrengthNone {
+		query = query.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+	if err := query.Find(&summaries).Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to get network traffic client group summaries: %v", err)
+		return nil, 0, status.Errorf(status.Internal, "failed to get network traffic client group summaries")
+	}
+
+	groupsByKey := make(map[string]*networktraffic.ClientGroup, len(clientRows))
+	for _, summary := range summaries {
+		group, ok := groupsByKey[summary.ClientKey]
+		if !ok {
+			group = &networktraffic.ClientGroup{
+				ID: summary.ClientKey,
+				Client: networktraffic.Endpoint{
+					ID:          summary.SourceID,
+					Type:        summary.SourceType,
+					Name:        summary.SourceName,
+					Address:     summary.SourceAddress,
+					DNSLabel:    summary.SourceDNSLabel,
+					OS:          summary.SourceOS,
+					CountryCode: summary.SourceCountryCode,
+					CityName:    summary.SourceCityName,
+				},
+				UserID:          summary.UserID,
+				UserName:        summary.UserName,
+				UserEmail:       summary.UserEmail,
+				LatestTimestamp: summary.LatestTimestamp,
+				Protocols:       []int{},
+				Destinations:    []networktraffic.Endpoint{},
+			}
+			groupsByKey[summary.ClientKey] = group
+		}
+
+		group.FlowCount++
+		group.RxBytes += summary.RxBytes
+		group.RxPackets += summary.RxPackets
+		group.TxBytes += summary.TxBytes
+		group.TxPackets += summary.TxPackets
+		if summary.LatestTimestamp.After(group.LatestTimestamp) {
+			group.LatestTimestamp = summary.LatestTimestamp
+		}
+		if group.UserID == "" && summary.UserID != "" {
+			group.UserID = summary.UserID
+			group.UserName = summary.UserName
+			group.UserEmail = summary.UserEmail
+		}
+		if !intSliceContains(group.Protocols, summary.Protocol) {
+			group.Protocols = append(group.Protocols, summary.Protocol)
+		}
+		destination := networktraffic.Endpoint{
+			ID:          summary.DestinationID,
+			Type:        summary.DestinationType,
+			Name:        summary.DestinationName,
+			Address:     summary.DestinationAddress,
+			DNSLabel:    summary.DestinationDNSLabel,
+			OS:          summary.DestinationOS,
+			CountryCode: summary.DestinationCountryCode,
+			CityName:    summary.DestinationCityName,
+		}
+		if !endpointSliceContains(group.Destinations, destination) {
+			group.Destinations = append(group.Destinations, destination)
+		}
+	}
+
+	groups := make([]networktraffic.ClientGroup, 0, len(clientRows))
+	for _, key := range clientKeys {
+		if group, ok := groupsByKey[key]; ok {
+			sort.Ints(group.Protocols)
+			groups = append(groups, *group)
+		}
+	}
+	sort.SliceStable(groups, func(i, j int) bool {
+		iOrder := clientOrder[groups[i].ID]
+		jOrder := clientOrder[groups[j].ID]
+		return iOrder < jOrder
+	})
+
+	return groups, totalCount, nil
+}
+
+func (s *SqlStore) GetAccountNetworkTrafficGroupFlows(ctx context.Context, lockStrength LockingStrength, accountID string, filter networktraffic.Filter) ([]*networktraffic.Event, int64, error) {
+	return s.getAccountNetworkTrafficGroupFlowsFromEvents(ctx, lockStrength, accountID, filter)
+}
+
+func (s *SqlStore) getAccountNetworkTrafficGroupFlowsFromSummaries(ctx context.Context, lockStrength LockingStrength, accountID string, filter networktraffic.Filter) ([]*networktraffic.Event, int64, error) {
+	if filter.ClientKey == nil || *filter.ClientKey == "" {
+		return []*networktraffic.Event{}, 0, nil
+	}
+
+	var summaries []*networktraffic.FlowSummary
+	var totalCount int64
+	baseQuery := s.db.Model(&networktraffic.FlowSummary{}).
+		Where(accountIDCondition, accountID).
+		Where("client_key = ?", *filter.ClientKey)
+	baseQuery = s.applyNetworkTrafficSummaryFilters(baseQuery, filter)
+	if err := baseQuery.Count(&totalCount).Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to count network traffic group flows: %v", err)
+		return nil, 0, status.Errorf(status.Internal, "failed to count network traffic group flows")
+	}
+	query := s.db.Where(accountIDCondition, accountID).Where("client_key = ?", *filter.ClientKey)
+	query = s.applyNetworkTrafficSummaryFilters(query, filter).
+		Order("latest_timestamp " + strings.ToUpper(filter.GetSortOrder()) + ", flow_id " + strings.ToUpper(filter.GetSortOrder())).
+		Limit(filter.GetLimit()).
+		Offset(filter.GetOffset())
+	if lockStrength != LockingStrengthNone {
+		query = query.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+	if err := query.Find(&summaries).Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to get network traffic group flow summaries: %v", err)
+		return nil, 0, status.Errorf(status.Internal, "failed to get network traffic group flow summaries")
+	}
+	if len(summaries) == 0 {
+		return []*networktraffic.Event{}, totalCount, nil
+	}
+
+	flowIDs := make([]string, 0, len(summaries))
+	flowOrder := make(map[string]int, len(summaries))
+	for i, summary := range summaries {
+		flowIDs = append(flowIDs, summary.FlowID)
+		flowOrder[summary.FlowID] = i
+	}
+
+	var events []*networktraffic.Event
+	eventsQuery := s.db.Where(accountIDCondition, accountID).Where("flow_id IN ?", flowIDs)
+	if err := eventsQuery.Find(&events).Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to get network traffic group flow events: %v", err)
+		return nil, 0, status.Errorf(status.Internal, "failed to get network traffic group flow events")
+	}
+
+	sort.SliceStable(events, func(i, j int) bool {
+		iOrder := flowOrder[events[i].FlowID]
+		jOrder := flowOrder[events[j].FlowID]
+		if iOrder != jOrder {
+			return iOrder < jOrder
+		}
+		return events[i].Timestamp.After(events[j].Timestamp)
+	})
+
+	return events, totalCount, nil
+}
+
+func (s *SqlStore) getAccountNetworkTrafficClientGroupsFromEvents(ctx context.Context, lockStrength LockingStrength, accountID string, filter networktraffic.Filter) ([]networktraffic.ClientGroup, int64, error) {
+	var events []*networktraffic.Event
+	query := s.db.Where(accountIDCondition, accountID)
+	query = s.applyNetworkTrafficFilters(query, filter)
+	if lockStrength != LockingStrengthNone {
+		query = query.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+	if err := query.Find(&events).Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to get network traffic events for client groups fallback: %v", err)
+		return nil, 0, status.Errorf(status.Internal, "failed to get network traffic client groups")
+	}
+
+	summaries := flowSummariesFromEvents(events)
+	groups := clientGroupsFromFlowSummaries(summaries)
+	sortNetworkTrafficClientGroups(groups, filter.GetSortOrder())
+
+	totalCount := int64(len(groups))
+	return paginateClientGroups(groups, filter), totalCount, nil
+}
+
+func (s *SqlStore) getAccountNetworkTrafficGroupFlowsFromEvents(ctx context.Context, lockStrength LockingStrength, accountID string, filter networktraffic.Filter) ([]*networktraffic.Event, int64, error) {
+	var filteredEvents []*networktraffic.Event
+	query := s.db.Where(accountIDCondition, accountID)
+	query = s.applyNetworkTrafficFilters(query, filter)
+	if lockStrength != LockingStrengthNone {
+		query = query.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+	if err := query.Find(&filteredEvents).Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to get network traffic events for group flows fallback: %v", err)
+		return nil, 0, status.Errorf(status.Internal, "failed to get network traffic group flows")
+	}
+
+	clientEvents := make([]*networktraffic.Event, 0, len(filteredEvents))
+	for _, event := range filteredEvents {
+		if networktraffic.ClientKey(event) == *filter.ClientKey {
+			clientEvents = append(clientEvents, event)
+		}
+	}
+
+	summaries := flowSummariesFromEvents(clientEvents)
+	sortNetworkTrafficFlowSummaries(summaries, filter.GetSortOrder())
+	totalCount := int64(len(summaries))
+
+	summaries = paginateFlowSummaries(summaries, filter)
+	if len(summaries) == 0 {
+		return []*networktraffic.Event{}, totalCount, nil
+	}
+
+	flowIDs := make([]string, 0, len(summaries))
+	flowOrder := make(map[string]int, len(summaries))
+	for i, summary := range summaries {
+		flowIDs = append(flowIDs, summary.FlowID)
+		flowOrder[summary.FlowID] = i
+	}
+
+	var events []*networktraffic.Event
+	eventsQuery := s.db.Where(accountIDCondition, accountID).Where("flow_id IN ?", flowIDs)
+	if err := eventsQuery.Find(&events).Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to get network traffic group flow events from fallback: %v", err)
+		return nil, 0, status.Errorf(status.Internal, "failed to get network traffic group flows")
+	}
+
+	sort.SliceStable(events, func(i, j int) bool {
+		iOrder := flowOrder[events[i].FlowID]
+		jOrder := flowOrder[events[j].FlowID]
+		if iOrder != jOrder {
+			return iOrder < jOrder
+		}
+		return events[i].Timestamp.After(events[j].Timestamp)
+	})
+
+	return events, totalCount, nil
+}
+
+func flowSummariesFromEvents(events []*networktraffic.Event) []*networktraffic.FlowSummary {
+	summariesByFlow := make(map[string]*networktraffic.FlowSummary, len(events))
+	for _, event := range events {
+		summary, ok := summariesByFlow[event.FlowID]
+		if !ok {
+			summariesByFlow[event.FlowID] = networktraffic.NewFlowSummary(event)
+			continue
+		}
+		mergeNetworkTrafficFlowSummary(summary, event)
+	}
+
+	summaries := make([]*networktraffic.FlowSummary, 0, len(summariesByFlow))
+	for _, summary := range summariesByFlow {
+		summaries = append(summaries, summary)
+	}
+	return summaries
+}
+
+func mergeNetworkTrafficFlowSummary(summary *networktraffic.FlowSummary, event *networktraffic.Event) {
+	summary.EventCount++
+	summary.RxBytes = max(summary.RxBytes, event.RxBytes)
+	summary.RxPackets = max(summary.RxPackets, event.RxPackets)
+	summary.TxBytes = max(summary.TxBytes, event.TxBytes)
+	summary.TxPackets = max(summary.TxPackets, event.TxPackets)
+
+	if event.Timestamp.Before(summary.FirstTimestamp) {
+		summary.FirstTimestamp = event.Timestamp
+	}
+	if event.Timestamp.Before(summary.LatestTimestamp) {
+		return
+	}
+
+	summary.ClientKey = networktraffic.ClientKey(event)
+	summary.LatestTimestamp = event.Timestamp
+	summary.EventType = event.EventType
+	summary.Direction = event.Direction
+	summary.Protocol = event.Protocol
+	summary.ConnectionType = event.ConnectionType
+	summary.ReporterID = event.ReporterID
+	summary.UserID = event.UserID
+	summary.SourceID = event.SourceID
+	summary.SourceType = event.SourceType
+	summary.SourceName = event.SourceName
+	summary.SourceAddress = event.SourceAddress
+	summary.SourceDNSLabel = event.SourceDNSLabel
+	summary.SourceOS = event.SourceOS
+	summary.SourceCountryCode = event.SourceCountryCode
+	summary.SourceCityName = event.SourceCityName
+	summary.DestinationID = event.DestinationID
+	summary.DestinationType = event.DestinationType
+	summary.DestinationName = event.DestinationName
+	summary.DestinationAddress = event.DestinationAddress
+	summary.DestinationDNSLabel = event.DestinationDNSLabel
+	summary.DestinationOS = event.DestinationOS
+	summary.DestinationCountryCode = event.DestinationCountryCode
+	summary.DestinationCityName = event.DestinationCityName
+	summary.PolicyID = event.PolicyID
+	summary.PolicyName = event.PolicyName
+	summary.ICMPType = event.ICMPType
+	summary.ICMPCode = event.ICMPCode
+	summary.DNSDomain = event.DNSDomain
+	summary.DNSQueryType = event.DNSQueryType
+	summary.DNSAnswers = event.DNSAnswers
+	summary.DNSRCode = event.DNSRCode
+	summary.UserName = event.UserName
+	summary.UserEmail = event.UserEmail
+}
+
+func clientGroupsFromFlowSummaries(summaries []*networktraffic.FlowSummary) []networktraffic.ClientGroup {
+	groupsByKey := make(map[string]*networktraffic.ClientGroup, len(summaries))
+	for _, summary := range summaries {
+		group, ok := groupsByKey[summary.ClientKey]
+		if !ok {
+			group = &networktraffic.ClientGroup{
+				ID: summary.ClientKey,
+				Client: networktraffic.Endpoint{
+					ID:          summary.SourceID,
+					Type:        summary.SourceType,
+					Name:        summary.SourceName,
+					Address:     summary.SourceAddress,
+					DNSLabel:    summary.SourceDNSLabel,
+					OS:          summary.SourceOS,
+					CountryCode: summary.SourceCountryCode,
+					CityName:    summary.SourceCityName,
+				},
+				UserID:          summary.UserID,
+				UserName:        summary.UserName,
+				UserEmail:       summary.UserEmail,
+				LatestTimestamp: summary.LatestTimestamp,
+				Protocols:       []int{},
+				Destinations:    []networktraffic.Endpoint{},
+			}
+			groupsByKey[summary.ClientKey] = group
+		}
+
+		group.FlowCount++
+		group.RxBytes += summary.RxBytes
+		group.RxPackets += summary.RxPackets
+		group.TxBytes += summary.TxBytes
+		group.TxPackets += summary.TxPackets
+		if summary.LatestTimestamp.After(group.LatestTimestamp) {
+			group.LatestTimestamp = summary.LatestTimestamp
+		}
+		if group.UserID == "" && summary.UserID != "" {
+			group.UserID = summary.UserID
+			group.UserName = summary.UserName
+			group.UserEmail = summary.UserEmail
+		}
+		if !intSliceContains(group.Protocols, summary.Protocol) {
+			group.Protocols = append(group.Protocols, summary.Protocol)
+		}
+
+		destination := networktraffic.Endpoint{
+			ID:          summary.DestinationID,
+			Type:        summary.DestinationType,
+			Name:        summary.DestinationName,
+			Address:     summary.DestinationAddress,
+			DNSLabel:    summary.DestinationDNSLabel,
+			OS:          summary.DestinationOS,
+			CountryCode: summary.DestinationCountryCode,
+			CityName:    summary.DestinationCityName,
+		}
+		if !endpointSliceContains(group.Destinations, destination) {
+			group.Destinations = append(group.Destinations, destination)
+		}
+	}
+
+	groups := make([]networktraffic.ClientGroup, 0, len(groupsByKey))
+	for _, group := range groupsByKey {
+		sort.Ints(group.Protocols)
+		groups = append(groups, *group)
+	}
+	return groups
+}
+
+func sortNetworkTrafficClientGroups(groups []networktraffic.ClientGroup, sortOrder string) {
+	desc := strings.ToLower(sortOrder) != "asc"
+	sort.SliceStable(groups, func(i, j int) bool {
+		if !groups[i].LatestTimestamp.Equal(groups[j].LatestTimestamp) {
+			if desc {
+				return groups[i].LatestTimestamp.After(groups[j].LatestTimestamp)
+			}
+			return groups[i].LatestTimestamp.Before(groups[j].LatestTimestamp)
+		}
+		if desc {
+			return groups[i].ID > groups[j].ID
+		}
+		return groups[i].ID < groups[j].ID
+	})
+}
+
+func sortNetworkTrafficFlowSummaries(summaries []*networktraffic.FlowSummary, sortOrder string) {
+	desc := strings.ToLower(sortOrder) != "asc"
+	sort.SliceStable(summaries, func(i, j int) bool {
+		if !summaries[i].LatestTimestamp.Equal(summaries[j].LatestTimestamp) {
+			if desc {
+				return summaries[i].LatestTimestamp.After(summaries[j].LatestTimestamp)
+			}
+			return summaries[i].LatestTimestamp.Before(summaries[j].LatestTimestamp)
+		}
+		if desc {
+			return summaries[i].FlowID > summaries[j].FlowID
+		}
+		return summaries[i].FlowID < summaries[j].FlowID
+	})
+}
+
+func paginateClientGroups(groups []networktraffic.ClientGroup, filter networktraffic.Filter) []networktraffic.ClientGroup {
+	offset := filter.GetOffset()
+	if offset >= len(groups) {
+		return []networktraffic.ClientGroup{}
+	}
+	end := min(offset+filter.GetLimit(), len(groups))
+	return groups[offset:end]
+}
+
+func paginateFlowSummaries(summaries []*networktraffic.FlowSummary, filter networktraffic.Filter) []*networktraffic.FlowSummary {
+	offset := filter.GetOffset()
+	if offset >= len(summaries) {
+		return []*networktraffic.FlowSummary{}
+	}
+	end := min(offset+filter.GetLimit(), len(summaries))
+	return summaries[offset:end]
+}
+
+func intSliceContains(values []int, value int) bool {
+	for _, existing := range values {
+		if existing == value {
+			return true
+		}
+	}
+	return false
+}
+
+func endpointSliceContains(values []networktraffic.Endpoint, value networktraffic.Endpoint) bool {
+	for _, existing := range values {
+		if existing.ID == value.ID && existing.Address == value.Address && existing.Name == value.Name {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *SqlStore) GetAccountNetworkTrafficSummary(ctx context.Context, accountID string, filter networktraffic.Filter, bucketSeconds int) ([]networktraffic.SummaryPoint, error) {
@@ -5914,14 +6478,24 @@ func (s *SqlStore) DeleteOldAccessLogs(ctx context.Context, olderThan time.Time)
 }
 
 func (s *SqlStore) DeleteOldNetworkTrafficEvents(ctx context.Context, olderThan time.Time) (int64, error) {
-	result := s.db.Where("timestamp < ?", olderThan).Delete(&networktraffic.Event{})
-
-	if result.Error != nil {
-		log.WithContext(ctx).Errorf("failed to delete old network traffic events: %v", result.Error)
+	var deletedEvents int64
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		result := tx.Where("timestamp < ?", olderThan).Delete(&networktraffic.Event{})
+		if result.Error != nil {
+			return result.Error
+		}
+		deletedEvents = result.RowsAffected
+		if err := tx.Where("latest_timestamp < ?", olderThan).Delete(&networktraffic.FlowSummary{}).Error; err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to delete old network traffic events: %v", err)
 		return 0, status.Errorf(status.Internal, "failed to delete old network traffic events")
 	}
 
-	return result.RowsAffected, nil
+	return deletedEvents, nil
 }
 
 // applyAccessLogFilters applies filter conditions to the query
@@ -6069,6 +6643,100 @@ func (s *SqlStore) applyNetworkTrafficFilters(query *gorm.DB, filter networktraf
 
 	if filter.EndDate != nil {
 		query = query.Where("timestamp <= ?", *filter.EndDate)
+	}
+
+	return query
+}
+
+func (s *SqlStore) applyNetworkTrafficSummaryFilters(query *gorm.DB, filter networktraffic.Filter) *gorm.DB {
+	if filter.Search != nil {
+		searchPattern := "%" + *filter.Search + "%"
+		query = query.Where(
+			"user_name LIKE ? OR user_email LIKE ? OR source_name LIKE ? OR destination_name LIKE ? OR source_address LIKE ? OR destination_address LIKE ? OR dns_domain LIKE ? OR dns_query_type LIKE ? OR dns_answers LIKE ?",
+			searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern,
+		)
+	}
+
+	if filter.UserID != nil {
+		query = query.Where("user_id = ?", *filter.UserID)
+	}
+
+	if filter.ReporterID != nil {
+		query = query.Where("reporter_id = ?", *filter.ReporterID)
+	}
+
+	if filter.Protocol != nil {
+		query = query.Where("protocol = ?", *filter.Protocol)
+	}
+
+	if filter.EventType != nil {
+		query = query.Where("event_type = ?", *filter.EventType)
+	}
+
+	if filter.ConnectionType != nil {
+		query = query.Where("connection_type = ?", *filter.ConnectionType)
+	}
+
+	if filter.Direction != nil {
+		query = query.Where("direction = ?", *filter.Direction)
+	}
+
+	if filter.DNS != nil {
+		if *filter.DNS {
+			query = query.Where(
+				"dns_domain <> '' OR " +
+					"(protocol IN (6, 17) AND " +
+					" (destination_address LIKE '%:53' OR destination_address LIKE '%:5353' OR destination_address LIKE '%:22054' OR " +
+					"  source_address LIKE '%:53' OR source_address LIKE '%:5353' OR source_address LIKE '%:22054'))",
+			)
+		} else {
+			query = query.Where("dns_domain = ''")
+		}
+	}
+
+	if filter.NetworkOnly != nil && *filter.NetworkOnly {
+		dnsPortPattern := "%:53"
+		dnsForwarderClientPattern := fmt.Sprintf("%%:%d", nbdns.ForwarderClientPort)
+		dnsForwarderServerPattern := fmt.Sprintf("%%:%d", nbdns.ForwarderServerPort)
+
+		query = query.Where("dns_domain = ''")
+		query = query.Where("source_address <> destination_address")
+		query = query.Where("(source_id = '' OR destination_id = '' OR source_id <> destination_id)")
+		query = query.Where(
+			"(source_type = ? AND (destination_type = ? OR destination_type = ?)) OR "+
+				"(destination_type = ? AND (source_type = ? OR source_type = ?))",
+			networktraffic.EndpointTypePeer,
+			networktraffic.EndpointTypePeer,
+			networktraffic.EndpointTypeHostResource,
+			networktraffic.EndpointTypePeer,
+			networktraffic.EndpointTypePeer,
+			networktraffic.EndpointTypeHostResource,
+		)
+		query = query.Where(
+			"source_address NOT LIKE ? AND source_address NOT LIKE ? AND source_address NOT LIKE ? AND "+
+				"source_address NOT LIKE ? AND source_address NOT LIKE ? AND source_address NOT LIKE ? AND "+
+				"source_address NOT LIKE ? AND destination_address NOT LIKE ? AND destination_address NOT LIKE ? AND "+
+				"destination_address NOT LIKE ? AND destination_address NOT LIKE ? AND destination_address NOT LIKE ? AND "+
+				"destination_address NOT LIKE ? AND destination_address NOT LIKE ?",
+			"224.%", "239.%", "255.255.255.255%", "[ff%", dnsPortPattern, dnsForwarderClientPattern, dnsForwarderServerPattern,
+			"224.%", "239.%", "255.255.255.255%", "[ff%", dnsPortPattern, dnsForwarderClientPattern, dnsForwarderServerPattern,
+		)
+	}
+
+	if filter.DNSDomain != nil {
+		query = query.Where("dns_domain LIKE ?", "%"+*filter.DNSDomain+"%")
+	}
+
+	if filter.DNSType != nil {
+		query = query.Where("dns_query_type = ?", *filter.DNSType)
+	}
+
+	if filter.StartDate != nil {
+		query = query.Where("latest_timestamp >= ?", *filter.StartDate)
+	}
+
+	if filter.EndDate != nil {
+		query = query.Where("first_timestamp <= ?", *filter.EndDate)
 	}
 
 	return query

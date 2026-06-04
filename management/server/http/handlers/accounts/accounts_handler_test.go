@@ -591,6 +591,10 @@ func TestGetAccountLicense(t *testing.T) {
 					Plan:             entitlements.PlanPro,
 					LicenseKeyMasked: "aGVsbG8...BBBBBB",
 					LicenseTypes:     []licensing.LicenseType{licensing.LicenseTypeYear},
+					ResourceLimits: map[entitlements.Limit]int{
+						entitlements.LimitUsers: 50,
+						entitlements.LimitPeers: 200,
+					},
 					Usage: map[entitlements.Limit]int{
 						entitlements.LimitUsers:            1,
 						entitlements.LimitSelfHostedRelays: 0,
@@ -623,8 +627,11 @@ func TestGetAccountLicense(t *testing.T) {
 	assert.Equal(t, string(licensing.StatusActive), response.Status)
 	assert.Equal(t, string(entitlements.PlanPro), response.Plan)
 	assert.Equal(t, []string{string(licensing.LicenseTypeYear)}, response.License)
+	assert.Equal(t, 50, response.ResourceLimits[string(entitlements.LimitUsers)])
+	assert.Equal(t, 200, response.ResourceLimits[string(entitlements.LimitPeers)])
 	assert.True(t, response.Features[string(entitlements.FeatureBranding)])
-	assert.Equal(t, entitlements.Unlimited, response.Limits[string(entitlements.LimitUsers)])
+	assert.Equal(t, 50, response.Limits[string(entitlements.LimitUsers)])
+	assert.Equal(t, 200, response.Limits[string(entitlements.LimitPeers)])
 	assert.Equal(t, 1, response.Usage[string(entitlements.LimitUsers)])
 	assert.Equal(t, 0, response.Usage[string(entitlements.LimitSelfHostedRelays)])
 }

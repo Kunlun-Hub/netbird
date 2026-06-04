@@ -865,6 +865,38 @@ func (mr *MockStoreMockRecorder) GetAccountNetworkTrafficEvents(ctx, lockStrengt
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAccountNetworkTrafficEvents", reflect.TypeOf((*MockStore)(nil).GetAccountNetworkTrafficEvents), ctx, lockStrength, accountID, filter)
 }
 
+// GetAccountNetworkTrafficClientGroups mocks base method.
+func (m *MockStore) GetAccountNetworkTrafficClientGroups(ctx context.Context, lockStrength LockingStrength, accountID string, filter networktraffic.Filter) ([]networktraffic.ClientGroup, int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAccountNetworkTrafficClientGroups", ctx, lockStrength, accountID, filter)
+	ret0, _ := ret[0].([]networktraffic.ClientGroup)
+	ret1, _ := ret[1].(int64)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// GetAccountNetworkTrafficClientGroups indicates an expected call of GetAccountNetworkTrafficClientGroups.
+func (mr *MockStoreMockRecorder) GetAccountNetworkTrafficClientGroups(ctx, lockStrength, accountID, filter interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAccountNetworkTrafficClientGroups", reflect.TypeOf((*MockStore)(nil).GetAccountNetworkTrafficClientGroups), ctx, lockStrength, accountID, filter)
+}
+
+// GetAccountNetworkTrafficGroupFlows mocks base method.
+func (m *MockStore) GetAccountNetworkTrafficGroupFlows(ctx context.Context, lockStrength LockingStrength, accountID string, filter networktraffic.Filter) ([]*networktraffic.Event, int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAccountNetworkTrafficGroupFlows", ctx, lockStrength, accountID, filter)
+	ret0, _ := ret[0].([]*networktraffic.Event)
+	ret1, _ := ret[1].(int64)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// GetAccountNetworkTrafficGroupFlows indicates an expected call of GetAccountNetworkTrafficGroupFlows.
+func (mr *MockStoreMockRecorder) GetAccountNetworkTrafficGroupFlows(ctx, lockStrength, accountID, filter interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAccountNetworkTrafficGroupFlows", reflect.TypeOf((*MockStore)(nil).GetAccountNetworkTrafficGroupFlows), ctx, lockStrength, accountID, filter)
+}
+
 // GetAccountNetworkTrafficSummary mocks base method.
 func (m *MockStore) GetAccountNetworkTrafficSummary(ctx context.Context, accountID string, filter networktraffic.Filter, bucketSeconds int) ([]networktraffic.SummaryPoint, error) {
 	m.ctrl.T.Helper()

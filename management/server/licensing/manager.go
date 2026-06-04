@@ -63,6 +63,7 @@ type State struct {
 	Plan             entitlements.Plan
 	LicenseKeyMasked string
 	LicenseTypes     []LicenseType
+	ResourceLimits   map[entitlements.Limit]int
 	Usage            map[entitlements.Limit]int
 	Message          string
 	StartTime        *time.Time
@@ -71,12 +72,13 @@ type State struct {
 }
 
 type licensePayload struct {
-	ServerURL    string
-	Name         string
-	LicenseTypes []LicenseType
-	Key          string
-	StartTime    *time.Time
-	EndTime      *time.Time
+	ServerURL      string
+	Name           string
+	LicenseTypes   []LicenseType
+	ResourceLimits map[entitlements.Limit]int
+	Key            string
+	StartTime      *time.Time
+	EndTime        *time.Time
 }
 
 type storedLicense struct {
@@ -143,6 +145,7 @@ func (p *EntitlementsProvider) GetEntitlements(ctx context.Context, accountID st
 	if err != nil {
 		return entitlements.Entitlements{}, err
 	}
+	applyResourceLimits(snapshot.Limits, state.ResourceLimits)
 	snapshot.AccountID = accountID
 	return snapshot, nil
 }
@@ -167,7 +170,7 @@ func (m *Manager) GetState(ctx context.Context, serverURL string) (*State, error
 		return nil, err
 	}
 	if !found || strings.TrimSpace(stored.Key) == "" {
-		return m.state(machineID, "", "", "", StatusUnlicensed, entitlements.PlanBasic, nil, nil, nil, "No license key has been installed."), nil
+		return m.state(machineID, "", "", "", StatusUnlicensed, entitlements.PlanBasic, nil, nil, nil, nil, "No license key has been installed."), nil
 	}
 
 	state := m.validate(ctx, currentServerURL, machineID, stored.Key)
@@ -190,7 +193,7 @@ func (m *Manager) UpdateKey(ctx context.Context, serverURL, key string) (*State,
 		if err := m.deleteStoredLicense(); err != nil {
 			return nil, err
 		}
-		return m.state(machineID, "", "", "", StatusUnlicensed, entitlements.PlanBasic, nil, nil, nil, "No license key has been installed."), nil
+		return m.state(machineID, "", "", "", StatusUnlicensed, entitlements.PlanBasic, nil, nil, nil, nil, "No license key has been installed."), nil
 	}
 
 	state := m.validate(ctx, currentServerURL, machineID, key)
@@ -212,32 +215,32 @@ func (m *Manager) UpdateKey(ctx context.Context, serverURL, key string) (*State,
 func (m *Manager) validate(_ context.Context, currentServerURL, machineID, key string) *State {
 	payload, err := DecryptLicensePayload(key, m.secret)
 	if err != nil {
-		return m.state(machineID, "", "", key, StatusInvalid, entitlements.PlanBasic, nil, nil, nil, "License key cannot be decrypted.")
+		return m.state(machineID, "", "", key, StatusInvalid, entitlements.PlanBasic, nil, nil, nil, nil, "License key cannot be decrypted.")
 	}
 
 	payload.ServerURL = NormalizeServerURL(payload.ServerURL)
 	if payload.ServerURL == "" {
-		return m.state(machineID, payload.ServerURL, payload.Name, key, StatusInvalid, entitlements.PlanBasic, payload.LicenseTypes, payload.StartTime, payload.EndTime, "License server_url is empty.")
+		return m.state(machineID, payload.ServerURL, payload.Name, key, StatusInvalid, entitlements.PlanBasic, payload.LicenseTypes, payload.ResourceLimits, payload.StartTime, payload.EndTime, "License server_url is empty.")
 	}
 	if payload.Key != m.secret {
-		return m.state(machineID, payload.ServerURL, payload.Name, key, StatusInvalid, entitlements.PlanBasic, payload.LicenseTypes, payload.StartTime, payload.EndTime, "License key secret is invalid.")
+		return m.state(machineID, payload.ServerURL, payload.Name, key, StatusInvalid, entitlements.PlanBasic, payload.LicenseTypes, payload.ResourceLimits, payload.StartTime, payload.EndTime, "License key secret is invalid.")
 	}
 	if len(payload.LicenseTypes) == 0 {
-		return m.state(machineID, payload.ServerURL, payload.Name, key, StatusInvalid, entitlements.PlanBasic, payload.LicenseTypes, payload.StartTime, payload.EndTime, "License type is empty.")
+		return m.state(machineID, payload.ServerURL, payload.Name, key, StatusInvalid, entitlements.PlanBasic, payload.LicenseTypes, payload.ResourceLimits, payload.StartTime, payload.EndTime, "License type is empty.")
 	}
 
 	now := m.now().UTC()
 	if payload.StartTime != nil && now.Before(*payload.StartTime) {
-		return m.state(machineID, payload.ServerURL, payload.Name, key, StatusNotStarted, entitlements.PlanBasic, payload.LicenseTypes, payload.StartTime, payload.EndTime, "License is not active yet.")
+		return m.state(machineID, payload.ServerURL, payload.Name, key, StatusNotStarted, entitlements.PlanBasic, payload.LicenseTypes, payload.ResourceLimits, payload.StartTime, payload.EndTime, "License is not active yet.")
 	}
 	if payload.EndTime != nil && now.After(endOfDay(*payload.EndTime)) {
-		return m.state(machineID, payload.ServerURL, payload.Name, key, StatusExpired, entitlements.PlanBasic, payload.LicenseTypes, payload.StartTime, payload.EndTime, "License has expired.")
+		return m.state(machineID, payload.ServerURL, payload.Name, key, StatusExpired, entitlements.PlanBasic, payload.LicenseTypes, payload.ResourceLimits, payload.StartTime, payload.EndTime, "License has expired.")
 	}
 	if currentServerURL != "" && payload.ServerURL != currentServerURL {
-		return m.state(machineID, payload.ServerURL, payload.Name, key, StatusURLMismatch, entitlements.PlanBasic, payload.LicenseTypes, payload.StartTime, payload.EndTime, "License URL does not match the current dashboard URL.")
+		return m.state(machineID, payload.ServerURL, payload.Name, key, StatusURLMismatch, entitlements.PlanBasic, payload.LicenseTypes, payload.ResourceLimits, payload.StartTime, payload.EndTime, "License URL does not match the current dashboard URL.")
 	}
 
-	return m.state(machineID, payload.ServerURL, payload.Name, key, StatusActive, entitlements.PlanPro, payload.LicenseTypes, payload.StartTime, payload.EndTime, "Pro license is active.")
+	return m.state(machineID, payload.ServerURL, payload.Name, key, StatusActive, planFromLicenseTypes(payload.LicenseTypes), payload.LicenseTypes, payload.ResourceLimits, payload.StartTime, payload.EndTime, "License is active.")
 }
 
 func (m *Manager) machineIDForServerURL(serverURL string) (string, error) {
@@ -249,7 +252,7 @@ func (m *Manager) machineIDForServerURL(serverURL string) (string, error) {
 	return EncryptMachinePayload(payload, m.secret)
 }
 
-func (m *Manager) state(machineID, serverURL, name, key string, status Status, plan entitlements.Plan, licenseTypes []LicenseType, startTime, endTime *time.Time, message string) *State {
+func (m *Manager) state(machineID, serverURL, name, key string, status Status, plan entitlements.Plan, licenseTypes []LicenseType, resourceLimits map[entitlements.Limit]int, startTime, endTime *time.Time, message string) *State {
 	return &State{
 		MachineID:        machineID,
 		ServerURL:        serverURL,
@@ -258,6 +261,7 @@ func (m *Manager) state(machineID, serverURL, name, key string, status Status, p
 		Plan:             plan,
 		LicenseKeyMasked: MaskLicenseKey(key),
 		LicenseTypes:     append([]LicenseType(nil), licenseTypes...),
+		ResourceLimits:   cloneResourceLimits(resourceLimits),
 		Usage:            map[entitlements.Limit]int{},
 		Message:          message,
 		StartTime:        startTime,
@@ -525,6 +529,14 @@ func BuildLicensePayloadWithName(serverURL string, licenseTypes []LicenseType, s
 	return payload + ";"
 }
 
+func BuildLicensePayloadWithNameAndResources(serverURL string, licenseTypes []LicenseType, secret string, startTime, endTime, name string, resourceLimits map[entitlements.Limit]int) string {
+	payload := strings.TrimSuffix(BuildLicensePayloadWithName(serverURL, licenseTypes, secret, startTime, endTime, name), ";")
+	if resources := formatResourceLimits(resourceLimits); resources != "" {
+		payload += fmt.Sprintf(",resources=[%s]", resources)
+	}
+	return payload + ";"
+}
+
 func MaskLicenseKey(key string) string {
 	key = strings.TrimSpace(key)
 	if key == "" {
@@ -584,12 +596,13 @@ func parseLicensePayload(payload string) (*licensePayload, error) {
 	}
 
 	return &licensePayload{
-		ServerURL:    NormalizeServerURL(fields["server_url"]),
-		Name:         parseLicenseName(fields["name"]),
-		LicenseTypes: parseLicenseTypes(fields["license"]),
-		Key:          fields["key"],
-		StartTime:    startTime,
-		EndTime:      endTime,
+		ServerURL:      NormalizeServerURL(fields["server_url"]),
+		Name:           parseLicenseName(fields["name"]),
+		LicenseTypes:   parseLicenseTypes(fields["license"]),
+		ResourceLimits: parseResourceLimits(fields["resources"]),
+		Key:            fields["key"],
+		StartTime:      startTime,
+		EndTime:        endTime,
 	}, nil
 }
 
@@ -680,6 +693,92 @@ func parseLicenseTypes(value string) []LicenseType {
 		}
 	}
 	return result
+}
+
+func parseResourceLimits(value string) map[entitlements.Limit]int {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	value = strings.TrimPrefix(value, "[")
+	value = strings.TrimSuffix(value, "]")
+	if value == "" {
+		return nil
+	}
+
+	limits := map[entitlements.Limit]int{}
+	for _, part := range strings.Split(value, ",") {
+		key, rawValue, ok := strings.Cut(part, "=")
+		if !ok {
+			continue
+		}
+		limit := entitlements.Limit(strings.ToLower(strings.TrimSpace(key)))
+		if !isKnownLimit(limit) {
+			continue
+		}
+		var amount int
+		if _, err := fmt.Sscanf(strings.TrimSpace(rawValue), "%d", &amount); err != nil || amount <= 0 {
+			continue
+		}
+		limits[limit] = amount
+	}
+	if len(limits) == 0 {
+		return nil
+	}
+	return limits
+}
+
+func isKnownLimit(limit entitlements.Limit) bool {
+	for _, known := range entitlements.KnownLimits() {
+		if limit == known {
+			return true
+		}
+	}
+	return false
+}
+
+func formatResourceLimits(limits map[entitlements.Limit]int) string {
+	if len(limits) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(limits))
+	for _, limit := range entitlements.KnownLimits() {
+		if value := limits[limit]; value > 0 {
+			parts = append(parts, fmt.Sprintf("%s=%d", limit, value))
+		}
+	}
+	return strings.Join(parts, ",")
+}
+
+func cloneResourceLimits(limits map[entitlements.Limit]int) map[entitlements.Limit]int {
+	if len(limits) == 0 {
+		return nil
+	}
+	cloned := make(map[entitlements.Limit]int, len(limits))
+	for limit, value := range limits {
+		cloned[limit] = value
+	}
+	return cloned
+}
+
+func planFromLicenseTypes(licenseTypes []LicenseType) entitlements.Plan {
+	for _, licenseType := range licenseTypes {
+		if licenseType == LicenseTypeEnterprise {
+			return entitlements.PlanPro
+		}
+	}
+	return entitlements.PlanPro
+}
+
+func applyResourceLimits(limits map[entitlements.Limit]int, resourceLimits map[entitlements.Limit]int) {
+	if len(limits) == 0 || len(resourceLimits) == 0 {
+		return
+	}
+	for limit, value := range resourceLimits {
+		if value > 0 {
+			limits[limit] = value
+		}
+	}
 }
 
 func parseLicenseDate(value string) (*time.Time, error) {

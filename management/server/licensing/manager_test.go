@@ -243,3 +243,32 @@ func TestEntitlementsProviderReturnsPlanFromStoredLicense(t *testing.T) {
 	assert.True(t, snapshot.Features[entitlements.FeatureBranding])
 	assert.Equal(t, entitlements.Unlimited, snapshot.Limits[entitlements.LimitUsers])
 }
+
+func TestEntitlementsProviderAppliesResourceLimitsFromStoredLicense(t *testing.T) {
+	manager := NewManager(t.TempDir(), WithSecret("test-secret"))
+	payload := BuildLicensePayloadWithNameAndResources(
+		"cloink.4w.ink",
+		[]LicenseType{LicenseTypeEnterprise},
+		"test-secret",
+		"2020/1/1",
+		"2099/12/31",
+		"xxx公司",
+		map[entitlements.Limit]int{
+			entitlements.LimitUsers: 50,
+			entitlements.LimitPeers: 200,
+		},
+	)
+	key, err := EncryptLicensePayload(payload, "test-secret")
+	require.NoError(t, err)
+
+	state, err := manager.UpdateKey(context.Background(), "cloink.4w.ink", key)
+	require.NoError(t, err)
+	assert.Equal(t, 50, state.ResourceLimits[entitlements.LimitUsers])
+	assert.Equal(t, 200, state.ResourceLimits[entitlements.LimitPeers])
+
+	provider := NewEntitlementsProvider(manager)
+	snapshot, err := provider.GetEntitlements(context.Background(), "account-a")
+	require.NoError(t, err)
+	assert.Equal(t, 50, snapshot.Limits[entitlements.LimitUsers])
+	assert.Equal(t, 200, snapshot.Limits[entitlements.LimitPeers])
+}

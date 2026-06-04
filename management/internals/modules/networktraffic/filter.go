@@ -8,10 +8,12 @@ import (
 )
 
 const (
-	DefaultPageSize = 50
-	MaxPageSize     = 10000
-	DefaultSortBy   = "timestamp"
-	DefaultSortOrd  = "desc"
+	DefaultPageSize     = 50
+	MaxPageSize         = 10000
+	DefaultSortBy       = "timestamp"
+	DefaultSortOrd      = "desc"
+	MaxDateRangeDays    = 15
+	maxDateRangeSeconds = MaxDateRangeDays * 24 * 60 * 60
 )
 
 var validSortFields = map[string]string{
@@ -42,6 +44,7 @@ type Filter struct {
 	InternalDNS    *bool
 	DNSDomain      *string
 	DNSType        *string
+	ClientKey      *string
 	StartDate      *time.Time
 	EndDate        *time.Time
 }
@@ -65,8 +68,10 @@ func (f *Filter) ParseFromRequest(r *http.Request) {
 	f.InternalDNS = parseOptionalBool(query.Get("internal_dns"))
 	f.DNSDomain = parseOptionalString(query.Get("dns_domain"))
 	f.DNSType = parseOptionalString(query.Get("dns_type"))
+	f.ClientKey = parseOptionalString(query.Get("client_key"))
 	f.StartDate = parseOptionalRFC3339(query.Get("start_date"))
 	f.EndDate = parseOptionalRFC3339(query.Get("end_date"))
+	f.normalizeDateRange(time.Now().UTC())
 }
 
 func (f *Filter) GetOffset() int {
@@ -89,6 +94,30 @@ func (f *Filter) GetSortOrder() string {
 		return f.SortOrd
 	}
 	return DefaultSortOrd
+}
+
+func (f *Filter) normalizeDateRange(now time.Time) {
+	endDate := now
+	if f.EndDate != nil {
+		endDate = f.EndDate.UTC()
+	}
+
+	startDate := endDate.Add(-time.Duration(maxDateRangeSeconds) * time.Second)
+	if f.StartDate != nil {
+		startDate = f.StartDate.UTC()
+	}
+
+	if startDate.After(endDate) {
+		startDate = endDate
+	}
+
+	maxStartDate := endDate.Add(-time.Duration(maxDateRangeSeconds) * time.Second)
+	if startDate.Before(maxStartDate) {
+		startDate = maxStartDate
+	}
+
+	f.StartDate = &startDate
+	f.EndDate = &endDate
 }
 
 func parsePositiveInt(s string, defaultValue int) int {

@@ -30,6 +30,31 @@ func TestEnsureFlowLogStorage(t *testing.T) {
 	require.True(t, sqlStore.db.Migrator().HasColumn(&types.Account{}, "settings_extra_flow_dns_collection_enabled"))
 }
 
+func TestEnsureFlowLogStorageDoesNotBackfillFlowSummaries(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup, err := NewTestStoreFromSQL(ctx, "", t.TempDir())
+	require.NoError(t, err)
+	defer cleanup()
+
+	sqlStore, ok := store.(*SqlStore)
+	require.True(t, ok)
+
+	event := &networktraffic.Event{
+		ID:        "raw-event-id",
+		AccountID: "account-id",
+		FlowID:    "flow-id",
+		Timestamp: time.Now().UTC(),
+		TxPackets: 1,
+	}
+	require.NoError(t, sqlStore.db.Create(event).Error)
+
+	require.NoError(t, ensureFlowLogStorage(ctx, sqlStore.db))
+
+	var summaryCount int64
+	require.NoError(t, sqlStore.db.Model(&networktraffic.FlowSummary{}).Count(&summaryCount).Error)
+	require.Equal(t, int64(0), summaryCount)
+}
+
 func TestCreateNetworkTrafficEventIgnoresDuplicateID(t *testing.T) {
 	ctx := context.Background()
 	store, cleanup, err := NewTestStoreFromSQL(ctx, "", t.TempDir())
@@ -478,4 +503,92 @@ func TestGetAccountNetworkTrafficEventsAggregateFlowsPaginatesByFlowID(t *testin
 	require.Len(t, result, 2)
 	require.Equal(t, "flow-a", result[0].FlowID)
 	require.Equal(t, "flow-a", result[1].FlowID)
+}
+
+func TestNetworkTrafficGroupsFallbackToRawEventsWhenSummariesAreEmpty(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup, err := NewTestStoreFromSQL(ctx, "", t.TempDir())
+	require.NoError(t, err)
+	defer cleanup()
+
+	sqlStore, ok := store.(*SqlStore)
+	require.True(t, ok)
+
+	accountID := "account-id"
+	now := time.Now().UTC()
+	events := []*networktraffic.Event{
+		{
+			ID:                 "flow-a-start",
+			AccountID:          accountID,
+			FlowID:             "flow-a",
+			Timestamp:          now.Add(-time.Minute),
+			SourceID:           "peer-a",
+			SourceType:         networktraffic.EndpointTypePeer,
+			SourceName:         "Peer A",
+			SourceAddress:      "100.80.1.1:52000",
+			DestinationID:      "resource-a",
+			DestinationType:    networktraffic.EndpointTypeHostResource,
+			DestinationName:    "Resource A",
+			DestinationAddress: "192.168.3.10:443",
+		},
+		{
+			ID:                 "flow-a-end",
+			AccountID:          accountID,
+			FlowID:             "flow-a",
+			Timestamp:          now,
+			SourceID:           "peer-a",
+			SourceType:         networktraffic.EndpointTypePeer,
+			SourceName:         "Peer A",
+			SourceAddress:      "100.80.1.1:52000",
+			DestinationID:      "resource-a",
+			DestinationType:    networktraffic.EndpointTypeHostResource,
+			DestinationName:    "Resource A",
+			DestinationAddress: "192.168.3.10:443",
+			TxPackets:          2,
+			RxPackets:          3,
+		},
+		{
+			ID:                 "flow-b-end",
+			AccountID:          accountID,
+			FlowID:             "flow-b",
+			Timestamp:          now.Add(-30 * time.Second),
+			SourceID:           "peer-b",
+			SourceType:         networktraffic.EndpointTypePeer,
+			SourceName:         "Peer B",
+			SourceAddress:      "100.80.1.2:52000",
+			DestinationID:      "resource-b",
+			DestinationType:    networktraffic.EndpointTypeHostResource,
+			DestinationName:    "Resource B",
+			DestinationAddress: "192.168.3.20:443",
+			TxPackets:          4,
+		},
+	}
+	for _, event := range events {
+		require.NoError(t, sqlStore.db.Create(event).Error)
+	}
+
+	filter := networktraffic.Filter{
+		Page:     1,
+		PageSize: 10,
+		SortBy:   networktraffic.DefaultSortBy,
+		SortOrd:  networktraffic.DefaultSortOrd,
+	}
+
+	groups, total, err := sqlStore.GetAccountNetworkTrafficClientGroups(ctx, LockingStrengthNone, accountID, filter)
+	require.NoError(t, err)
+	require.Equal(t, int64(2), total)
+	require.Len(t, groups, 2)
+	require.Equal(t, "peer-a", groups[0].ID)
+	require.Equal(t, int64(1), groups[0].FlowCount)
+	require.Equal(t, int64(2), groups[0].TxPackets)
+	require.Equal(t, int64(3), groups[0].RxPackets)
+
+	clientKey := "peer-a"
+	filter.ClientKey = &clientKey
+	flowEvents, flowTotal, err := sqlStore.GetAccountNetworkTrafficGroupFlows(ctx, LockingStrengthNone, accountID, filter)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), flowTotal)
+	require.Len(t, flowEvents, 2)
+	require.Equal(t, "flow-a", flowEvents[0].FlowID)
+	require.Equal(t, "flow-a", flowEvents[1].FlowID)
 }

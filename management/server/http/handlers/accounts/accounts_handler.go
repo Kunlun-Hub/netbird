@@ -74,6 +74,7 @@ type accountLicenseResponse struct {
 	Plan             string          `json:"plan"`
 	LicenseKeyMasked string          `json:"license_key_masked,omitempty"`
 	License          []string        `json:"license"`
+	ResourceLimits   map[string]int  `json:"resource_limits,omitempty"`
 	Message          string          `json:"message,omitempty"`
 	StartTime        *time.Time      `json:"start_time,omitempty"`
 	EndTime          *time.Time      `json:"end_time,omitempty"`
@@ -471,6 +472,10 @@ func toAccountLicenseResponse(state *licensing.State) accountLicenseResponse {
 	for limit, value := range state.Usage {
 		usage[string(limit)] = value
 	}
+	resourceLimits := make(map[string]int, len(state.ResourceLimits))
+	for limit, value := range state.ResourceLimits {
+		resourceLimits[string(limit)] = value
+	}
 	if snapshot, err := entitlements.PlanEntitlements(state.Plan); err == nil {
 		features = make(map[string]bool, len(snapshot.Features))
 		for feature, enabled := range snapshot.Features {
@@ -480,6 +485,11 @@ func toAccountLicenseResponse(state *licensing.State) accountLicenseResponse {
 		limits = make(map[string]int, len(snapshot.Limits))
 		for limit, value := range snapshot.Limits {
 			limits[string(limit)] = value
+		}
+		for limit, value := range state.ResourceLimits {
+			if value > 0 {
+				limits[string(limit)] = value
+			}
 		}
 	}
 
@@ -491,6 +501,7 @@ func toAccountLicenseResponse(state *licensing.State) accountLicenseResponse {
 		Plan:             string(state.Plan),
 		LicenseKeyMasked: state.LicenseKeyMasked,
 		License:          licenseTypesToStrings(state.LicenseTypes),
+		ResourceLimits:   resourceLimits,
 		Message:          state.Message,
 		StartTime:        state.StartTime,
 		EndTime:          state.EndTime,

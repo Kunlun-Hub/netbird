@@ -1659,6 +1659,9 @@ type AccountLicense struct {
 	// Plan Effective entitlement plan.
 	Plan AccountLicensePlan `json:"plan"`
 
+	// ResourceLimits Resource quota limits embedded in the installed license key.
+	ResourceLimits *map[string]int `json:"resource_limits,omitempty"`
+
 	// ServerUrl Dashboard domain embedded in the installed license.
 	ServerUrl *string `json:"server_url,omitempty"`
 
