@@ -12,6 +12,7 @@ const (
 	MaxPageSize         = 10000
 	DefaultSortBy       = "timestamp"
 	DefaultSortOrd      = "desc"
+	DefaultRangeMinutes = 5
 	MaxDateRangeDays    = 15
 	maxDateRangeSeconds = MaxDateRangeDays * 24 * 60 * 60
 )
@@ -102,7 +103,7 @@ func (f *Filter) normalizeDateRange(now time.Time) {
 		endDate = f.EndDate.UTC()
 	}
 
-	startDate := endDate.Add(-time.Duration(maxDateRangeSeconds) * time.Second)
+	startDate := endDate.Add(-time.Duration(DefaultRangeMinutes) * time.Minute)
 	if f.StartDate != nil {
 		startDate = f.StartDate.UTC()
 	}

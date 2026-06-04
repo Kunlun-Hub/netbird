@@ -75,14 +75,14 @@ func TestFilterParseFromRequestNetworkOnly(t *testing.T) {
 	}
 }
 
-func TestFilterNormalizeDateRangeDefaultsToLast15Days(t *testing.T) {
+func TestFilterNormalizeDateRangeDefaultsToLast5Minutes(t *testing.T) {
 	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
 
 	var filter Filter
 	filter.normalizeDateRange(now)
 
 	assert.Equal(t, now, *filter.EndDate)
-	assert.Equal(t, now.Add(-15*24*time.Hour), *filter.StartDate)
+	assert.Equal(t, now.Add(-5*time.Minute), *filter.StartDate)
 }
 
 func TestFilterNormalizeDateRangeCapsLongRanges(t *testing.T) {
