@@ -5536,6 +5536,10 @@ func (s *SqlStore) CreateAccessLog(ctx context.Context, logEntry *accesslogs.Acc
 }
 
 func (s *SqlStore) CreateNetworkTrafficEvent(ctx context.Context, event *networktraffic.Event) error {
+	if shouldSkipDNSOnlySuccessEvent(event) {
+		return nil
+	}
+
 	return s.db.Transaction(func(tx *gorm.DB) error {
 		result := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(event)
 		if result.Error != nil {
@@ -5565,55 +5569,53 @@ func updateNetworkTrafficFlowSummary(tx *gorm.DB, event *networktraffic.Event) e
 		return err
 	}
 
-	updates := map[string]any{
-		"event_count": summary.EventCount + 1,
-		"rx_bytes":    max(summary.RxBytes, event.RxBytes),
-		"rx_packets":  max(summary.RxPackets, event.RxPackets),
-		"tx_bytes":    max(summary.TxBytes, event.TxBytes),
-		"tx_packets":  max(summary.TxPackets, event.TxPackets),
-	}
+	summary.EventCount++
+	summary.RxBytes = max(summary.RxBytes, event.RxBytes)
+	summary.RxPackets = max(summary.RxPackets, event.RxPackets)
+	summary.TxBytes = max(summary.TxBytes, event.TxBytes)
+	summary.TxPackets = max(summary.TxPackets, event.TxPackets)
 
 	if event.Timestamp.Before(summary.FirstTimestamp) {
-		updates["first_timestamp"] = event.Timestamp
+		summary.FirstTimestamp = event.Timestamp
 	}
 	if event.Timestamp.After(summary.LatestTimestamp) || event.Timestamp.Equal(summary.LatestTimestamp) {
-		updates["latest_timestamp"] = event.Timestamp
-		updates["event_type"] = event.EventType
-		updates["direction"] = event.Direction
-		updates["protocol"] = event.Protocol
-		updates["connection_type"] = event.ConnectionType
-		updates["reporter_id"] = event.ReporterID
-		updates["user_id"] = event.UserID
-		updates["source_id"] = event.SourceID
-		updates["source_type"] = event.SourceType
-		updates["source_name"] = event.SourceName
-		updates["source_address"] = event.SourceAddress
-		updates["source_dns_label"] = event.SourceDNSLabel
-		updates["source_os"] = event.SourceOS
-		updates["source_country_code"] = event.SourceCountryCode
-		updates["source_city_name"] = event.SourceCityName
-		updates["destination_id"] = event.DestinationID
-		updates["destination_type"] = event.DestinationType
-		updates["destination_name"] = event.DestinationName
-		updates["destination_address"] = event.DestinationAddress
-		updates["destination_dns_label"] = event.DestinationDNSLabel
-		updates["destination_os"] = event.DestinationOS
-		updates["destination_country_code"] = event.DestinationCountryCode
-		updates["destination_city_name"] = event.DestinationCityName
-		updates["policy_id"] = event.PolicyID
-		updates["policy_name"] = event.PolicyName
-		updates["icmp_type"] = event.ICMPType
-		updates["icmp_code"] = event.ICMPCode
-		updates["dns_domain"] = event.DNSDomain
-		updates["dns_query_type"] = event.DNSQueryType
-		updates["dns_answers"] = event.DNSAnswers
-		updates["dns_r_code"] = event.DNSRCode
-		updates["user_name"] = event.UserName
-		updates["user_email"] = event.UserEmail
-		updates["client_key"] = networktraffic.ClientKey(event)
+		summary.LatestTimestamp = event.Timestamp
+		summary.EventType = event.EventType
+		summary.Direction = event.Direction
+		summary.Protocol = event.Protocol
+		summary.ConnectionType = event.ConnectionType
+		summary.ReporterID = event.ReporterID
+		summary.UserID = event.UserID
+		summary.SourceID = event.SourceID
+		summary.SourceType = event.SourceType
+		summary.SourceName = event.SourceName
+		summary.SourceAddress = event.SourceAddress
+		summary.SourceDNSLabel = event.SourceDNSLabel
+		summary.SourceOS = event.SourceOS
+		summary.SourceCountryCode = event.SourceCountryCode
+		summary.SourceCityName = event.SourceCityName
+		summary.DestinationID = event.DestinationID
+		summary.DestinationType = event.DestinationType
+		summary.DestinationName = event.DestinationName
+		summary.DestinationAddress = event.DestinationAddress
+		summary.DestinationDNSLabel = event.DestinationDNSLabel
+		summary.DestinationOS = event.DestinationOS
+		summary.DestinationCountryCode = event.DestinationCountryCode
+		summary.DestinationCityName = event.DestinationCityName
+		summary.PolicyID = event.PolicyID
+		summary.PolicyName = event.PolicyName
+		summary.ICMPType = event.ICMPType
+		summary.ICMPCode = event.ICMPCode
+		summary.DNSDomain = event.DNSDomain
+		summary.DNSQueryType = event.DNSQueryType
+		summary.DNSAnswers = event.DNSAnswers
+		summary.DNSRCode = event.DNSRCode
+		summary.UserName = event.UserName
+		summary.UserEmail = event.UserEmail
+		summary.ClientKey = networktraffic.ClientKey(event)
 	}
 
-	return tx.Model(&summary).Updates(updates).Error
+	return tx.Save(&summary).Error
 }
 
 // GetAccountAccessLogs retrieves access logs for a given account with pagination and filtering
@@ -5712,7 +5714,6 @@ func (s *SqlStore) getAccountNetworkTrafficFlowEvents(ctx context.Context, lockS
 		FlowID string
 	}
 
-	flowTrafficHaving := "MAX(tx_packets) > 0 OR MAX(rx_packets) > 0 OR MAX(tx_bytes) > 0 OR MAX(rx_bytes) > 0"
 	internalDNSGroups, err := s.internalDNSNameServerGroups(ctx, accountID, filter)
 	if err != nil {
 		return nil, 0, err
@@ -5724,7 +5725,7 @@ func (s *SqlStore) getAccountNetworkTrafficFlowEvents(ctx context.Context, lockS
 		Scopes(func(db *gorm.DB) *gorm.DB { return s.applyInternalDNSFilter(db, internalDNSGroups) }).
 		Select("flow_id").
 		Group("flow_id").
-		Having(flowTrafficHaving)
+		Having(networkTrafficFlowHaving())
 
 	var totalCount int64
 	if err := s.db.Table("(?) as flow_groups", groupedQuery).Count(&totalCount).Error; err != nil {
@@ -5741,7 +5742,7 @@ func (s *SqlStore) getAccountNetworkTrafficFlowEvents(ctx context.Context, lockS
 		Scopes(func(db *gorm.DB) *gorm.DB { return s.applyInternalDNSFilter(db, internalDNSGroups) }).
 		Select("flow_id").
 		Group("flow_id").
-		Having(flowTrafficHaving).
+		Having(networkTrafficFlowHaving()).
 		Order(orderExpression + " " + sortOrder + ", flow_id " + sortOrder).
 		Limit(filter.GetLimit()).
 		Offset(filter.GetOffset())
@@ -5784,6 +5785,71 @@ func (s *SqlStore) getAccountNetworkTrafficFlowEvents(ctx context.Context, lockS
 	})
 
 	return events, totalCount, nil
+}
+
+func networkTrafficFlowHaving() string {
+	return "MAX(tx_packets) > 0 OR MAX(rx_packets) > 0 OR MAX(tx_bytes) > 0 OR MAX(rx_bytes) > 0 OR " +
+		"MAX(CASE WHEN " + networkTrafficDNSCondition() + " THEN 1 ELSE 0 END) > 0"
+}
+
+func networkTrafficDNSCondition() string {
+	return "(" +
+		allowedDNSQueryTypeCondition() + " AND " +
+		"(dns_domain <> '' OR dns_query_type <> '' OR dns_r_code <> '') AND " +
+		displayableDNSResultCondition() +
+		")"
+}
+
+func networkTrafficNoDNSCondition() string {
+	return "dns_domain = '' AND dns_query_type = '' AND dns_r_code = ''"
+}
+
+func allowedDNSQueryTypeCondition() string {
+	return "UPPER(dns_query_type) IN ('A', 'AAAA', 'CNAME')"
+}
+
+func displayableDNSResultCondition() string {
+	return "(UPPER(dns_r_code) <> 'NOERROR' OR NOT (" + noDNSAnswersCondition() + "))"
+}
+
+func noDNSAnswersCondition() string {
+	normalizedAnswers := "TRIM(REPLACE(REPLACE(REPLACE(REPLACE(dns_answers, '[', ''), ']', ''), '\"', ''), ',', ''))"
+	return "dns_answers IS NULL OR " + normalizedAnswers + " IN ('', 'null')"
+}
+
+func shouldSkipDNSOnlySuccessEvent(event *networktraffic.Event) bool {
+	if event == nil {
+		return false
+	}
+
+	if event.DNSDomain == "" && event.DNSQueryType == "" && event.DNSRCode == "" && len(event.DNSAnswers) == 0 {
+		return false
+	}
+
+	if !isAllowedDNSQueryType(event.DNSQueryType) {
+		return true
+	}
+
+	if !strings.EqualFold(event.DNSRCode, "NOERROR") {
+		return false
+	}
+
+	for _, answer := range event.DNSAnswers {
+		if strings.TrimSpace(answer) != "" {
+			return false
+		}
+	}
+
+	return true
+}
+
+func isAllowedDNSQueryType(queryType string) bool {
+	switch strings.ToUpper(strings.TrimSpace(queryType)) {
+	case "A", "AAAA", "CNAME":
+		return true
+	default:
+		return false
+	}
 }
 
 func networkTrafficFlowOrderExpression(sortColumn string) string {
@@ -6588,15 +6654,9 @@ func (s *SqlStore) applyNetworkTrafficFilters(query *gorm.DB, filter networktraf
 
 	if filter.DNS != nil {
 		if *filter.DNS {
-			// DNS 过滤：检查有明确 DNS 字段的记录，或者是 UDP 协议到 DNS 端口的流量
-			query = query.Where(
-				"dns_domain <> '' OR " +
-					"(protocol IN (6, 17) AND " +
-					" (destination_address LIKE '%:53' OR destination_address LIKE '%:5353' OR destination_address LIKE '%:22054' OR " +
-					"  source_address LIKE '%:53' OR source_address LIKE '%:5353' OR source_address LIKE '%:22054'))",
-			)
+			query = query.Where(networkTrafficDNSCondition())
 		} else {
-			query = query.Where("dns_domain = ''")
+			query = query.Where(networkTrafficNoDNSCondition())
 		}
 	}
 
@@ -6605,7 +6665,7 @@ func (s *SqlStore) applyNetworkTrafficFilters(query *gorm.DB, filter networktraf
 		dnsForwarderClientPattern := fmt.Sprintf("%%:%d", nbdns.ForwarderClientPort)
 		dnsForwarderServerPattern := fmt.Sprintf("%%:%d", nbdns.ForwarderServerPort)
 
-		query = query.Where("dns_domain = ''")
+		query = query.Where(networkTrafficNoDNSCondition())
 		query = query.Where("source_address <> destination_address")
 		query = query.Where("(source_id = '' OR destination_id = '' OR source_id <> destination_id)")
 		query = query.Where(
@@ -6683,14 +6743,9 @@ func (s *SqlStore) applyNetworkTrafficSummaryFilters(query *gorm.DB, filter netw
 
 	if filter.DNS != nil {
 		if *filter.DNS {
-			query = query.Where(
-				"dns_domain <> '' OR " +
-					"(protocol IN (6, 17) AND " +
-					" (destination_address LIKE '%:53' OR destination_address LIKE '%:5353' OR destination_address LIKE '%:22054' OR " +
-					"  source_address LIKE '%:53' OR source_address LIKE '%:5353' OR source_address LIKE '%:22054'))",
-			)
+			query = query.Where(networkTrafficDNSCondition())
 		} else {
-			query = query.Where("dns_domain = ''")
+			query = query.Where(networkTrafficNoDNSCondition())
 		}
 	}
 
@@ -6699,7 +6754,7 @@ func (s *SqlStore) applyNetworkTrafficSummaryFilters(query *gorm.DB, filter netw
 		dnsForwarderClientPattern := fmt.Sprintf("%%:%d", nbdns.ForwarderClientPort)
 		dnsForwarderServerPattern := fmt.Sprintf("%%:%d", nbdns.ForwarderServerPort)
 
-		query = query.Where("dns_domain = ''")
+		query = query.Where(networkTrafficNoDNSCondition())
 		query = query.Where("source_address <> destination_address")
 		query = query.Where("(source_id = '' OR destination_id = '' OR source_id <> destination_id)")
 		query = query.Where(

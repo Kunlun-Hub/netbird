@@ -2073,6 +2073,52 @@ type DNSChallengeResponse struct {
 	DnsChallenge string `json:"dns_challenge"`
 }
 
+// DNSEvent DNS query event. DNS events intentionally do not expose packet or byte counters.
+type DNSEvent struct {
+	// Answers DNS answer values extracted from the response.
+	Answers     []string               `json:"answers"`
+	Destination NetworkTrafficEndpoint `json:"destination"`
+	Device      NetworkTrafficEndpoint `json:"device"`
+
+	// Domain DNS query domain name without the trailing dot.
+	Domain string `json:"domain"`
+
+	// Id Unique DNS event ID.
+	Id string `json:"id"`
+
+	// QueryType DNS record type.
+	QueryType string `json:"query_type"`
+
+	// Rcode DNS response code.
+	Rcode string `json:"rcode"`
+
+	// ReporterId ID of the peer that reported the DNS event.
+	ReporterId string                 `json:"reporter_id"`
+	Source     NetworkTrafficEndpoint `json:"source"`
+
+	// Timestamp Time when the client resolved the domain.
+	Timestamp time.Time          `json:"timestamp"`
+	User      NetworkTrafficUser `json:"user"`
+}
+
+// DNSEventsResponse defines model for DNSEventsResponse.
+type DNSEventsResponse struct {
+	// Data List of DNS query events.
+	Data []DNSEvent `json:"data"`
+
+	// Page Current page number
+	Page int `json:"page"`
+
+	// PageSize Number of items per page
+	PageSize int `json:"page_size"`
+
+	// TotalPages Total number of pages available
+	TotalPages int `json:"total_pages"`
+
+	// TotalRecords Total number of DNS event records available
+	TotalRecords int `json:"total_records"`
+}
+
 // DNSRecord defines model for DNSRecord.
 type DNSRecord struct {
 	// Content DNS record content (IP address for A/AAAA, domain for CNAME)
@@ -5187,6 +5233,36 @@ type bearerAuthContextKey string
 
 // tokenAuthContextKey is the context key for TokenAuth security scheme
 type tokenAuthContextKey string
+
+// GetApiEventsDnsParams defines parameters for GetApiEventsDns.
+type GetApiEventsDnsParams struct {
+	// Page Page number
+	Page *int `form:"page,omitempty" json:"page,omitempty"`
+
+	// PageSize Number of items per page
+	PageSize *int `form:"page_size,omitempty" json:"page_size,omitempty"`
+
+	// UserId Filter by user ID
+	UserId *string `form:"user_id,omitempty" json:"user_id,omitempty"`
+
+	// ReporterId Filter by reporter peer ID
+	ReporterId *string `form:"reporter_id,omitempty" json:"reporter_id,omitempty"`
+
+	// DnsDomain Partial match on DNS query domain.
+	DnsDomain *string `form:"dns_domain,omitempty" json:"dns_domain,omitempty"`
+
+	// DnsType Exact DNS record type, for example A, AAAA, CNAME, TXT.
+	DnsType *string `form:"dns_type,omitempty" json:"dns_type,omitempty"`
+
+	// Search Case-insensitive partial match on user email, client name, client address, DNS domain, DNS type, and DNS answers.
+	Search *string `form:"search,omitempty" json:"search,omitempty"`
+
+	// StartDate Start date for filtering DNS events (ISO 8601 format, e.g., 2024-01-01T00:00:00Z).
+	StartDate *time.Time `form:"start_date,omitempty" json:"start_date,omitempty"`
+
+	// EndDate End date for filtering DNS events (ISO 8601 format, e.g., 2024-01-31T23:59:59Z).
+	EndDate *time.Time `form:"end_date,omitempty" json:"end_date,omitempty"`
+}
 
 // GetApiEventsNetworkTrafficParams defines parameters for GetApiEventsNetworkTraffic.
 type GetApiEventsNetworkTrafficParams struct {

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"net/netip"
+	"os"
 	"testing"
 	"time"
 
@@ -77,6 +78,138 @@ func TestCreateNetworkTrafficEventIgnoresDuplicateID(t *testing.T) {
 	var count int64
 	require.NoError(t, sqlStore.db.Model(&networktraffic.Event{}).Where("id = ?", event.ID).Count(&count).Error)
 	require.Equal(t, int64(1), count)
+}
+
+func TestCreateNetworkTrafficEventSkipsUnsupportedDNSLogs(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup, err := NewTestStoreFromSQL(ctx, "", t.TempDir())
+	require.NoError(t, err)
+	defer cleanup()
+
+	sqlStore, ok := store.(*SqlStore)
+	require.True(t, ok)
+
+	events := []*networktraffic.Event{
+		{
+			ID:           "dns-empty-success",
+			AccountID:    "account-id",
+			FlowID:       "flow-empty-success",
+			Timestamp:    time.Now().UTC(),
+			DNSDomain:    "example.com",
+			DNSQueryType: "AAAA",
+			DNSRCode:     "NOERROR",
+		},
+		{
+			ID:           "dns-blank-answer-success",
+			AccountID:    "account-id",
+			FlowID:       "flow-blank-answer-success",
+			Timestamp:    time.Now().UTC(),
+			DNSDomain:    "example.com",
+			DNSQueryType: "A",
+			DNSAnswers:   []string{" "},
+			DNSRCode:     "NOERROR",
+		},
+		{
+			ID:           "dns-mx-answer",
+			AccountID:    "account-id",
+			FlowID:       "flow-mx-answer",
+			Timestamp:    time.Now().UTC(),
+			DNSDomain:    "example.com",
+			DNSQueryType: "MX",
+			DNSAnswers:   []string{"mail.example.com"},
+			DNSRCode:     "NOERROR",
+		},
+		{
+			ID:           "dns-txt-failed",
+			AccountID:    "account-id",
+			FlowID:       "flow-txt-failed",
+			Timestamp:    time.Now().UTC(),
+			DNSDomain:    "missing.example.com",
+			DNSQueryType: "TXT",
+			DNSRCode:     "NXDOMAIN",
+		},
+	}
+
+	for _, event := range events {
+		require.NoError(t, sqlStore.CreateNetworkTrafficEvent(ctx, event))
+	}
+
+	var eventCount int64
+	require.NoError(t, sqlStore.db.Model(&networktraffic.Event{}).Count(&eventCount).Error)
+	require.Equal(t, int64(0), eventCount)
+
+	var summaryCount int64
+	require.NoError(t, sqlStore.db.Model(&networktraffic.FlowSummary{}).Count(&summaryCount).Error)
+	require.Equal(t, int64(0), summaryCount)
+}
+
+func TestCreateNetworkTrafficEventUpdatesSummaryWithDNSAnswers(t *testing.T) {
+	testCreateNetworkTrafficEventUpdatesSummaryWithDNSAnswers(t)
+}
+
+func TestPostgresql_CreateNetworkTrafficEventUpdatesSummaryWithDNSAnswers(t *testing.T) {
+	previousEngine, hadEngine := os.LookupEnv("NETBIRD_STORE_ENGINE")
+	t.Setenv("NETBIRD_STORE_ENGINE", string(types.PostgresStoreEngine))
+	t.Cleanup(func() {
+		if hadEngine {
+			require.NoError(t, os.Setenv("NETBIRD_STORE_ENGINE", previousEngine))
+			return
+		}
+		require.NoError(t, os.Unsetenv("NETBIRD_STORE_ENGINE"))
+	})
+
+	testCreateNetworkTrafficEventUpdatesSummaryWithDNSAnswers(t)
+}
+
+func testCreateNetworkTrafficEventUpdatesSummaryWithDNSAnswers(t *testing.T) {
+	t.Helper()
+
+	ctx := context.Background()
+	store, cleanup, err := NewTestStoreFromSQL(ctx, "", t.TempDir())
+	require.NoError(t, err)
+	defer cleanup()
+
+	sqlStore, ok := store.(*SqlStore)
+	require.True(t, ok)
+
+	accountID := "account-id"
+	flowID := "flow-id"
+	now := time.Now().UTC()
+
+	require.NoError(t, sqlStore.CreateNetworkTrafficEvent(ctx, &networktraffic.Event{
+		ID:                 "initial-event",
+		AccountID:          accountID,
+		FlowID:             flowID,
+		Timestamp:          now,
+		Protocol:           17,
+		SourceAddress:      "100.80.1.1:52000",
+		DestinationAddress: "100.80.1.53:53",
+		RxPackets:          1,
+	}))
+
+	require.NoError(t, sqlStore.CreateNetworkTrafficEvent(ctx, &networktraffic.Event{
+		ID:                 "dns-event",
+		AccountID:          accountID,
+		FlowID:             flowID,
+		Timestamp:          now.Add(time.Second),
+		Protocol:           17,
+		SourceAddress:      "100.80.1.1:52000",
+		DestinationAddress: "100.80.1.53:53",
+		DNSDomain:          "example.com",
+		DNSQueryType:       "A",
+		DNSAnswers:         []string{"93.184.216.34"},
+		DNSRCode:           "NOERROR",
+	}))
+
+	var summary networktraffic.FlowSummary
+	require.NoError(t, sqlStore.db.
+		Where("account_id = ? AND flow_id = ?", accountID, flowID).
+		First(&summary).Error)
+	require.Equal(t, 2, summary.EventCount)
+	require.Equal(t, "example.com", summary.DNSDomain)
+	require.Equal(t, "A", summary.DNSQueryType)
+	require.Equal(t, []string{"93.184.216.34"}, summary.DNSAnswers)
+	require.Equal(t, "NOERROR", summary.DNSRCode)
 }
 
 func TestGetAccountNetworkTrafficSummaryReturnsBackendPoints(t *testing.T) {
@@ -261,7 +394,7 @@ func TestGetAccountNetworkTrafficEventsNetworkOnlyFiltersNoise(t *testing.T) {
 	require.ElementsMatch(t, []string{"peer-to-peer", "resource"}, ids)
 }
 
-func TestGetAccountNetworkTrafficEventsDNSFilterIncludesTCP(t *testing.T) {
+func TestGetAccountNetworkTrafficEventsDNSFilterRequiresDNSInfo(t *testing.T) {
 	ctx := context.Background()
 	store, cleanup, err := NewTestStoreFromSQL(ctx, "", t.TempDir())
 	require.NoError(t, err)
@@ -274,19 +407,32 @@ func TestGetAccountNetworkTrafficEventsDNSFilterIncludesTCP(t *testing.T) {
 	now := time.Now().UTC()
 	events := []*networktraffic.Event{
 		{
-			ID:                 "tcp-dns",
+			ID:                 "tcp-dns-port-only",
 			AccountID:          accountID,
-			FlowID:             "flow-tcp-dns",
+			FlowID:             "flow-tcp-dns-port-only",
 			Timestamp:          now,
 			Protocol:           6,
 			SourceAddress:      "100.80.1.1:52000",
 			DestinationAddress: "100.80.1.2:53",
 		},
 		{
+			ID:                 "dns-record",
+			AccountID:          accountID,
+			FlowID:             "flow-dns-record",
+			Timestamp:          now.Add(time.Second),
+			Protocol:           17,
+			SourceAddress:      "100.80.1.1:52001",
+			DestinationAddress: "100.80.1.2:53",
+			DNSDomain:          "example.com",
+			DNSQueryType:       "A",
+			DNSAnswers:         []string{"93.184.216.34"},
+			DNSRCode:           "NOERROR",
+		},
+		{
 			ID:                 "tcp-web",
 			AccountID:          accountID,
 			FlowID:             "flow-tcp-web",
-			Timestamp:          now,
+			Timestamp:          now.Add(2 * time.Second),
 			Protocol:           6,
 			SourceAddress:      "100.80.1.1:52001",
 			DestinationAddress: "100.80.1.2:443",
@@ -310,7 +456,117 @@ func TestGetAccountNetworkTrafficEventsDNSFilterIncludesTCP(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(1), total)
 	require.Len(t, result, 1)
-	require.Equal(t, "tcp-dns", result[0].ID)
+	require.Equal(t, "dns-record", result[0].ID)
+}
+
+func TestGetAccountNetworkTrafficEventsDNSFilterExcludesNOERRORWithoutAnswers(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup, err := NewTestStoreFromSQL(ctx, "", t.TempDir())
+	require.NoError(t, err)
+	defer cleanup()
+
+	sqlStore, ok := store.(*SqlStore)
+	require.True(t, ok)
+
+	accountID := "account-id"
+	now := time.Now().UTC()
+	events := []*networktraffic.Event{
+		{
+			ID:                 "dns-empty-success",
+			AccountID:          accountID,
+			FlowID:             "flow-empty-success",
+			Timestamp:          now,
+			Protocol:           17,
+			SourceAddress:      "100.80.1.1:52000",
+			DestinationAddress: "100.80.1.2:53",
+			DNSDomain:          "example.com",
+			DNSQueryType:       "AAAA",
+			DNSRCode:           "NOERROR",
+		},
+		{
+			ID:                 "dns-blank-answer-success",
+			AccountID:          accountID,
+			FlowID:             "flow-blank-answer-success",
+			Timestamp:          now.Add(500 * time.Millisecond),
+			Protocol:           17,
+			SourceAddress:      "100.80.1.1:52003",
+			DestinationAddress: "100.80.1.2:53",
+			DNSDomain:          "example.com",
+			DNSQueryType:       "A",
+			DNSAnswers:         []string{" "},
+			DNSRCode:           "NOERROR",
+		},
+		{
+			ID:                 "dns-success-answer",
+			AccountID:          accountID,
+			FlowID:             "flow-success-answer",
+			Timestamp:          now.Add(time.Second),
+			Protocol:           17,
+			SourceAddress:      "100.80.1.1:52001",
+			DestinationAddress: "100.80.1.2:53",
+			DNSDomain:          "example.com",
+			DNSQueryType:       "A",
+			DNSAnswers:         []string{"93.184.216.34"},
+			DNSRCode:           "NOERROR",
+		},
+		{
+			ID:                 "dns-failed",
+			AccountID:          accountID,
+			FlowID:             "flow-failed",
+			Timestamp:          now.Add(2 * time.Second),
+			Protocol:           17,
+			SourceAddress:      "100.80.1.1:52002",
+			DestinationAddress: "100.80.1.2:53",
+			DNSDomain:          "missing.example.com",
+			DNSQueryType:       "A",
+			DNSRCode:           "NXDOMAIN",
+		},
+		{
+			ID:                 "dns-mx-answer",
+			AccountID:          accountID,
+			FlowID:             "flow-mx-answer",
+			Timestamp:          now.Add(3 * time.Second),
+			Protocol:           17,
+			SourceAddress:      "100.80.1.1:52004",
+			DestinationAddress: "100.80.1.2:53",
+			DNSDomain:          "example.com",
+			DNSQueryType:       "MX",
+			DNSAnswers:         []string{"mail.example.com"},
+			DNSRCode:           "NOERROR",
+		},
+		{
+			ID:                 "dns-txt-failed",
+			AccountID:          accountID,
+			FlowID:             "flow-txt-failed",
+			Timestamp:          now.Add(4 * time.Second),
+			Protocol:           17,
+			SourceAddress:      "100.80.1.1:52005",
+			DestinationAddress: "100.80.1.2:53",
+			DNSDomain:          "missing.example.com",
+			DNSQueryType:       "TXT",
+			DNSRCode:           "NXDOMAIN",
+		},
+	}
+
+	for _, event := range events {
+		require.NoError(t, sqlStore.db.Create(event).Error)
+	}
+
+	dnsOnly := true
+	filter := networktraffic.Filter{
+		Page:     1,
+		PageSize: 10,
+		SortBy:   networktraffic.DefaultSortBy,
+		SortOrd:  networktraffic.DefaultSortOrd,
+		DNS:      &dnsOnly,
+	}
+
+	result, total, err := sqlStore.GetAccountNetworkTrafficEvents(ctx, LockingStrengthNone, accountID, filter)
+	require.NoError(t, err)
+	require.Equal(t, int64(2), total)
+	require.Len(t, result, 2)
+	require.Equal(t, "dns-failed", result[0].ID)
+	require.Equal(t, "dns-success-answer", result[1].ID)
 }
 
 func TestGetAccountNetworkTrafficEventsInternalDNSFiltersByNameserverGroup(t *testing.T) {
@@ -503,6 +759,65 @@ func TestGetAccountNetworkTrafficEventsAggregateFlowsPaginatesByFlowID(t *testin
 	require.Len(t, result, 2)
 	require.Equal(t, "flow-a", result[0].FlowID)
 	require.Equal(t, "flow-a", result[1].FlowID)
+}
+
+func TestGetAccountNetworkTrafficEventsAggregateFlowsIncludesDNSWithoutCounters(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup, err := NewTestStoreFromSQL(ctx, "", t.TempDir())
+	require.NoError(t, err)
+	defer cleanup()
+
+	sqlStore, ok := store.(*SqlStore)
+	require.True(t, ok)
+
+	accountID := "account-id"
+	now := time.Now().UTC()
+	events := []*networktraffic.Event{
+		{
+			ID:                 "dns-flow",
+			AccountID:          accountID,
+			FlowID:             "flow-dns",
+			Timestamp:          now,
+			Protocol:           17,
+			SourceAddress:      "100.80.1.1:52000",
+			DestinationAddress: "100.80.1.53:53",
+			DNSDomain:          "example.com",
+			DNSQueryType:       "A",
+			DNSAnswers:         []string{"93.184.216.34"},
+			DNSRCode:           "NOERROR",
+		},
+		{
+			ID:                 "empty-flow",
+			AccountID:          accountID,
+			FlowID:             "flow-empty",
+			Timestamp:          now.Add(time.Second),
+			Protocol:           17,
+			SourceAddress:      "100.80.1.2:52000",
+			DestinationAddress: "100.80.1.3:443",
+		},
+	}
+
+	for _, event := range events {
+		require.NoError(t, sqlStore.CreateNetworkTrafficEvent(ctx, event))
+	}
+
+	dnsOnly := true
+	aggregateFlows := true
+	filter := networktraffic.Filter{
+		Page:           1,
+		PageSize:       10,
+		SortBy:         networktraffic.DefaultSortBy,
+		SortOrd:        networktraffic.DefaultSortOrd,
+		DNS:            &dnsOnly,
+		AggregateFlows: &aggregateFlows,
+	}
+
+	result, total, err := sqlStore.GetAccountNetworkTrafficEvents(ctx, LockingStrengthNone, accountID, filter)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), total)
+	require.Len(t, result, 1)
+	require.Equal(t, "dns-flow", result[0].ID)
+	require.Equal(t, "example.com", result[0].DNSDomain)
 }
 
 func TestNetworkTrafficGroupsFallbackToRawEventsWhenSummariesAreEmpty(t *testing.T) {

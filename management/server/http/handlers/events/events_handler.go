@@ -33,6 +33,7 @@ func AddEndpoints(accountManager account.Manager, router *mux.Router) {
 	eventsHandler := newHandler(accountManager)
 	router.HandleFunc("/events", eventsHandler.getAllEvents).Methods("GET", "OPTIONS")
 	router.HandleFunc("/events/audit", eventsHandler.getAllEvents).Methods("GET", "OPTIONS")
+	router.HandleFunc("/events/dns", eventsHandler.getAllDNSEvents).Methods("GET", "OPTIONS")
 	router.HandleFunc("/events/network-traffic", eventsHandler.getAllNetworkTrafficEvents).Methods("GET", "OPTIONS")
 	router.HandleFunc("/events/network-traffic/groups", eventsHandler.getNetworkTrafficClientGroups).Methods("GET", "OPTIONS")
 	router.HandleFunc("/events/network-traffic/group-flows", eventsHandler.getNetworkTrafficGroupFlows).Methods("GET", "OPTIONS")
@@ -88,6 +89,109 @@ func toEventResponse(event *activity.Event) *api.Event {
 		Meta:           meta,
 	}
 	return e
+}
+
+func (h *handler) getAllDNSEvents(w http.ResponseWriter, r *http.Request) {
+	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	var filter networktraffic.Filter
+	filter.ParseFromRequest(r)
+	dnsOnly := true
+	aggregateFlows := false
+	filter.DNS = &dnsOnly
+	filter.AggregateFlows = &aggregateFlows
+	filter.InternalDNS = nil
+
+	events, totalCount, err := h.accountManager.GetStore().GetAccountNetworkTrafficEvents(
+		r.Context(),
+		store.LockingStrengthNone,
+		userAuth.AccountId,
+		filter,
+	)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	apiEvents := make([]dnsEventResponse, 0, len(events))
+	for _, event := range events {
+		apiEvents = append(apiEvents, toDNSEventResponse(event))
+	}
+
+	util.WriteJSONObject(r.Context(), w, &dnsEventsResponse{
+		Data:         apiEvents,
+		Page:         filter.Page,
+		PageSize:     filter.PageSize,
+		TotalRecords: int(totalCount),
+		TotalPages:   getTotalPageCount(int(totalCount), filter.PageSize),
+	})
+}
+
+type dnsEventResponse struct {
+	ID          string                     `json:"id"`
+	Timestamp   time.Time                  `json:"timestamp"`
+	ReporterID  string                     `json:"reporter_id"`
+	User        api.NetworkTrafficUser     `json:"user"`
+	Device      api.NetworkTrafficEndpoint `json:"device"`
+	Source      api.NetworkTrafficEndpoint `json:"source"`
+	Destination api.NetworkTrafficEndpoint `json:"destination"`
+	Domain      string                     `json:"domain"`
+	QueryType   string                     `json:"query_type"`
+	Answers     []string                   `json:"answers"`
+	RCode       string                     `json:"rcode"`
+}
+
+type dnsEventsResponse struct {
+	Data         []dnsEventResponse `json:"data"`
+	Page         int                `json:"page"`
+	PageSize     int                `json:"page_size"`
+	TotalRecords int                `json:"total_records"`
+	TotalPages   int                `json:"total_pages"`
+}
+
+func toDNSEventResponse(event *networktraffic.Event) dnsEventResponse {
+	source := api.NetworkTrafficEndpoint{
+		Id:       event.SourceID,
+		Type:     event.SourceType,
+		Name:     event.SourceName,
+		Address:  event.SourceAddress,
+		DnsLabel: optionalString(event.SourceDNSLabel),
+		Os:       optionalString(event.SourceOS),
+		GeoLocation: api.NetworkTrafficLocation{
+			CountryCode: event.SourceCountryCode,
+			CityName:    event.SourceCityName,
+		},
+	}
+	destination := api.NetworkTrafficEndpoint{
+		Id:       event.DestinationID,
+		Type:     event.DestinationType,
+		Name:     event.DestinationName,
+		Address:  event.DestinationAddress,
+		DnsLabel: optionalString(event.DestinationDNSLabel),
+		Os:       optionalString(event.DestinationOS),
+		GeoLocation: api.NetworkTrafficLocation{
+			CountryCode: event.DestinationCountryCode,
+			CityName:    event.DestinationCityName,
+		},
+	}
+
+	return dnsEventResponse{
+		ID:          event.ID,
+		Timestamp:   event.Timestamp,
+		ReporterID:  event.ReporterID,
+		User:        api.NetworkTrafficUser{Id: event.UserID, Name: event.UserName, Email: event.UserEmail},
+		Device:      source,
+		Source:      source,
+		Destination: destination,
+		Domain:      event.DNSDomain,
+		QueryType:   event.DNSQueryType,
+		Answers:     event.DNSAnswers,
+		RCode:       event.DNSRCode,
+	}
 }
 
 func (h *handler) getAllNetworkTrafficEvents(w http.ResponseWriter, r *http.Request) {

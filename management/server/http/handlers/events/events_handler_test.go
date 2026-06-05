@@ -10,12 +10,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang/mock/gomock"
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/management/internals/modules/networktraffic"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
+	nbstore "github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/shared/auth"
 
 	"github.com/netbirdio/netbird/management/server/activity"
@@ -66,6 +68,64 @@ func TestNetworkTrafficSummaryPointLimit(t *testing.T) {
 	filter.StartDate = &tooWideStart
 
 	assert.Greater(t, countSummaryPoints(filter, networkTrafficSummaryBucketSeconds), int64(networkTrafficSummaryMaxPoints))
+}
+
+func TestGetAllDNSEventsForcesDNSOnlyFilter(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	accountID := "account-id"
+	storeMock := nbstore.NewMockStore(ctrl)
+	storeMock.EXPECT().
+		GetAccountNetworkTrafficEvents(gomock.Any(), nbstore.LockingStrengthNone, accountID, gomock.AssignableToTypeOf(networktraffic.Filter{})).
+		DoAndReturn(func(_ context.Context, _ nbstore.LockingStrength, _ string, filter networktraffic.Filter) ([]*networktraffic.Event, int64, error) {
+			require.NotNil(t, filter.DNS)
+			require.True(t, *filter.DNS)
+			require.NotNil(t, filter.AggregateFlows)
+			require.False(t, *filter.AggregateFlows)
+			require.Nil(t, filter.InternalDNS)
+			require.Equal(t, "example.com", *filter.DNSDomain)
+
+			return []*networktraffic.Event{{
+				ID:                 "dns-event",
+				AccountID:          accountID,
+				FlowID:             "flow-dns",
+				Timestamp:          time.Now().UTC(),
+				SourceAddress:      "100.80.1.1:53000",
+				DestinationAddress: "100.80.1.53:53",
+				DNSDomain:          "example.com",
+				DNSQueryType:       "A",
+				DNSAnswers:         []string{"93.184.216.34"},
+				DNSRCode:           "NOERROR",
+			}}, 1, nil
+		})
+
+	h := &handler{accountManager: &mock_server.MockAccountManager{
+		GetStoreFunc: func() nbstore.Store {
+			return storeMock
+		},
+	}}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/events/dns?dns=false&aggregate_flows=true&internal_dns=true&dns_domain=example.com", nil)
+	req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{AccountId: accountID, UserId: "user-id"})
+	recorder := httptest.NewRecorder()
+
+	h.getAllDNSEvents(recorder, req)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var response struct {
+		Data         []map[string]any `json:"data"`
+		TotalRecords int              `json:"total_records"`
+	}
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+	require.Equal(t, 1, response.TotalRecords)
+	require.Len(t, response.Data, 1)
+	require.Equal(t, "example.com", response.Data[0]["domain"])
+	require.Equal(t, "A", response.Data[0]["query_type"])
+	require.NotContains(t, response.Data[0], "rx_bytes")
+	require.NotContains(t, response.Data[0], "rx_packets")
+	require.NotContains(t, response.Data[0], "tx_bytes")
+	require.NotContains(t, response.Data[0], "tx_packets")
 }
 
 func generateEvents(accountID, userID string) []*activity.Event {

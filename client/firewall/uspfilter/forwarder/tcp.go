@@ -73,7 +73,7 @@ func (f *Forwarder) proxyTCP(id stack.TransportEndpointID, inConn *gonet.TCPConn
 	ctx, cancel := context.WithCancel(f.ctx)
 	defer cancel()
 
-	isDNS := id.LocalPort == 53
+	isDNS := isDNSPort(id.LocalPort)
 
 	var dnsInfo *nftypes.DNSInfo
 	var dnsMu sync.Mutex

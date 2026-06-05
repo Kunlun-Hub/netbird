@@ -13,25 +13,86 @@ import (
 )
 
 func TestShouldStoreDNSCollection(t *testing.T) {
-	dnsEvents := []*types.EventFields{
-		{Protocol: types.UDP, SourceIP: netip.MustParseAddr("100.80.1.1"), DestIP: netip.MustParseAddr("100.80.1.2"), DestPort: 53},
-		{Protocol: types.TCP, SourceIP: netip.MustParseAddr("100.80.1.1"), DestIP: netip.MustParseAddr("100.80.1.2"), DestPort: 53},
-		{Protocol: types.UDP, SourceIP: netip.MustParseAddr("100.80.1.1"), DestIP: netip.MustParseAddr("100.80.1.2"), DestPort: nbdns.ForwarderClientPort},
-		{Protocol: types.TCP, SourceIP: netip.MustParseAddr("100.80.1.1"), DestIP: netip.MustParseAddr("100.80.1.2"), DestPort: nbdns.ForwarderServerPort},
-		{Protocol: types.UDP, SourceIP: netip.MustParseAddr("100.80.1.1"), DestIP: netip.MustParseAddr("100.80.1.2"), DestPort: 443, DNSInfo: &types.DNSInfo{Domain: "example.com", QueryType: "A"}},
+	type testCase struct {
+		name                       string
+		fields                     types.EventFields
+		shouldStoreWhenDNSDisabled bool
+		shouldStoreWhenDNSEnabled  bool
+	}
+
+	cases := []testCase{
+		{
+			name:   "dns port only udp",
+			fields: types.EventFields{Protocol: types.UDP, SourceIP: netip.MustParseAddr("100.80.1.1"), DestIP: netip.MustParseAddr("100.80.1.2"), DestPort: 53},
+		},
+		{
+			name:   "dns port only tcp",
+			fields: types.EventFields{Protocol: types.TCP, SourceIP: netip.MustParseAddr("100.80.1.1"), DestIP: netip.MustParseAddr("100.80.1.2"), DestPort: 53},
+		},
+		{
+			name:   "forwarder client port only",
+			fields: types.EventFields{Protocol: types.UDP, SourceIP: netip.MustParseAddr("100.80.1.1"), DestIP: netip.MustParseAddr("100.80.1.2"), DestPort: nbdns.ForwarderClientPort},
+		},
+		{
+			name:   "forwarder server port only",
+			fields: types.EventFields{Protocol: types.TCP, SourceIP: netip.MustParseAddr("100.80.1.1"), DestIP: netip.MustParseAddr("100.80.1.2"), DestPort: nbdns.ForwarderServerPort},
+		},
+		{
+			name:   "NOERROR without answers",
+			fields: types.EventFields{Protocol: types.UDP, SourceIP: netip.MustParseAddr("100.80.1.1"), DestIP: netip.MustParseAddr("100.80.1.2"), DestPort: 443, DNSInfo: &types.DNSInfo{Domain: "example.com", QueryType: "A", RCode: "NOERROR"}},
+		},
+		{
+			name:   "NOERROR with blank answer",
+			fields: types.EventFields{Protocol: types.UDP, SourceIP: netip.MustParseAddr("100.80.1.1"), DestIP: netip.MustParseAddr("100.80.1.2"), DestPort: 443, DNSInfo: &types.DNSInfo{Domain: "example.com", QueryType: "A", RCode: "NOERROR", Answers: []string{" "}}},
+		},
+		{
+			name:                      "NOERROR with A answer",
+			fields:                    types.EventFields{Protocol: types.UDP, SourceIP: netip.MustParseAddr("100.80.1.1"), DestIP: netip.MustParseAddr("100.80.1.2"), DestPort: 443, DNSInfo: &types.DNSInfo{Domain: "example.com", QueryType: "A", RCode: "NOERROR", Answers: []string{"93.184.216.34"}}},
+			shouldStoreWhenDNSEnabled: true,
+		},
+		{
+			name:                      "NXDOMAIN for A",
+			fields:                    types.EventFields{Protocol: types.UDP, SourceIP: netip.MustParseAddr("100.80.1.1"), DestIP: netip.MustParseAddr("100.80.1.2"), DestPort: 443, DNSInfo: &types.DNSInfo{Domain: "missing.example.com", QueryType: "A", RCode: "NXDOMAIN"}},
+			shouldStoreWhenDNSEnabled: true,
+		},
+		{
+			name:   "NOERROR with MX answer",
+			fields: types.EventFields{Protocol: types.UDP, SourceIP: netip.MustParseAddr("100.80.1.1"), DestIP: netip.MustParseAddr("100.80.1.2"), DestPort: 443, DNSInfo: &types.DNSInfo{Domain: "example.com", QueryType: "MX", RCode: "NOERROR", Answers: []string{"mail.example.com"}}},
+		},
+		{
+			name:   "NXDOMAIN for TXT",
+			fields: types.EventFields{Protocol: types.UDP, SourceIP: netip.MustParseAddr("100.80.1.1"), DestIP: netip.MustParseAddr("100.80.1.2"), DestPort: 443, DNSInfo: &types.DNSInfo{Domain: "missing.example.com", QueryType: "TXT", RCode: "NXDOMAIN"}},
+		},
 	}
 
 	logger := &Logger{}
-	for _, event := range dnsEvents {
-		require.False(t, logger.shouldStore(&types.Event{EventFields: *event}, peer.RouteLookupResult{}, peer.RouteLookupResult{}, false))
+	for _, tc := range cases {
+		require.Equal(t, tc.shouldStoreWhenDNSDisabled, logger.shouldStore(&types.Event{EventFields: tc.fields}, peer.RouteLookupResult{}, peer.RouteLookupResult{}, false), tc.name)
 	}
 
 	logger.UpdateConfig(true, false)
-	for _, event := range dnsEvents {
-		require.True(t, logger.shouldStore(&types.Event{EventFields: *event}, peer.RouteLookupResult{}, peer.RouteLookupResult{}, false))
+	for _, tc := range cases {
+		require.Equal(t, tc.shouldStoreWhenDNSEnabled, logger.shouldStore(&types.Event{EventFields: tc.fields}, peer.RouteLookupResult{}, peer.RouteLookupResult{}, false), tc.name)
 	}
 
 	require.False(t, (&Logger{}).shouldStore(&types.Event{EventFields: types.EventFields{Protocol: types.TCP, DestPort: 443}}, peer.RouteLookupResult{}, peer.RouteLookupResult{}, false))
+}
+
+func TestZeroDNSCounters(t *testing.T) {
+	event := &types.EventFields{
+		RxPackets: 4,
+		TxPackets: 5,
+		RxBytes:   1200,
+		TxBytes:   2400,
+		DNSInfo:   &types.DNSInfo{Domain: "example.com", QueryType: "A"},
+	}
+
+	zeroDNSCounters(event)
+
+	require.Zero(t, event.RxPackets)
+	require.Zero(t, event.TxPackets)
+	require.Zero(t, event.RxBytes)
+	require.Zero(t, event.TxBytes)
 }
 
 func TestShouldStoreZeroTrustNetworkFlows(t *testing.T) {

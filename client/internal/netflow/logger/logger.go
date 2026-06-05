@@ -3,6 +3,7 @@ package logger
 import (
 	"context"
 	"net/netip"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -181,6 +182,7 @@ func (l *Logger) startReceiver() {
 				EventFields: *eventFields,
 				Timestamp:   time.Now().UTC(),
 			}
+			zeroDNSCounters(&event.EventFields)
 
 			var isSrcExitNode bool
 			var isDestExitNode bool
@@ -254,7 +256,10 @@ func (l *Logger) isOverlayIP(ip netip.Addr) bool {
 
 func (l *Logger) shouldStore(event *types.Event, srcRoute, destRoute peer.RouteLookupResult, isExitNode bool) bool {
 	if isDNSEvent(&event.EventFields) {
-		return l.dnsCollection.Load() && !isNoiseAddress(event.SourceIP) && !isNoiseAddress(event.DestIP)
+		return l.dnsCollection.Load() &&
+			hasDisplayableDNSInfo(event.DNSInfo) &&
+			!isNoiseAddress(event.SourceIP) &&
+			!isNoiseAddress(event.DestIP)
 	}
 
 	// check dns collection
@@ -306,6 +311,50 @@ func (l *Logger) isZeroTrustFlow(event *types.Event, srcRoute, destRoute peer.Ro
 
 func (l *Logger) isLocalOverlayIP(ip netip.Addr) bool {
 	return (l.wgIfaceIP.IsValid() && ip == l.wgIfaceIP) || (l.wgIfaceIPv6.IsValid() && ip == l.wgIfaceIPv6)
+}
+
+func zeroDNSCounters(event *types.EventFields) {
+	if event == nil || event.DNSInfo == nil {
+		return
+	}
+
+	event.RxPackets = 0
+	event.TxPackets = 0
+	event.RxBytes = 0
+	event.TxBytes = 0
+}
+
+func hasDisplayableDNSInfo(info *types.DNSInfo) bool {
+	if info == nil {
+		return false
+	}
+
+	if !isAllowedDNSQueryType(info.QueryType) {
+		return false
+	}
+
+	hasAnswers := false
+	for _, answer := range info.Answers {
+		if strings.TrimSpace(answer) != "" {
+			hasAnswers = true
+			break
+		}
+	}
+
+	if hasAnswers {
+		return true
+	}
+
+	return info.RCode != "" && !strings.EqualFold(info.RCode, "NOERROR")
+}
+
+func isAllowedDNSQueryType(queryType string) bool {
+	switch strings.ToUpper(strings.TrimSpace(queryType)) {
+	case "A", "AAAA", "CNAME":
+		return true
+	default:
+		return false
+	}
 }
 
 func isNoiseAddress(ip netip.Addr) bool {

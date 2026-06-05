@@ -225,7 +225,7 @@ func (f *Forwarder) proxyUDP(ctx context.Context, pConn *udpPacketConn, id stack
 	ctx, cancel := context.WithCancel(f.ctx)
 	defer cancel()
 
-	isDNS := id.LocalPort == 53
+	isDNS := isDNSPort(id.LocalPort)
 
 	go func() {
 		<-ctx.Done()

@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/hashicorp/go-multierror"
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
@@ -19,6 +20,7 @@ import (
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/internal/ebpf"
 	ebpfMgr "github.com/netbirdio/netbird/client/internal/ebpf/manager"
+	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 )
 
 const (
@@ -43,9 +45,10 @@ type serviceViaListener struct {
 	ebpfService       ebpfMgr.Manager
 	firewall          Firewall
 	tcpDNATConfigured bool
+	flowLogger        nftypes.FlowLogger
 }
 
-func newServiceViaListener(wgIface WGIface, customAddr *netip.AddrPort, fw Firewall) *serviceViaListener {
+func newServiceViaListener(wgIface WGIface, customAddr *netip.AddrPort, fw Firewall, flowLogger nftypes.FlowLogger) *serviceViaListener {
 	mux := dns.NewServeMux()
 
 	s := &serviceViaListener{
@@ -53,18 +56,112 @@ func newServiceViaListener(wgIface WGIface, customAddr *netip.AddrPort, fw Firew
 		dnsMux:      mux,
 		customAddr:  customAddr,
 		firewall:    fw,
+		flowLogger:  flowLogger,
 		server: &dns.Server{
 			Net:     "udp",
-			Handler: mux,
 			UDPSize: 65535,
 		},
 		tcpServer: &dns.Server{
-			Net:     "tcp",
-			Handler: mux,
+			Net: "tcp",
 		},
 	}
+	s.server.Handler = s.flowAwareHandler(nftypes.UDP)
+	s.tcpServer.Handler = s.flowAwareHandler(nftypes.TCP)
 
 	return s
+}
+
+func (s *serviceViaListener) flowAwareHandler(protocol nftypes.Protocol) dns.Handler {
+	return dns.HandlerFunc(func(w dns.ResponseWriter, r *dns.Msg) {
+		if s.flowLogger == nil {
+			s.dnsMux.ServeDNS(w, r)
+			return
+		}
+
+		s.dnsMux.ServeDNS(&listenerFlowResponseWriter{
+			ResponseWriter: w,
+			flowLogger:     s.flowLogger,
+			protocol:       protocol,
+			flowID:         uuid.New(),
+			dnsInfo:        nftypes.ParseDNSInfo(packDNSMsg(r)),
+		}, r)
+	})
+}
+
+type listenerFlowResponseWriter struct {
+	dns.ResponseWriter
+	flowLogger nftypes.FlowLogger
+	protocol   nftypes.Protocol
+	flowID     uuid.UUID
+	dnsInfo    *nftypes.DNSInfo
+}
+
+func (w *listenerFlowResponseWriter) WriteMsg(msg *dns.Msg) error {
+	err := w.ResponseWriter.WriteMsg(msg)
+	if err != nil {
+		return err
+	}
+	w.mergeAndStore(packDNSMsg(msg))
+	return nil
+}
+
+func (w *listenerFlowResponseWriter) Write(data []byte) (int, error) {
+	n, err := w.ResponseWriter.Write(data)
+	if err != nil {
+		return n, err
+	}
+	w.mergeAndStore(data[:n])
+	return n, nil
+}
+
+func (w *listenerFlowResponseWriter) mergeAndStore(payload []byte) {
+	if w.flowLogger == nil {
+		return
+	}
+	info := nftypes.MergeDNSInfo(w.dnsInfo, nftypes.ParseDNSInfo(payload))
+	if info == nil {
+		return
+	}
+
+	local := addrPortFromNetAddr(w.LocalAddr())
+	remote := addrPortFromNetAddr(w.RemoteAddr())
+
+	w.flowLogger.StoreEvent(nftypes.EventFields{
+		FlowID:     w.flowID,
+		Type:       nftypes.TypeEnd,
+		Direction:  nftypes.Egress,
+		Protocol:   w.protocol,
+		SourceIP:   remote.Addr(),
+		DestIP:     local.Addr(),
+		SourcePort: remote.Port(),
+		DestPort:   local.Port(),
+		DNSInfo:    info,
+	})
+}
+
+func packDNSMsg(msg *dns.Msg) []byte {
+	if msg == nil {
+		return nil
+	}
+	payload, _ := msg.Pack()
+	return payload
+}
+
+func addrPortFromNetAddr(addr net.Addr) netip.AddrPort {
+	switch v := addr.(type) {
+	case *net.UDPAddr:
+		ip, _ := netip.AddrFromSlice(v.IP)
+		return netip.AddrPortFrom(ip.Unmap(), uint16(v.Port))
+	case *net.TCPAddr:
+		ip, _ := netip.AddrFromSlice(v.IP)
+		return netip.AddrPortFrom(ip.Unmap(), uint16(v.Port))
+	default:
+		parsed, err := netip.ParseAddrPort(addr.String())
+		if err != nil {
+			return netip.AddrPort{}
+		}
+		return parsed
+	}
 }
 
 func (s *serviceViaListener) Listen() error {

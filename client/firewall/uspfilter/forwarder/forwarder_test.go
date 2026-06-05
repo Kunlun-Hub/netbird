@@ -8,9 +8,18 @@ import (
 	"github.com/stretchr/testify/require"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
+
+	nbdns "github.com/netbirdio/netbird/dns"
 )
 
 const echoRequestSize = 8
+
+func TestIsDNSPortIncludesForwarderPorts(t *testing.T) {
+	assert.True(t, isDNSPort(nbdns.DefaultDNSPort))
+	assert.True(t, isDNSPort(nbdns.ForwarderClientPort))
+	assert.True(t, isDNSPort(nbdns.ForwarderServerPort))
+	assert.False(t, isDNSPort(443))
+}
 
 func makeIPv6(t *testing.T, src, dst netip.Addr, nextHdr uint8, payload []byte) []byte {
 	t.Helper()

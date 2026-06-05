@@ -4,12 +4,16 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 )
 
 func TestServiceViaListener_TCPAndUDP(t *testing.T) {
@@ -26,7 +30,7 @@ func TestServiceViaListener_TCPAndUDP(t *testing.T) {
 	})
 
 	// Create a service using a custom address to avoid needing root
-	svc := newServiceViaListener(nil, nil, nil)
+	svc := newServiceViaListener(nil, nil, nil, nil)
 	svc.dnsMux.Handle(".", handler)
 
 	// Bind both transports up front to avoid TOCTOU races.
@@ -84,3 +88,91 @@ func TestServiceViaListener_TCPAndUDP(t *testing.T) {
 	require.NotEmpty(t, tcpResp.Answer)
 	assert.Contains(t, tcpResp.Answer[0].String(), "192.0.2.1", "TCP response should contain expected IP")
 }
+
+func TestServiceViaListenerStoresDNSInfo(t *testing.T) {
+	flowLogger := &testFlowLogger{}
+
+	handler := dns.HandlerFunc(func(w dns.ResponseWriter, r *dns.Msg) {
+		m := new(dns.Msg)
+		m.SetReply(r)
+		m.Answer = append(m.Answer, &dns.A{
+			Hdr: dns.RR_Header{Name: r.Question[0].Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 60},
+			A:   net.ParseIP("192.0.2.10"),
+		})
+		require.NoError(t, w.WriteMsg(m))
+	})
+
+	svc := newServiceViaListener(nil, nil, nil, flowLogger)
+	svc.dnsMux.Handle(".", handler)
+
+	udpConn, err := net.ListenUDP("udp", net.UDPAddrFromAddrPort(netip.AddrPortFrom(customIP, 0)))
+	if err != nil {
+		t.Skip("cannot bind to 127.0.0.153, skipping")
+	}
+	port := uint16(udpConn.LocalAddr().(*net.UDPAddr).Port)
+	tcpLn, err := net.ListenTCP("tcp", net.TCPAddrFromAddrPort(netip.AddrPortFrom(customIP, port)))
+	if err != nil {
+		udpConn.Close()
+		t.Skip("cannot bind TCP on same port, skipping")
+	}
+	svc.server.PacketConn = udpConn
+	svc.tcpServer.Listener = tcpLn
+	svc.listenIP = customIP
+	svc.listenPort = port
+	svc.listenerIsRunning = true
+
+	go func() {
+		if err := svc.server.ActivateAndServe(); err != nil {
+			t.Logf("udp server: %v", err)
+		}
+	}()
+	go func() {
+		if err := svc.tcpServer.ActivateAndServe(); err != nil {
+			t.Logf("tcp server: %v", err)
+		}
+	}()
+	defer func() {
+		require.NoError(t, svc.Stop())
+	}()
+
+	q := new(dns.Msg).SetQuestion("structured.example.", dns.TypeA)
+	_, _, err = (&dns.Client{Net: "udp", Timeout: 2 * time.Second}).Exchange(q, fmt.Sprintf("%s:%d", customIP, port))
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		for _, event := range flowLogger.GetEvents() {
+			if event.DNSInfo == nil {
+				continue
+			}
+			if event.DNSInfo.Domain == "structured.example" &&
+				event.DNSInfo.QueryType == "A" &&
+				event.DNSInfo.RCode == "NOERROR" &&
+				assert.ObjectsAreEqual([]string{"192.0.2.10"}, event.DNSInfo.Answers) {
+				return true
+			}
+		}
+		return false
+	}, time.Second, 10*time.Millisecond)
+}
+
+type testFlowLogger struct {
+	mu     sync.Mutex
+	events []*nftypes.Event
+}
+
+func (l *testFlowLogger) StoreEvent(fields nftypes.EventFields) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.events = append(l.events, &nftypes.Event{EventFields: fields})
+}
+
+func (l *testFlowLogger) GetEvents() []*nftypes.Event {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return append([]*nftypes.Event(nil), l.events...)
+}
+
+func (l *testFlowLogger) DeleteEvents([]uuid.UUID) {}
+func (l *testFlowLogger) Close()                   {}
+func (l *testFlowLogger) Enable()                  {}
+func (l *testFlowLogger) UpdateConfig(bool, bool)  {}

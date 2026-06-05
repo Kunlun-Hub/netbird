@@ -778,7 +778,7 @@ $traefik_dynamic_volume
       - traefik.http.routers.netbird-grpc.service=netbird-server-h2c
       - traefik.http.routers.netbird-grpc.priority=100
       # Backend router (relay, WebSocket, log APIs, API, OAuth2)
-      - traefik.http.routers.netbird-backend.rule=Host(\`$NETBIRD_DOMAIN\`) && (Path(\`/relay\`) || PathPrefix(\`/relay/\`) || PathPrefix(\`/ws-proxy/\`) || PathPrefix(\`/api/events/audit\`) || PathPrefix(\`/api/events/proxy\`) || PathPrefix(\`/api/events/network-traffic\`) || PathPrefix(\`/api\`) || PathPrefix(\`/oauth2\`))
+      - traefik.http.routers.netbird-backend.rule=Host(\`$NETBIRD_DOMAIN\`) && (Path(\`/relay\`) || PathPrefix(\`/relay/\`) || PathPrefix(\`/ws-proxy/\`) || PathPrefix(\`/api/events/audit\`) || PathPrefix(\`/api/events/proxy\`) || PathPrefix(\`/api/events/dns\`) || PathPrefix(\`/api/events/network-traffic\`) || PathPrefix(\`/api\`) || PathPrefix(\`/oauth2\`))
       - traefik.http.routers.netbird-backend.entrypoints=websecure
       - traefik.http.routers.netbird-backend.tls=true
       - traefik.http.routers.netbird-backend.tls.certresolver=letsencrypt
@@ -970,7 +970,7 @@ $(if [[ -n "$tls_labels" ]]; then echo "      - traefik.http.routers.netbird-das
 $(if [[ -n "$tls_labels" ]]; then echo "      - traefik.http.routers.netbird-grpc.${tls_labels}"; fi)
       - traefik.http.routers.netbird-grpc.service=netbird-server-h2c
       # Backend router (relay, WebSocket, log APIs, API, OAuth2)
-      - traefik.http.routers.netbird-backend.rule=Host(\`$NETBIRD_DOMAIN\`) && (Path(\`/relay\`) || PathPrefix(\`/relay/\`) || PathPrefix(\`/ws-proxy/\`) || PathPrefix(\`/api/events/audit\`) || PathPrefix(\`/api/events/proxy\`) || PathPrefix(\`/api/events/network-traffic\`) || PathPrefix(\`/api\`) || PathPrefix(\`/oauth2\`))
+      - traefik.http.routers.netbird-backend.rule=Host(\`$NETBIRD_DOMAIN\`) && (Path(\`/relay\`) || PathPrefix(\`/relay/\`) || PathPrefix(\`/ws-proxy/\`) || PathPrefix(\`/api/events/audit\`) || PathPrefix(\`/api/events/proxy\`) || PathPrefix(\`/api/events/dns\`) || PathPrefix(\`/api/events/network-traffic\`) || PathPrefix(\`/api\`) || PathPrefix(\`/oauth2\`))
       - traefik.http.routers.netbird-backend.entrypoints=$TRAEFIK_ENTRYPOINT
       - traefik.http.routers.netbird-backend.tls=true
 $(if [[ -n "$tls_labels" ]]; then echo "      - traefik.http.routers.netbird-backend.${tls_labels}"; fi)
@@ -1161,7 +1161,7 @@ server {
     }
 
     # Dashboard log APIs (audit, reverse proxy access logs, network/DNS flow logs)
-    location ~ ^/api/events/(audit|proxy|network-traffic)(/summary)?$ {
+    location ~ ^/api/events/(audit|proxy|dns|network-traffic)(/summary)?$ {
         proxy_pass http://netbird_server;
         proxy_http_version 1.1;
         proxy_set_header Host \$host;
@@ -1210,7 +1210,7 @@ $NETBIRD_DOMAIN {
     reverse_proxy @grpc h2c://${server_addr}
 
     # Combined server paths (relay, WebSocket proxy, log APIs, API, OAuth2)
-    @backend path /relay /relay/* /ws-proxy/* /api/events/audit* /api/events/proxy* /api/events/network-traffic* /api/* /oauth2/*
+    @backend path /relay /relay/* /ws-proxy/* /api/events/audit* /api/events/proxy* /api/events/dns* /api/events/network-traffic* /api/* /oauth2/*
     reverse_proxy @backend ${server_addr}
 
     # Dashboard (everything else)
@@ -1261,7 +1261,7 @@ location ~ ^/(signalexchange\.SignalExchange|management\.ManagementService|flow\
 }
 
 # Dashboard log APIs (audit, reverse proxy access logs, network/DNS flow logs)
-location ~ ^/api/events/(audit|proxy|network-traffic)(/summary)?$ {
+location ~ ^/api/events/(audit|proxy|dns|network-traffic)(/summary)?$ {
     proxy_pass http://${server_addr};
     proxy_set_header Host \$host;
     proxy_set_header X-Real-IP \$remote_addr;
@@ -1514,6 +1514,7 @@ print_manual_instructions() {
   echo "  HTTP (API + embedded IdP):"
   echo "    /api/events/audit*             -> ${upstream_host}:${MANAGEMENT_HOST_PORT}"
   echo "    /api/events/proxy*             -> ${upstream_host}:${MANAGEMENT_HOST_PORT}"
+  echo "    /api/events/dns*               -> ${upstream_host}:${MANAGEMENT_HOST_PORT}"
   echo "    /api/events/network-traffic*   -> ${upstream_host}:${MANAGEMENT_HOST_PORT}"
   echo "    /api/*, /oauth2/*              -> ${upstream_host}:${MANAGEMENT_HOST_PORT}"
   echo ""

@@ -1,0 +1,31 @@
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine3.23 AS builder
+
+RUN apk add --no-cache git ca-certificates
+
+WORKDIR /build
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+ARG TARGETOS
+ARG TARGETARCH
+ARG TARGETVARIANT
+ARG VERSION=latest
+
+RUN set -eux; \
+    export GOOS="${TARGETOS:-linux}"; \
+    export GOARCH="${TARGETARCH:-amd64}"; \
+    if [ "${TARGETARCH:-}" = "arm" ] && [ -n "${TARGETVARIANT:-}" ]; then \
+      export GOARM="${TARGETVARIANT#v}"; \
+    fi; \
+    CGO_ENABLED=0 go build -trimpath \
+      -ldflags="-s -w -X github.com/netbirdio/netbird/version.version=${VERSION}" \
+      -o /build/netbird-relay ./relay
+
+FROM gcr.io/distroless/base:debug
+
+ENTRYPOINT ["/go/bin/netbird-relay"]
+ENV NB_LOG_FILE=console
+COPY --from=builder /build/netbird-relay /go/bin/netbird-relay

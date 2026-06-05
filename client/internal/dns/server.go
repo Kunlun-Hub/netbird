@@ -228,7 +228,7 @@ func NewDefaultServer(ctx context.Context, config DefaultServerConfig) (*Default
 	if config.WgInterface.IsUserspaceBind() {
 		dnsService = NewServiceViaMemory(config.WgInterface, config.FlowLogger)
 	} else {
-		dnsService = newServiceViaListener(config.WgInterface, addrPort, nil)
+		dnsService = newServiceViaListener(config.WgInterface, addrPort, nil, config.FlowLogger)
 	}
 
 	server := newDefaultServer(ctx, config.WgInterface, dnsService, config.StatusRecorder, config.StateManager, config.DisableSys, config.FlowLogger)
