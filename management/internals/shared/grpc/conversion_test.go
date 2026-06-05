@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	flowproto "github.com/netbirdio/netbird/flow/proto"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller/cache"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
@@ -215,24 +216,91 @@ func TestBuildFlowConfig(t *testing.T) {
 		cfg := buildFlowConfig(&nbconfig.Config{}, relayToken, &types.ExtraSettings{})
 		assert.NotNil(t, cfg)
 		assert.False(t, cfg.Enabled)
+		assert.NotNil(t, cfg.TrafficCollection)
+		assert.False(t, cfg.GetTrafficCollection())
 		assert.NotNil(t, cfg.Interval)
 		assert.Equal(t, "payload", cfg.TokenPayload)
 		assert.Equal(t, "signature", cfg.TokenSignature)
 	})
 
-	t.Run("enabled sends active config", func(t *testing.T) {
+	t.Run("traffic enabled sends active config", func(t *testing.T) {
 		cfg := buildFlowConfig(&nbconfig.Config{}, relayToken, &types.ExtraSettings{
 			FlowEnabled:              true,
 			FlowPacketCounterEnabled: true,
 			FlowENCollectionEnabled:  true,
+		})
+		assert.NotNil(t, cfg)
+		assert.True(t, cfg.Enabled)
+		assert.NotNil(t, cfg.TrafficCollection)
+		assert.True(t, cfg.GetTrafficCollection())
+		assert.True(t, cfg.Counters)
+		assert.True(t, cfg.ExitNodeCollection)
+		assert.False(t, cfg.DnsCollection)
+		assert.Equal(t, "https://flow.example.com", cfg.Url)
+	})
+
+	t.Run("dns only enables transport without traffic collection", func(t *testing.T) {
+		cfg := buildFlowConfig(&nbconfig.Config{}, relayToken, &types.ExtraSettings{
 			FlowDnsCollectionEnabled: true,
 		})
 		assert.NotNil(t, cfg)
 		assert.True(t, cfg.Enabled)
-		assert.True(t, cfg.Counters)
-		assert.True(t, cfg.ExitNodeCollection)
+		assert.NotNil(t, cfg.TrafficCollection)
+		assert.False(t, cfg.GetTrafficCollection())
 		assert.True(t, cfg.DnsCollection)
 		assert.Equal(t, "https://flow.example.com", cfg.Url)
+	})
+}
+
+func TestShouldAcceptFlowEvent(t *testing.T) {
+	trafficFields := &flowproto.FlowFields{}
+	dnsFields := &flowproto.FlowFields{
+		DnsInfo: &flowproto.DNSInfo{
+			Domain:    "api.example.com",
+			QueryType: "A",
+			Answers:   []string{"192.0.2.10"},
+			Rcode:     "NOERROR",
+		},
+	}
+
+	t.Run("traffic follows traffic collection", func(t *testing.T) {
+		settings := &types.Settings{Extra: &types.ExtraSettings{}}
+		assert.False(t, shouldAcceptFlowEvent(settings, trafficFields))
+
+		settings.Extra.FlowEnabled = true
+		assert.True(t, shouldAcceptFlowEvent(settings, trafficFields))
+	})
+
+	t.Run("dns follows dns collection", func(t *testing.T) {
+		settings := &types.Settings{Extra: &types.ExtraSettings{FlowEnabled: true}}
+		assert.False(t, shouldAcceptFlowEvent(settings, dnsFields))
+
+		settings.Extra.FlowDnsCollectionEnabled = true
+		assert.True(t, shouldAcceptFlowEvent(settings, dnsFields))
+	})
+
+	t.Run("dns allow mode stores matching domains only", func(t *testing.T) {
+		settings := &types.Settings{Extra: &types.ExtraSettings{
+			FlowDnsCollectionEnabled: true,
+			FlowDNSDomainFilterMode:  types.FlowDNSDomainFilterModeAllow,
+			FlowDNSDomainFilterList:  []string{"*.example.com"},
+		}}
+		assert.True(t, shouldAcceptFlowEvent(settings, dnsFields))
+
+		settings.Extra.FlowDNSDomainFilterList = []string{"example.com"}
+		assert.False(t, shouldAcceptFlowEvent(settings, dnsFields))
+	})
+
+	t.Run("dns exclude mode drops matching domains only", func(t *testing.T) {
+		settings := &types.Settings{Extra: &types.ExtraSettings{
+			FlowDnsCollectionEnabled: true,
+			FlowDNSDomainFilterMode:  types.FlowDNSDomainFilterModeExclude,
+			FlowDNSDomainFilterList:  []string{"*.example.com"},
+		}}
+		assert.False(t, shouldAcceptFlowEvent(settings, dnsFields))
+
+		settings.Extra.FlowDNSDomainFilterList = []string{"*.other.com"}
+		assert.True(t, shouldAcceptFlowEvent(settings, dnsFields))
 	})
 }
 

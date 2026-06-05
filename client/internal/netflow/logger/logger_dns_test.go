@@ -70,7 +70,7 @@ func TestShouldStoreDNSCollection(t *testing.T) {
 		require.Equal(t, tc.shouldStoreWhenDNSDisabled, logger.shouldStore(&types.Event{EventFields: tc.fields}, peer.RouteLookupResult{}, peer.RouteLookupResult{}, false), tc.name)
 	}
 
-	logger.UpdateConfig(true, false, "", nil)
+	logger.UpdateConfig(false, true, false, "", nil)
 	for _, tc := range cases {
 		require.Equal(t, tc.shouldStoreWhenDNSEnabled, logger.shouldStore(&types.Event{EventFields: tc.fields}, peer.RouteLookupResult{}, peer.RouteLookupResult{}, false), tc.name)
 	}
@@ -95,16 +95,16 @@ func TestShouldStoreDNSCollectionWithDomainFilters(t *testing.T) {
 	}
 
 	logger := &Logger{}
-	logger.UpdateConfig(true, false, types.DNSDomainFilterModeAllow, []string{"*.baidu.com"})
+	logger.UpdateConfig(false, true, false, types.DNSDomainFilterModeAllow, []string{"*.baidu.com"})
 	require.True(t, logger.shouldStore(event, peer.RouteLookupResult{}, peer.RouteLookupResult{}, false))
 
-	logger.UpdateConfig(true, false, types.DNSDomainFilterModeAllow, []string{"baidu.com"})
+	logger.UpdateConfig(false, true, false, types.DNSDomainFilterModeAllow, []string{"baidu.com"})
 	require.False(t, logger.shouldStore(event, peer.RouteLookupResult{}, peer.RouteLookupResult{}, false))
 
-	logger.UpdateConfig(true, false, types.DNSDomainFilterModeExclude, []string{"*.baidu.com"})
+	logger.UpdateConfig(false, true, false, types.DNSDomainFilterModeExclude, []string{"*.baidu.com"})
 	require.False(t, logger.shouldStore(event, peer.RouteLookupResult{}, peer.RouteLookupResult{}, false))
 
-	logger.UpdateConfig(true, false, types.DNSDomainFilterModeExclude, []string{"example.com"})
+	logger.UpdateConfig(false, true, false, types.DNSDomainFilterModeExclude, []string{"example.com"})
 	require.True(t, logger.shouldStore(event, peer.RouteLookupResult{}, peer.RouteLookupResult{}, false))
 }
 
@@ -127,6 +127,7 @@ func TestZeroDNSCounters(t *testing.T) {
 
 func TestShouldStoreZeroTrustNetworkFlows(t *testing.T) {
 	logger := New(nil, netip.MustParsePrefix("100.80.73.73/10"), netip.Prefix{})
+	logger.UpdateConfig(true, false, false, "", nil)
 
 	require.True(t, logger.shouldStore(&types.Event{EventFields: types.EventFields{
 		Protocol: types.TCP,
@@ -178,4 +179,20 @@ func TestShouldStoreZeroTrustNetworkFlows(t *testing.T) {
 		ResourceID: route.ResID("local-lan"),
 		Kind:       peer.RouteLookupLocal,
 	}, false))
+}
+
+func TestShouldStoreTrafficCollection(t *testing.T) {
+	logger := New(nil, netip.MustParsePrefix("100.80.73.73/10"), netip.Prefix{})
+	event := &types.Event{EventFields: types.EventFields{
+		Protocol: types.TCP,
+		SourceIP: netip.MustParseAddr("100.80.1.1"),
+		DestIP:   netip.MustParseAddr("100.80.1.2"),
+		DestPort: 443,
+	}}
+
+	logger.UpdateConfig(false, true, false, "", nil)
+	require.False(t, logger.shouldStore(event, peer.RouteLookupResult{}, peer.RouteLookupResult{}, false))
+
+	logger.UpdateConfig(true, false, false, "", nil)
+	require.True(t, logger.shouldStore(event, peer.RouteLookupResult{}, peer.RouteLookupResult{}, false))
 }

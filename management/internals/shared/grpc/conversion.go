@@ -131,7 +131,8 @@ func buildFlowConfig(config *nbconfig.Config, relayToken *Token, extraSettings *
 		return flowCfg
 	}
 
-	flowCfg.Enabled = extraSettings.FlowEnabled
+	flowCfg.Enabled = extraSettings.FlowEnabled || extraSettings.FlowDnsCollectionEnabled
+	flowCfg.TrafficCollection = &extraSettings.FlowEnabled
 	flowCfg.Counters = extraSettings.FlowPacketCounterEnabled
 	flowCfg.ExitNodeCollection = extraSettings.FlowENCollectionEnabled
 	flowCfg.DnsCollection = extraSettings.FlowDnsCollectionEnabled

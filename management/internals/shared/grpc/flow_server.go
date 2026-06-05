@@ -21,6 +21,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/account"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/store"
+	"github.com/netbirdio/netbird/management/server/types"
 )
 
 type FlowServer struct {
@@ -83,6 +84,14 @@ func (s *FlowServer) saveEvent(ctx context.Context, event *proto.FlowEvent) erro
 	fields := event.GetFlowFields()
 	if fields == nil {
 		return errors.New("flow fields are empty")
+	}
+
+	settings, err := s.accountManager.GetStore().GetAccountSettings(ctx, store.LockingStrengthNone, reporter.AccountID)
+	if err != nil {
+		return fmt.Errorf("resolve account settings: %w", err)
+	}
+	if !shouldAcceptFlowEvent(settings, fields) {
+		return nil
 	}
 
 	var sourcePort uint32
@@ -175,6 +184,104 @@ func (s *FlowServer) saveEvent(ctx context.Context, event *proto.FlowEvent) erro
 	}
 
 	return s.accountManager.GetStore().CreateNetworkTrafficEvent(ctx, record)
+}
+
+func shouldAcceptFlowEvent(settings *types.Settings, fields *proto.FlowFields) bool {
+	if settings == nil || settings.Extra == nil || fields == nil {
+		return false
+	}
+
+	dnsInfo := fields.GetDnsInfo()
+	if dnsInfo == nil {
+		return settings.Extra.FlowEnabled
+	}
+
+	if !settings.Extra.FlowDnsCollectionEnabled {
+		return false
+	}
+
+	return dnsDomainAllowed(
+		dnsInfo.GetDomain(),
+		settings.Extra.FlowDNSDomainFilterMode,
+		settings.Extra.FlowDNSDomainFilterList,
+	)
+}
+
+func dnsDomainAllowed(domain, mode string, patterns []string) bool {
+	normalizedMode := normalizeDNSDomainFilterMode(mode)
+	normalizedDomain := normalizeDNSDomain(domain)
+	if normalizedDomain == "" {
+		return true
+	}
+
+	normalizedPatterns := normalizeDNSDomainPatterns(patterns)
+	switch normalizedMode {
+	case types.FlowDNSDomainFilterModeAllow:
+		for _, pattern := range normalizedPatterns {
+			if matchesDNSDomainPattern(normalizedDomain, pattern) {
+				return true
+			}
+		}
+		return false
+	case types.FlowDNSDomainFilterModeExclude:
+		for _, pattern := range normalizedPatterns {
+			if matchesDNSDomainPattern(normalizedDomain, pattern) {
+				return false
+			}
+		}
+		return true
+	default:
+		return true
+	}
+}
+
+func normalizeDNSDomainFilterMode(mode string) string {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case types.FlowDNSDomainFilterModeAllow:
+		return types.FlowDNSDomainFilterModeAllow
+	case types.FlowDNSDomainFilterModeExclude:
+		return types.FlowDNSDomainFilterModeExclude
+	default:
+		return types.FlowDNSDomainFilterModeAll
+	}
+}
+
+func normalizeDNSDomainPatterns(patterns []string) []string {
+	if len(patterns) == 0 {
+		return nil
+	}
+
+	normalized := make([]string, 0, len(patterns))
+	for _, pattern := range patterns {
+		pattern = normalizeDNSDomain(pattern)
+		if pattern == "" {
+			continue
+		}
+		normalized = append(normalized, pattern)
+	}
+
+	return normalized
+}
+
+func normalizeDNSDomain(domain string) string {
+	return strings.TrimSuffix(strings.ToLower(strings.TrimSpace(domain)), ".")
+}
+
+func matchesDNSDomainPattern(domain, pattern string) bool {
+	if pattern == "" {
+		return false
+	}
+
+	if !strings.HasPrefix(pattern, "*.") {
+		return domain == pattern
+	}
+
+	suffix := strings.TrimPrefix(pattern, "*.")
+	if suffix == "" || domain == suffix {
+		return false
+	}
+
+	return strings.HasSuffix(domain, "."+suffix)
 }
 
 type resolvedEndpoint struct {

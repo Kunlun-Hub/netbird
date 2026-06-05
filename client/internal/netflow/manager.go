@@ -77,6 +77,10 @@ func (m *Manager) enableFlow(previous *nftypes.FlowConfig) error {
 	m.logger.Enable()
 
 	if m.conntrack != nil {
+		if !m.flowConfig.TrafficCollection {
+			m.conntrack.Stop()
+			return nil
+		}
 		if err := m.conntrack.Start(m.flowConfig.Counters); err != nil {
 			return fmt.Errorf("start conntrack: %w", err)
 		}
@@ -167,6 +171,7 @@ func (m *Manager) Update(update *nftypes.FlowConfig) error {
 	}
 
 	m.logger.UpdateConfig(
+		update.TrafficCollection,
 		update.DNSCollection,
 		update.ExitNodeCollection,
 		update.DNSDomainFilterMode,

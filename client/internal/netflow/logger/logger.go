@@ -35,6 +35,7 @@ type Logger struct {
 	wgIfaceIPv6        netip.Addr
 	wgIfaceNet         netip.Prefix
 	wgIfaceNetV6       netip.Prefix
+	trafficCollection  atomic.Bool
 	dnsCollection      atomic.Bool
 	exitNodeCollection atomic.Bool
 	dnsDomainFilter    atomic.Pointer[dnsDomainFilterConfig]
@@ -252,7 +253,8 @@ func (l *Logger) DeleteEvents(ids []uuid.UUID) {
 	l.Store.DeleteEvents(ids)
 }
 
-func (l *Logger) UpdateConfig(dnsCollection, exitNodeCollection bool, dnsDomainFilterMode string, dnsDomainFilterList []string) {
+func (l *Logger) UpdateConfig(trafficCollection, dnsCollection, exitNodeCollection bool, dnsDomainFilterMode string, dnsDomainFilterList []string) {
+	l.trafficCollection.Store(trafficCollection)
 	l.dnsCollection.Store(dnsCollection)
 	l.exitNodeCollection.Store(exitNodeCollection)
 	l.dnsDomainFilter.Store(&dnsDomainFilterConfig{
@@ -272,6 +274,10 @@ func (l *Logger) shouldStore(event *types.Event, srcRoute, destRoute peer.RouteL
 			l.shouldStoreDNSDomain(event.DNSInfo) &&
 			!isNoiseAddress(event.SourceIP) &&
 			!isNoiseAddress(event.DestIP)
+	}
+
+	if !l.trafficCollection.Load() {
+		return false
 	}
 
 	// check dns collection

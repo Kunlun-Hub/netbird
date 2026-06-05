@@ -330,6 +330,8 @@ message FlowConfig {
   string flowSyslogTag = 17;
   string dnsDomainFilterMode = 18;
   repeated string dnsDomainFilterList = 19;
+  // trafficCollection determines if network traffic event collection should be enabled.
+  optional bool trafficCollection = 20;
 }
 
 // JWTConfig represents JWT authentication configuration for validating tokens.

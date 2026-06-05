@@ -106,6 +106,7 @@ type FlowConfig struct {
 	URL                 string
 	Interval            time.Duration
 	Enabled             bool
+	TrafficCollection   bool
 	Counters            bool
 	TokenPayload        string
 	TokenSignature      string
@@ -147,7 +148,7 @@ type FlowLogger interface {
 	// Enable enables the flow logger receiver
 	Enable()
 	// UpdateConfig updates the flow manager configuration
-	UpdateConfig(dnsCollection, exitNodeCollection bool, dnsDomainFilterMode string, dnsDomainFilterList []string)
+	UpdateConfig(trafficCollection, dnsCollection, exitNodeCollection bool, dnsDomainFilterMode string, dnsDomainFilterList []string)
 }
 
 const (

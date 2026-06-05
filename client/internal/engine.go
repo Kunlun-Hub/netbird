@@ -1013,8 +1013,13 @@ func toFlowLoggerConfig(config *mgmProto.FlowConfig) (*nftypes.FlowConfig, error
 	if config.GetInterval() == nil {
 		return nil, errors.New("flow interval is nil")
 	}
+	trafficCollection := config.GetEnabled()
+	if config.TrafficCollection != nil {
+		trafficCollection = config.GetTrafficCollection()
+	}
 	return &nftypes.FlowConfig{
 		Enabled:               config.GetEnabled(),
+		TrafficCollection:     trafficCollection,
 		Counters:              config.GetCounters(),
 		URL:                   config.GetUrl(),
 		TokenPayload:          config.GetTokenPayload(),
