@@ -328,6 +328,8 @@ message FlowConfig {
   string flowSyslogProtocol = 15;
   string flowSyslogFacility = 16;
   string flowSyslogTag = 17;
+  string dnsDomainFilterMode = 18;
+  repeated string dnsDomainFilterList = 19;
 }
 
 // JWTConfig represents JWT authentication configuration for validating tokens.

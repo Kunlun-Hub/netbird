@@ -185,6 +185,9 @@ type ExtraSettings struct {
 	FlowPacketCounterEnabled bool
 	FlowENCollectionEnabled  bool
 	FlowDnsCollectionEnabled bool
+	FlowDNSDomainFilterMode  string
+	FlowDNSDomainFilterList  []string `gorm:"serializer:json"`
+	FlowDNSDomainFilterSet   bool     `gorm:"-"`
 
 	// FlowLocalStorageEnabled enables or disables local storage of flow logs
 	FlowLocalStorageEnabled bool
@@ -225,6 +228,12 @@ type ExtraSettings struct {
 	RegisteredRelays map[string]RegisteredRelay `gorm:"serializer:json"`
 }
 
+const (
+	FlowDNSDomainFilterModeAll     = "all"
+	FlowDNSDomainFilterModeAllow   = "allow"
+	FlowDNSDomainFilterModeExclude = "exclude"
+)
+
 type RegisteredRelay struct {
 	ID               string
 	Name             string
@@ -248,6 +257,9 @@ func (e *ExtraSettings) Copy() *ExtraSettings {
 		FlowPacketCounterEnabled:  e.FlowPacketCounterEnabled,
 		FlowENCollectionEnabled:   e.FlowENCollectionEnabled,
 		FlowDnsCollectionEnabled:  e.FlowDnsCollectionEnabled,
+		FlowDNSDomainFilterMode:   e.FlowDNSDomainFilterMode,
+		FlowDNSDomainFilterList:   slices.Clone(e.FlowDNSDomainFilterList),
+		FlowDNSDomainFilterSet:    e.FlowDNSDomainFilterSet,
 		FlowLocalStorageEnabled:   e.FlowLocalStorageEnabled,
 		FlowLocalStoragePath:      e.FlowLocalStoragePath,
 		FlowLocalStorageMaxSizeMB: e.FlowLocalStorageMaxSizeMB,

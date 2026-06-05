@@ -514,6 +514,10 @@ func preserveUnmanagedExtraSettings(newExtra, oldExtra *types.ExtraSettings) {
 	newExtra.FlowLocalStoragePath = oldExtra.FlowLocalStoragePath
 	newExtra.FlowLocalStorageMaxSizeMB = oldExtra.FlowLocalStorageMaxSizeMB
 	newExtra.FlowLocalStorageMaxFiles = oldExtra.FlowLocalStorageMaxFiles
+	if !newExtra.FlowDNSDomainFilterSet {
+		newExtra.FlowDNSDomainFilterMode = oldExtra.FlowDNSDomainFilterMode
+		newExtra.FlowDNSDomainFilterList = oldExtra.FlowDNSDomainFilterList
+	}
 	newExtra.FlowSyslogEnabled = oldExtra.FlowSyslogEnabled
 	newExtra.FlowSyslogServer = oldExtra.FlowSyslogServer
 	newExtra.FlowSyslogProtocol = oldExtra.FlowSyslogProtocol
@@ -546,6 +550,17 @@ func flowSettingsChanged(oldExtra, newExtra *types.ExtraSettings) bool {
 	}
 	if oldExtra.FlowDnsCollectionEnabled != newExtra.FlowDnsCollectionEnabled {
 		return true
+	}
+	if oldExtra.FlowDNSDomainFilterMode != newExtra.FlowDNSDomainFilterMode {
+		return true
+	}
+	if len(oldExtra.FlowDNSDomainFilterList) != len(newExtra.FlowDNSDomainFilterList) {
+		return true
+	}
+	for i := range oldExtra.FlowDNSDomainFilterList {
+		if oldExtra.FlowDNSDomainFilterList[i] != newExtra.FlowDNSDomainFilterList[i] {
+			return true
+		}
 	}
 	if len(oldExtra.FlowGroups) != len(newExtra.FlowGroups) {
 		return true
@@ -666,6 +681,9 @@ func (am *DefaultAccountManager) validateSettingsUpdate(ctx context.Context, tra
 	if err := validateBrandingSettings(newSettings.Extra); err != nil {
 		return err
 	}
+	if err := validateFlowDNSDomainFilterSettings(newSettings.Extra); err != nil {
+		return err
+	}
 
 	if len(newSettings.EnabledLoginOptions) > 0 {
 		if err := am.validateEnabledLoginOptions(ctx, newSettings.EnabledLoginOptions); err != nil {
@@ -674,6 +692,57 @@ func (am *DefaultAccountManager) validateSettingsUpdate(ctx context.Context, tra
 	}
 
 	return am.integratedPeerValidator.ValidateExtraSettings(ctx, newSettings.Extra, oldSettings.Extra, userID, accountID)
+}
+
+func validateFlowDNSDomainFilterSettings(extra *types.ExtraSettings) error {
+	if extra == nil {
+		return nil
+	}
+
+	switch extra.FlowDNSDomainFilterMode {
+	case "", types.FlowDNSDomainFilterModeAll:
+		extra.FlowDNSDomainFilterMode = types.FlowDNSDomainFilterModeAll
+	case types.FlowDNSDomainFilterModeAllow, types.FlowDNSDomainFilterModeExclude:
+	default:
+		return status.Errorf(
+			status.InvalidArgument,
+			"invalid DNS domain filter mode %q",
+			extra.FlowDNSDomainFilterMode,
+		)
+	}
+
+	normalized := make([]string, 0, len(extra.FlowDNSDomainFilterList))
+	for _, raw := range extra.FlowDNSDomainFilterList {
+		domain := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(raw)), ".")
+		if domain == "" {
+			continue
+		}
+		if !nbdomain.IsValidDomain(domain) {
+			return status.Errorf(
+				status.InvalidArgument,
+				"invalid DNS domain filter entry %q",
+				raw,
+			)
+		}
+		normalized = append(normalized, domain)
+	}
+
+	extra.FlowDNSDomainFilterList = normalized
+
+	if extra.FlowDNSDomainFilterMode == types.FlowDNSDomainFilterModeAll {
+		extra.FlowDNSDomainFilterList = nil
+		return nil
+	}
+
+	if len(extra.FlowDNSDomainFilterList) == 0 {
+		return status.Errorf(
+			status.InvalidArgument,
+			"DNS domain filter list can't be empty when filter mode is %q",
+			extra.FlowDNSDomainFilterMode,
+		)
+	}
+
+	return nil
 }
 
 func validateBrandingSettings(extra *types.ExtraSettings) error {

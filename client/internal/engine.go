@@ -1022,6 +1022,8 @@ func toFlowLoggerConfig(config *mgmProto.FlowConfig) (*nftypes.FlowConfig, error
 		Interval:              config.GetInterval().AsDuration(),
 		DNSCollection:         config.GetDnsCollection(),
 		ExitNodeCollection:    config.GetExitNodeCollection(),
+		DNSDomainFilterMode:   config.GetDnsDomainFilterMode(),
+		DNSDomainFilterList:   config.GetDnsDomainFilterList(),
 		LocalStorageEnabled:   config.GetFlowLocalStorageEnabled(),
 		LocalStoragePath:      config.GetFlowLocalStoragePath(),
 		LocalStorageMaxSizeMB: int(config.GetFlowLocalStorageMaxSizeMb()),

@@ -134,6 +134,8 @@ func buildFlowConfig(config *nbconfig.Config, relayToken *Token, extraSettings *
 	flowCfg.Counters = extraSettings.FlowPacketCounterEnabled
 	flowCfg.ExitNodeCollection = extraSettings.FlowENCollectionEnabled
 	flowCfg.DnsCollection = extraSettings.FlowDnsCollectionEnabled
+	flowCfg.DnsDomainFilterMode = extraSettings.FlowDNSDomainFilterMode
+	flowCfg.DnsDomainFilterList = slices.Clone(extraSettings.FlowDNSDomainFilterList)
 	flowCfg.Url = deriveFlowURL(config)
 
 	if relayToken != nil {

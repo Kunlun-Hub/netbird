@@ -107,6 +107,12 @@ type accountFlowSettingsCompat struct {
 	DnsCollection                           *bool    `json:"dns_collection"`
 	FlowDnsCollectionEnabled                *bool    `json:"flow_dns_collection_enabled"`
 	NetworkTrafficDnsCollectionEnabled      *bool    `json:"network_traffic_dns_collection_enabled"`
+	DnsDomainFilterMode                     *string  `json:"dns_domain_filter_mode"`
+	FlowDnsDomainFilterMode                 *string  `json:"flow_dns_domain_filter_mode"`
+	NetworkTrafficDnsDomainFilterMode       *string  `json:"network_traffic_dns_domain_filter_mode"`
+	DnsDomainFilterList                     []string `json:"dns_domain_filter_list"`
+	FlowDnsDomainFilterList                 []string `json:"flow_dns_domain_filter_list"`
+	NetworkTrafficDnsDomainFilterList       []string `json:"network_traffic_dns_domain_filter_list"`
 }
 
 type accountSettingsCompatRequest struct {
@@ -119,6 +125,7 @@ type accountSettingsCompatRequest struct {
 
 type accountResponseCompat struct {
 	*api.Account
+	extraSettings *types.ExtraSettings
 }
 
 func (a accountResponseCompat) MarshalJSON() ([]byte, error) {
@@ -142,16 +149,20 @@ func (a accountResponseCompat) MarshalJSON() ([]byte, error) {
 		payload["settings"] = settingsMap
 	}
 
-	flowMap := buildFlowCompatMap(a.Account.Settings.Extra)
+	if extraMap, _ := settingsMap["extra"].(map[string]any); extraMap != nil {
+		augmentFlowFilterCompatMap(extraMap, a.extraSettings)
+	}
+
+	flowMap := buildFlowCompatMap(a.Account.Settings.Extra, a.extraSettings)
 	settingsMap["flow"] = flowMap
 	settingsMap["flow_logs"] = flowMap
 
 	return json.Marshal(payload)
 }
 
-func buildFlowCompatMap(extra *api.AccountExtraSettings) map[string]any {
+func buildFlowCompatMap(extra *api.AccountExtraSettings, extraSettings *types.ExtraSettings) map[string]any {
 	if extra == nil {
-		return map[string]any{
+		flowMap := map[string]any{
 			"enabled":              false,
 			"flow_enabled":         false,
 			"flow_logs_enabled":    false,
@@ -162,9 +173,18 @@ func buildFlowCompatMap(extra *api.AccountExtraSettings) map[string]any {
 			"flow_groups":          []string{},
 			"flow_logs_groups":     []string{},
 		}
+		if extraSettings != nil {
+			flowMap["dns_domain_filter_mode"] = extraSettings.FlowDNSDomainFilterMode
+			flowMap["flow_dns_domain_filter_mode"] = extraSettings.FlowDNSDomainFilterMode
+			flowMap["network_traffic_dns_domain_filter_mode"] = extraSettings.FlowDNSDomainFilterMode
+			flowMap["dns_domain_filter_list"] = extraSettings.FlowDNSDomainFilterList
+			flowMap["flow_dns_domain_filter_list"] = extraSettings.FlowDNSDomainFilterList
+			flowMap["network_traffic_dns_domain_filter_list"] = extraSettings.FlowDNSDomainFilterList
+		}
+		return flowMap
 	}
 
-	return map[string]any{
+	flowMap := map[string]any{
 		"enabled":                                      extra.NetworkTrafficLogsEnabled,
 		"flow_enabled":                                 boolOrDefault(extra.FlowEnabled, extra.NetworkTrafficLogsEnabled),
 		"flow_logs_enabled":                            boolOrDefault(extra.FlowLogsEnabled, extra.NetworkTrafficLogsEnabled),
@@ -183,6 +203,29 @@ func buildFlowCompatMap(extra *api.AccountExtraSettings) map[string]any {
 		"flow_logs_groups":            stringsOrDefault(extra.FlowLogsGroups, extra.NetworkTrafficLogsGroups),
 		"network_traffic_logs_groups": extra.NetworkTrafficLogsGroups,
 	}
+
+	if extraSettings != nil {
+		augmentFlowFilterCompatMap(flowMap, extraSettings)
+	}
+
+	return flowMap
+}
+
+func augmentFlowFilterCompatMap(target map[string]any, extraSettings *types.ExtraSettings) {
+	if target == nil || extraSettings == nil {
+		return
+	}
+
+	mode := extraSettings.FlowDNSDomainFilterMode
+	if mode == "" {
+		mode = types.FlowDNSDomainFilterModeAll
+	}
+	target["dns_domain_filter_mode"] = mode
+	target["flow_dns_domain_filter_mode"] = mode
+	target["network_traffic_dns_domain_filter_mode"] = mode
+	target["dns_domain_filter_list"] = extraSettings.FlowDNSDomainFilterList
+	target["flow_dns_domain_filter_list"] = extraSettings.FlowDNSDomainFilterList
+	target["network_traffic_dns_domain_filter_list"] = extraSettings.FlowDNSDomainFilterList
 }
 
 func boolOrDefault(value *bool, fallback bool) bool {
@@ -583,7 +626,10 @@ func (h *handler) getAllAccounts(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	util.WriteJSONObject(r.Context(), w, []accountResponseCompat{{Account: resp}})
+	util.WriteJSONObject(r.Context(), w, []accountResponseCompat{{
+		Account:       resp,
+		extraSettings: settings.Extra,
+	}})
 }
 
 func (h *handler) updateAccountRequestSettings(req api.PutApiAccountsAccountIdJSONRequestBody) (*types.Settings, error) {
@@ -718,6 +764,14 @@ func applyFlowCompatSettings(settings *types.Settings, compat *accountSettingsCo
 		if v := firstBool(source.DnsCollection, source.FlowDnsCollectionEnabled, source.NetworkTrafficDnsCollectionEnabled); v != nil {
 			settings.Extra.FlowDnsCollectionEnabled = *v
 		}
+		if v := firstString(source.DnsDomainFilterMode, source.FlowDnsDomainFilterMode, source.NetworkTrafficDnsDomainFilterMode); v != nil {
+			settings.Extra.FlowDNSDomainFilterMode = *v
+			settings.Extra.FlowDNSDomainFilterSet = true
+		}
+		if list := firstStrings(source.DnsDomainFilterList, source.FlowDnsDomainFilterList, source.NetworkTrafficDnsDomainFilterList); list != nil {
+			settings.Extra.FlowDNSDomainFilterList = list
+			settings.Extra.FlowDNSDomainFilterSet = true
+		}
 		if groups := firstStrings(source.Groups, source.FlowGroups, source.FlowLogsGroups, source.NetworkTrafficLogsGroups); groups != nil {
 			settings.Extra.FlowGroups = groups
 		}
@@ -725,6 +779,15 @@ func applyFlowCompatSettings(settings *types.Settings, compat *accountSettingsCo
 }
 
 func firstBool(values ...*bool) *bool {
+	for _, value := range values {
+		if value != nil {
+			return value
+		}
+	}
+	return nil
+}
+
+func firstString(values ...*string) *string {
 	for _, value := range values {
 		if value != nil {
 			return value
@@ -857,7 +920,10 @@ func (h *handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := toAccountResponse(accountID, updatedSettings, meta, updatedOnboarding)
-	util.WriteJSONObject(r.Context(), w, accountResponseCompat{Account: resp})
+	util.WriteJSONObject(r.Context(), w, accountResponseCompat{
+		Account:       resp,
+		extraSettings: updatedSettings.Extra,
+	})
 }
 
 // deleteAccount is a HTTP DELETE handler to delete an account
@@ -942,7 +1008,7 @@ func toAccountResponse(accountID string, settings *types.Settings, meta *types.A
 		SignupFormPending:     onboarding.SignupFormPending,
 	}
 
-	if settings.Extra != nil {
+	if hasAccountExtraSettings(settings.Extra) {
 		apiSettings.Extra = &api.AccountExtraSettings{
 			Enabled:                                 optionalBool(settings.Extra.FlowEnabled),
 			Counters:                                optionalBool(settings.Extra.FlowPacketCounterEnabled),
@@ -980,4 +1046,23 @@ func toAccountResponse(accountID string, settings *types.Settings, meta *types.A
 		DomainCategory: meta.DomainCategory,
 		Onboarding:     apiOnboarding,
 	}
+}
+
+func hasAccountExtraSettings(extra *types.ExtraSettings) bool {
+	if extra == nil {
+		return false
+	}
+
+	return extra.PeerApprovalEnabled ||
+		extra.UserApprovalRequired ||
+		extra.FlowEnabled ||
+		len(extra.FlowGroups) > 0 ||
+		extra.FlowPacketCounterEnabled ||
+		extra.FlowENCollectionEnabled ||
+		extra.FlowDnsCollectionEnabled ||
+		extra.BrandingLogoDataURL != "" ||
+		extra.BrandingLogoDarkDataURL != "" ||
+		extra.BrandingIconDataURL != "" ||
+		extra.BrandingTabTitle != "" ||
+		extra.BrandingPrimaryColor != ""
 }

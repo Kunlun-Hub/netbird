@@ -70,12 +70,42 @@ func TestShouldStoreDNSCollection(t *testing.T) {
 		require.Equal(t, tc.shouldStoreWhenDNSDisabled, logger.shouldStore(&types.Event{EventFields: tc.fields}, peer.RouteLookupResult{}, peer.RouteLookupResult{}, false), tc.name)
 	}
 
-	logger.UpdateConfig(true, false)
+	logger.UpdateConfig(true, false, "", nil)
 	for _, tc := range cases {
 		require.Equal(t, tc.shouldStoreWhenDNSEnabled, logger.shouldStore(&types.Event{EventFields: tc.fields}, peer.RouteLookupResult{}, peer.RouteLookupResult{}, false), tc.name)
 	}
 
 	require.False(t, (&Logger{}).shouldStore(&types.Event{EventFields: types.EventFields{Protocol: types.TCP, DestPort: 443}}, peer.RouteLookupResult{}, peer.RouteLookupResult{}, false))
+}
+
+func TestShouldStoreDNSCollectionWithDomainFilters(t *testing.T) {
+	event := &types.Event{
+		EventFields: types.EventFields{
+			Protocol: types.UDP,
+			SourceIP: netip.MustParseAddr("100.80.1.1"),
+			DestIP:   netip.MustParseAddr("100.80.1.2"),
+			DestPort: 443,
+			DNSInfo: &types.DNSInfo{
+				Domain:    "api.baidu.com",
+				QueryType: "A",
+				RCode:     "NOERROR",
+				Answers:   []string{"1.1.1.1"},
+			},
+		},
+	}
+
+	logger := &Logger{}
+	logger.UpdateConfig(true, false, types.DNSDomainFilterModeAllow, []string{"*.baidu.com"})
+	require.True(t, logger.shouldStore(event, peer.RouteLookupResult{}, peer.RouteLookupResult{}, false))
+
+	logger.UpdateConfig(true, false, types.DNSDomainFilterModeAllow, []string{"baidu.com"})
+	require.False(t, logger.shouldStore(event, peer.RouteLookupResult{}, peer.RouteLookupResult{}, false))
+
+	logger.UpdateConfig(true, false, types.DNSDomainFilterModeExclude, []string{"*.baidu.com"})
+	require.False(t, logger.shouldStore(event, peer.RouteLookupResult{}, peer.RouteLookupResult{}, false))
+
+	logger.UpdateConfig(true, false, types.DNSDomainFilterModeExclude, []string{"example.com"})
+	require.True(t, logger.shouldStore(event, peer.RouteLookupResult{}, peer.RouteLookupResult{}, false))
 }
 
 func TestZeroDNSCounters(t *testing.T) {

@@ -172,6 +172,8 @@ func ensureFlowLogStorage(ctx context.Context, db *gorm.DB) error {
 		"settings_extra_flow_packet_counter_enabled",
 		"settings_extra_flow_en_collection_enabled",
 		"settings_extra_flow_dns_collection_enabled",
+		"settings_extra_flow_dns_domain_filter_mode",
+		"settings_extra_flow_dns_domain_filter_list",
 	}
 	for _, column := range flowColumns {
 		if !db.Migrator().HasColumn(accountModel, column) {
@@ -1610,6 +1612,7 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 			settings_extra_flow_enabled, settings_extra_flow_groups,
 			settings_extra_flow_packet_counter_enabled, settings_extra_flow_en_collection_enabled,
 			settings_extra_flow_dns_collection_enabled,
+			settings_extra_flow_dns_domain_filter_mode, settings_extra_flow_dns_domain_filter_list,
 			settings_extra_branding_logo_data_url, settings_extra_branding_logo_dark_data_url,
 			settings_extra_branding_icon_data_url, settings_extra_branding_tab_title,
 			settings_extra_branding_primary_color
@@ -1641,6 +1644,8 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 		sExtraFlowPacketCounterEnabled   sql.NullBool
 		sExtraFlowENCollectionEnabled    sql.NullBool
 		sExtraFlowDNSCollectionEnabled   sql.NullBool
+		sExtraFlowDNSDomainFilterMode    sql.NullString
+		sExtraFlowDNSDomainFilterList    sql.NullString
 		sExtraBrandingLogoDataURL        sql.NullString
 		sExtraBrandingLogoDarkDataURL    sql.NullString
 		sExtraBrandingIconDataURL        sql.NullString
@@ -1670,6 +1675,7 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 		&sExtraFlowEnabled, &sExtraFlowGroups,
 		&sExtraFlowPacketCounterEnabled, &sExtraFlowENCollectionEnabled,
 		&sExtraFlowDNSCollectionEnabled,
+		&sExtraFlowDNSDomainFilterMode, &sExtraFlowDNSDomainFilterList,
 		&sExtraBrandingLogoDataURL, &sExtraBrandingLogoDarkDataURL,
 		&sExtraBrandingIconDataURL, &sExtraBrandingTabTitle,
 		&sExtraBrandingPrimaryColor,
@@ -1778,6 +1784,12 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 	}
 	if sExtraFlowDNSCollectionEnabled.Valid {
 		account.Settings.Extra.FlowDnsCollectionEnabled = sExtraFlowDNSCollectionEnabled.Bool
+	}
+	if sExtraFlowDNSDomainFilterMode.Valid {
+		account.Settings.Extra.FlowDNSDomainFilterMode = sExtraFlowDNSDomainFilterMode.String
+	}
+	if sExtraFlowDNSDomainFilterList.Valid {
+		_ = json.Unmarshal([]byte(sExtraFlowDNSDomainFilterList.String), &account.Settings.Extra.FlowDNSDomainFilterList)
 	}
 	if sExtraBrandingLogoDataURL.Valid {
 		account.Settings.Extra.BrandingLogoDataURL = sExtraBrandingLogoDataURL.String

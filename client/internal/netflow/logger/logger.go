@@ -19,6 +19,12 @@ import (
 )
 
 type rcvChan chan *types.EventFields
+
+type dnsDomainFilterConfig struct {
+	mode     string
+	patterns []string
+}
+
 type Logger struct {
 	mux                sync.Mutex
 	enabled            atomic.Bool
@@ -31,6 +37,7 @@ type Logger struct {
 	wgIfaceNetV6       netip.Prefix
 	dnsCollection      atomic.Bool
 	exitNodeCollection atomic.Bool
+	dnsDomainFilter    atomic.Pointer[dnsDomainFilterConfig]
 	Store              types.Store
 	syslogSender       *syslog.Sender
 
@@ -245,9 +252,13 @@ func (l *Logger) DeleteEvents(ids []uuid.UUID) {
 	l.Store.DeleteEvents(ids)
 }
 
-func (l *Logger) UpdateConfig(dnsCollection, exitNodeCollection bool) {
+func (l *Logger) UpdateConfig(dnsCollection, exitNodeCollection bool, dnsDomainFilterMode string, dnsDomainFilterList []string) {
 	l.dnsCollection.Store(dnsCollection)
 	l.exitNodeCollection.Store(exitNodeCollection)
+	l.dnsDomainFilter.Store(&dnsDomainFilterConfig{
+		mode:     normalizeDNSDomainFilterMode(dnsDomainFilterMode),
+		patterns: normalizeDNSDomainPatterns(dnsDomainFilterList),
+	})
 }
 
 func (l *Logger) isOverlayIP(ip netip.Addr) bool {
@@ -258,6 +269,7 @@ func (l *Logger) shouldStore(event *types.Event, srcRoute, destRoute peer.RouteL
 	if isDNSEvent(&event.EventFields) {
 		return l.dnsCollection.Load() &&
 			hasDisplayableDNSInfo(event.DNSInfo) &&
+			l.shouldStoreDNSDomain(event.DNSInfo) &&
 			!isNoiseAddress(event.SourceIP) &&
 			!isNoiseAddress(event.DestIP)
 	}
@@ -279,6 +291,93 @@ func (l *Logger) shouldStore(event *types.Event, srcRoute, destRoute peer.RouteL
 	}
 
 	return l.isZeroTrustFlow(event, srcRoute, destRoute)
+}
+
+func (l *Logger) shouldStoreDNSDomain(info *types.DNSInfo) bool {
+	if info == nil {
+		return false
+	}
+
+	cfg := l.dnsDomainFilter.Load()
+	if cfg == nil {
+		return true
+	}
+
+	domain := normalizeDNSDomain(info.Domain)
+	if domain == "" {
+		return true
+	}
+
+	switch cfg.mode {
+	case types.DNSDomainFilterModeAllow:
+		for _, pattern := range cfg.patterns {
+			if matchesDNSDomainPattern(domain, pattern) {
+				return true
+			}
+		}
+		return false
+	case types.DNSDomainFilterModeExclude:
+		for _, pattern := range cfg.patterns {
+			if matchesDNSDomainPattern(domain, pattern) {
+				return false
+			}
+		}
+		return true
+	default:
+		return true
+	}
+}
+
+func normalizeDNSDomainFilterMode(mode string) string {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case types.DNSDomainFilterModeAllow:
+		return types.DNSDomainFilterModeAllow
+	case types.DNSDomainFilterModeExclude:
+		return types.DNSDomainFilterModeExclude
+	default:
+		return types.DNSDomainFilterModeAll
+	}
+}
+
+func normalizeDNSDomainPatterns(patterns []string) []string {
+	if len(patterns) == 0 {
+		return nil
+	}
+
+	normalized := make([]string, 0, len(patterns))
+	for _, pattern := range patterns {
+		pattern = normalizeDNSDomain(pattern)
+		if pattern == "" {
+			continue
+		}
+		normalized = append(normalized, pattern)
+	}
+
+	if len(normalized) == 0 {
+		return nil
+	}
+	return normalized
+}
+
+func normalizeDNSDomain(domain string) string {
+	return strings.TrimSuffix(strings.ToLower(strings.TrimSpace(domain)), ".")
+}
+
+func matchesDNSDomainPattern(domain, pattern string) bool {
+	if pattern == "" {
+		return false
+	}
+
+	if !strings.HasPrefix(pattern, "*.") {
+		return domain == pattern
+	}
+
+	suffix := strings.TrimPrefix(pattern, "*.")
+	if suffix == "" || domain == suffix {
+		return false
+	}
+
+	return strings.HasSuffix(domain, "."+suffix)
 }
 
 func (l *Logger) isZeroTrustFlow(event *types.Event, srcRoute, destRoute peer.RouteLookupResult) bool {

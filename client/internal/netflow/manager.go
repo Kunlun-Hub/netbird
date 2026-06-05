@@ -166,7 +166,12 @@ func (m *Manager) Update(update *nftypes.FlowConfig) error {
 		m.flowConfig.TokenSignature = previous.TokenSignature
 	}
 
-	m.logger.UpdateConfig(update.DNSCollection, update.ExitNodeCollection)
+	m.logger.UpdateConfig(
+		update.DNSCollection,
+		update.ExitNodeCollection,
+		update.DNSDomainFilterMode,
+		update.DNSDomainFilterList,
+	)
 
 	if fl, ok := m.logger.(interface {
 		UpdateFlowStorageConfig(

@@ -99,6 +99,8 @@ func TestGetAccount_ComprehensiveFieldValidation(t *testing.T) {
 				FlowPacketCounterEnabled:  true,
 				FlowENCollectionEnabled:   true,
 				FlowDnsCollectionEnabled:  true,
+				FlowDNSDomainFilterMode:   types.FlowDNSDomainFilterModeExclude,
+				FlowDNSDomainFilterList:   []string{"*.baidu.com", "baidu.com"},
 				BrandingLogoDataURL:       "data:image/png;base64,logo",
 				BrandingLogoDarkDataURL:   "data:image/png;base64,dark-logo",
 				BrandingIconDataURL:       "data:image/png;base64,icon",
@@ -690,6 +692,8 @@ func TestGetAccount_ComprehensiveFieldValidation(t *testing.T) {
 		assert.True(t, retrievedAccount.Settings.Extra.FlowPacketCounterEnabled, "FlowPacketCounterEnabled mismatch")
 		assert.True(t, retrievedAccount.Settings.Extra.FlowENCollectionEnabled, "FlowENCollectionEnabled mismatch")
 		assert.True(t, retrievedAccount.Settings.Extra.FlowDnsCollectionEnabled, "FlowDnsCollectionEnabled mismatch")
+		assert.Equal(t, types.FlowDNSDomainFilterModeExclude, retrievedAccount.Settings.Extra.FlowDNSDomainFilterMode)
+		assert.Equal(t, []string{"*.baidu.com", "baidu.com"}, retrievedAccount.Settings.Extra.FlowDNSDomainFilterList)
 		assert.Equal(t, "data:image/png;base64,logo", retrievedAccount.Settings.Extra.BrandingLogoDataURL)
 		assert.Equal(t, "data:image/png;base64,dark-logo", retrievedAccount.Settings.Extra.BrandingLogoDarkDataURL)
 		assert.Equal(t, "data:image/png;base64,icon", retrievedAccount.Settings.Extra.BrandingIconDataURL)

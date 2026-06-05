@@ -172,7 +172,7 @@ func (l *testFlowLogger) GetEvents() []*nftypes.Event {
 	return append([]*nftypes.Event(nil), l.events...)
 }
 
-func (l *testFlowLogger) DeleteEvents([]uuid.UUID) {}
-func (l *testFlowLogger) Close()                   {}
-func (l *testFlowLogger) Enable()                  {}
-func (l *testFlowLogger) UpdateConfig(bool, bool)  {}
+func (l *testFlowLogger) DeleteEvents([]uuid.UUID)                  {}
+func (l *testFlowLogger) Close()                                    {}
+func (l *testFlowLogger) Enable()                                   {}
+func (l *testFlowLogger) UpdateConfig(bool, bool, string, []string) {}

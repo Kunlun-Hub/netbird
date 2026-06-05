@@ -531,6 +531,12 @@ func getMigrationsPostAuto(ctx context.Context) []migrationFunc {
 			return migration.MigrateNewField[types.Account](ctx, db, "settings_extra_flow_dns_collection_enabled", false)
 		},
 		func(db *gorm.DB) error {
+			return migration.MigrateNewField[types.Account](ctx, db, "settings_extra_flow_dns_domain_filter_mode", "")
+		},
+		func(db *gorm.DB) error {
+			return migration.MigrateNewField[types.Account](ctx, db, "settings_extra_flow_dns_domain_filter_list", "[]")
+		},
+		func(db *gorm.DB) error {
 			return migration.DropIndex[proxy.Proxy](ctx, db, "idx_proxy_account_id_unique")
 		},
 	}

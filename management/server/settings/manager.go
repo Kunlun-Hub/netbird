@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"net/netip"
+	"slices"
 
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/integrations/extra_settings"
@@ -136,6 +137,12 @@ func mergeFlowExtraSettings(target, source *types.ExtraSettings) {
 	}
 	if source.FlowDnsCollectionEnabled {
 		target.FlowDnsCollectionEnabled = true
+	}
+	if source.FlowDNSDomainFilterMode != "" {
+		target.FlowDNSDomainFilterMode = source.FlowDNSDomainFilterMode
+	}
+	if len(source.FlowDNSDomainFilterList) > 0 {
+		target.FlowDNSDomainFilterList = slices.Clone(source.FlowDNSDomainFilterList)
 	}
 }
 

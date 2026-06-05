@@ -103,14 +103,16 @@ type DNSInfo struct {
 }
 
 type FlowConfig struct {
-	URL                string
-	Interval           time.Duration
-	Enabled            bool
-	Counters           bool
-	TokenPayload       string
-	TokenSignature     string
-	DNSCollection      bool
-	ExitNodeCollection bool
+	URL                 string
+	Interval            time.Duration
+	Enabled             bool
+	Counters            bool
+	TokenPayload        string
+	TokenSignature      string
+	DNSCollection       bool
+	ExitNodeCollection  bool
+	DNSDomainFilterMode string
+	DNSDomainFilterList []string
 
 	LocalStorageEnabled   bool
 	LocalStoragePath      string
@@ -145,8 +147,14 @@ type FlowLogger interface {
 	// Enable enables the flow logger receiver
 	Enable()
 	// UpdateConfig updates the flow manager configuration
-	UpdateConfig(dnsCollection, exitNodeCollection bool)
+	UpdateConfig(dnsCollection, exitNodeCollection bool, dnsDomainFilterMode string, dnsDomainFilterList []string)
 }
+
+const (
+	DNSDomainFilterModeAll     = "all"
+	DNSDomainFilterModeAllow   = "allow"
+	DNSDomainFilterModeExclude = "exclude"
+)
 
 type Store interface {
 	// StoreEvent stores a flow event

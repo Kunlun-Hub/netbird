@@ -29,6 +29,8 @@ func TestEnsureFlowLogStorage(t *testing.T) {
 	require.True(t, sqlStore.db.Migrator().HasColumn(&types.Account{}, "settings_extra_flow_packet_counter_enabled"))
 	require.True(t, sqlStore.db.Migrator().HasColumn(&types.Account{}, "settings_extra_flow_en_collection_enabled"))
 	require.True(t, sqlStore.db.Migrator().HasColumn(&types.Account{}, "settings_extra_flow_dns_collection_enabled"))
+	require.True(t, sqlStore.db.Migrator().HasColumn(&types.Account{}, "settings_extra_flow_dns_domain_filter_mode"))
+	require.True(t, sqlStore.db.Migrator().HasColumn(&types.Account{}, "settings_extra_flow_dns_domain_filter_list"))
 }
 
 func TestEnsureFlowLogStorageDoesNotBackfillFlowSummaries(t *testing.T) {
