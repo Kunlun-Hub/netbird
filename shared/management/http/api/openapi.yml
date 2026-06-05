@@ -625,6 +625,42 @@ components:
           description: Legacy alias for network_traffic_packet_counter_enabled.
           type: boolean
           example: true
+        flow_local_storage_enabled:
+          description: Enables or disables local storage of flow logs.
+          type: boolean
+          example: false
+        flow_local_storage_path:
+          description: Sets the path where flow logs are stored locally.
+          type: string
+          example: "/var/lib/netbird/flow"
+        flow_local_storage_max_size_mb:
+          description: Sets the max size of local flow log files in MB.
+          type: integer
+          example: 100
+        flow_local_storage_max_files:
+          description: Sets the max number of local flow log files to keep.
+          type: integer
+          example: 10
+        flow_syslog_enabled:
+          description: Enables or disables sending flow logs to a syslog server.
+          type: boolean
+          example: false
+        flow_syslog_server:
+          description: Sets the syslog server address.
+          type: string
+          example: "localhost:514"
+        flow_syslog_protocol:
+          description: Sets the syslog protocol.
+          type: string
+          example: "udp"
+        flow_syslog_facility:
+          description: Sets the syslog facility.
+          type: string
+          example: "daemon"
+        flow_syslog_tag:
+          description: Sets the syslog tag.
+          type: string
+          example: "netbird"
         dns_collection:
           description: Legacy alias for network_traffic_dns_collection_enabled.
           type: boolean

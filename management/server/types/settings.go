@@ -197,6 +197,8 @@ type ExtraSettings struct {
 	FlowLocalStorageMaxSizeMB int
 	// FlowLocalStorageMaxFiles sets the max number of local log files to keep
 	FlowLocalStorageMaxFiles int
+	// FlowLocalStorageSet indicates local storage settings were explicitly provided.
+	FlowLocalStorageSet bool `gorm:"-"`
 
 	// FlowSyslogEnabled enables or disables sending flow logs to a syslog server
 	FlowSyslogEnabled bool
@@ -208,6 +210,8 @@ type ExtraSettings struct {
 	FlowSyslogFacility string
 	// FlowSyslogTag sets the syslog tag
 	FlowSyslogTag string
+	// FlowSyslogSet indicates syslog settings were explicitly provided.
+	FlowSyslogSet bool `gorm:"-"`
 
 	// BrandingLogoDataURL stores a custom dashboard header logo as a data URL.
 	BrandingLogoDataURL string
@@ -264,11 +268,13 @@ func (e *ExtraSettings) Copy() *ExtraSettings {
 		FlowLocalStoragePath:      e.FlowLocalStoragePath,
 		FlowLocalStorageMaxSizeMB: e.FlowLocalStorageMaxSizeMB,
 		FlowLocalStorageMaxFiles:  e.FlowLocalStorageMaxFiles,
+		FlowLocalStorageSet:       e.FlowLocalStorageSet,
 		FlowSyslogEnabled:         e.FlowSyslogEnabled,
 		FlowSyslogServer:          e.FlowSyslogServer,
 		FlowSyslogProtocol:        e.FlowSyslogProtocol,
 		FlowSyslogFacility:        e.FlowSyslogFacility,
 		FlowSyslogTag:             e.FlowSyslogTag,
+		FlowSyslogSet:             e.FlowSyslogSet,
 		BrandingLogoDataURL:       e.BrandingLogoDataURL,
 		BrandingLogoDarkDataURL:   e.BrandingLogoDarkDataURL,
 		BrandingIconDataURL:       e.BrandingIconDataURL,

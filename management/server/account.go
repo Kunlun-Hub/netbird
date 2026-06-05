@@ -510,19 +510,23 @@ func preserveUnmanagedExtraSettings(newExtra, oldExtra *types.ExtraSettings) {
 	oldExtra = oldExtra.Copy()
 	newExtra.IntegratedValidator = oldExtra.IntegratedValidator
 	newExtra.IntegratedValidatorGroups = oldExtra.IntegratedValidatorGroups
-	newExtra.FlowLocalStorageEnabled = oldExtra.FlowLocalStorageEnabled
-	newExtra.FlowLocalStoragePath = oldExtra.FlowLocalStoragePath
-	newExtra.FlowLocalStorageMaxSizeMB = oldExtra.FlowLocalStorageMaxSizeMB
-	newExtra.FlowLocalStorageMaxFiles = oldExtra.FlowLocalStorageMaxFiles
+	if !newExtra.FlowLocalStorageSet {
+		newExtra.FlowLocalStorageEnabled = oldExtra.FlowLocalStorageEnabled
+		newExtra.FlowLocalStoragePath = oldExtra.FlowLocalStoragePath
+		newExtra.FlowLocalStorageMaxSizeMB = oldExtra.FlowLocalStorageMaxSizeMB
+		newExtra.FlowLocalStorageMaxFiles = oldExtra.FlowLocalStorageMaxFiles
+	}
 	if !newExtra.FlowDNSDomainFilterSet {
 		newExtra.FlowDNSDomainFilterMode = oldExtra.FlowDNSDomainFilterMode
 		newExtra.FlowDNSDomainFilterList = oldExtra.FlowDNSDomainFilterList
 	}
-	newExtra.FlowSyslogEnabled = oldExtra.FlowSyslogEnabled
-	newExtra.FlowSyslogServer = oldExtra.FlowSyslogServer
-	newExtra.FlowSyslogProtocol = oldExtra.FlowSyslogProtocol
-	newExtra.FlowSyslogFacility = oldExtra.FlowSyslogFacility
-	newExtra.FlowSyslogTag = oldExtra.FlowSyslogTag
+	if !newExtra.FlowSyslogSet {
+		newExtra.FlowSyslogEnabled = oldExtra.FlowSyslogEnabled
+		newExtra.FlowSyslogServer = oldExtra.FlowSyslogServer
+		newExtra.FlowSyslogProtocol = oldExtra.FlowSyslogProtocol
+		newExtra.FlowSyslogFacility = oldExtra.FlowSyslogFacility
+		newExtra.FlowSyslogTag = oldExtra.FlowSyslogTag
+	}
 	newExtra.RelayPeerPreferences = oldExtra.RelayPeerPreferences
 	newExtra.RelayGroupPreferences = oldExtra.RelayGroupPreferences
 	newExtra.RegisteredRelays = oldExtra.RegisteredRelays

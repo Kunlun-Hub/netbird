@@ -417,7 +417,16 @@ func TestUpdateAccountFlowCompatPayload(t *testing.T) {
 					"counters": true,
 					"dns_collection": true,
 					"exit_node_collection": true,
-					"groups": ["group-a","group-b"]
+					"groups": ["group-a","group-b"],
+					"flow_local_storage_enabled": true,
+					"flow_local_storage_path": "/var/lib/netbird/flow",
+					"flow_local_storage_max_size_mb": 200,
+					"flow_local_storage_max_files": 7,
+					"flow_syslog_enabled": true,
+					"flow_syslog_server": "syslog.example.com:514",
+					"flow_syslog_protocol": "tcp",
+					"flow_syslog_facility": "local0",
+					"flow_syslog_tag": "netbird-flow"
 				}
 			}
 		}`),
@@ -452,6 +461,15 @@ func TestUpdateAccountFlowCompatPayload(t *testing.T) {
 		assert.Equal(t, []string{"group-a", "group-b"}, stringsValue(response.Settings.Extra.FlowGroups))
 		assert.Equal(t, []string{"group-a", "group-b"}, stringsValue(response.Settings.Extra.FlowLogsGroups))
 		assert.Equal(t, []string{"group-a", "group-b"}, response.Settings.Extra.NetworkTrafficLogsGroups)
+		assert.True(t, boolValue(response.Settings.Extra.FlowLocalStorageEnabled))
+		assert.Equal(t, "/var/lib/netbird/flow", stringValue(response.Settings.Extra.FlowLocalStoragePath))
+		assert.Equal(t, 200, intValue(response.Settings.Extra.FlowLocalStorageMaxSizeMb))
+		assert.Equal(t, 7, intValue(response.Settings.Extra.FlowLocalStorageMaxFiles))
+		assert.True(t, boolValue(response.Settings.Extra.FlowSyslogEnabled))
+		assert.Equal(t, "syslog.example.com:514", stringValue(response.Settings.Extra.FlowSyslogServer))
+		assert.Equal(t, "tcp", stringValue(response.Settings.Extra.FlowSyslogProtocol))
+		assert.Equal(t, "local0", stringValue(response.Settings.Extra.FlowSyslogFacility))
+		assert.Equal(t, "netbird-flow", stringValue(response.Settings.Extra.FlowSyslogTag))
 	}
 }
 
@@ -705,11 +723,20 @@ func TestGetAccountFlowCompatResponse(t *testing.T) {
 			PeerLoginExpiration:        time.Hour,
 			RegularUsersViewBlocked:    true,
 			Extra: &types.ExtraSettings{
-				FlowEnabled:              true,
-				FlowGroups:               []string{"group-a"},
-				FlowPacketCounterEnabled: true,
-				FlowDnsCollectionEnabled: true,
-				FlowENCollectionEnabled:  false,
+				FlowEnabled:               true,
+				FlowGroups:                []string{"group-a"},
+				FlowPacketCounterEnabled:  true,
+				FlowDnsCollectionEnabled:  true,
+				FlowENCollectionEnabled:   false,
+				FlowLocalStorageEnabled:   true,
+				FlowLocalStoragePath:      "/var/lib/netbird/flow",
+				FlowLocalStorageMaxSizeMB: 200,
+				FlowLocalStorageMaxFiles:  7,
+				FlowSyslogEnabled:         true,
+				FlowSyslogServer:          "syslog.example.com:514",
+				FlowSyslogProtocol:        "tcp",
+				FlowSyslogFacility:        "local0",
+				FlowSyslogTag:             "netbird-flow",
 			},
 		},
 	})
@@ -739,6 +766,17 @@ func TestGetAccountFlowCompatResponse(t *testing.T) {
 		assert.Equal(t, false, flow["exit_node_collection"])
 		assert.Equal(t, flow["enabled"], flowLogs["enabled"])
 		assert.Equal(t, flow["counters"], flowLogs["counters"])
+		assert.Equal(t, true, flow["flow_local_storage_enabled"])
+		assert.Equal(t, "/var/lib/netbird/flow", flow["flow_local_storage_path"])
+		assert.Equal(t, float64(200), flow["flow_local_storage_max_size_mb"])
+		assert.Equal(t, float64(7), flow["flow_local_storage_max_files"])
+		assert.Equal(t, true, flow["flow_syslog_enabled"])
+		assert.Equal(t, "syslog.example.com:514", flow["flow_syslog_server"])
+		assert.Equal(t, "tcp", flow["flow_syslog_protocol"])
+		assert.Equal(t, "local0", flow["flow_syslog_facility"])
+		assert.Equal(t, "netbird-flow", flow["flow_syslog_tag"])
+		assert.Equal(t, flow["flow_local_storage_enabled"], flowLogs["flow_local_storage_enabled"])
+		assert.Equal(t, flow["flow_syslog_enabled"], flowLogs["flow_syslog_enabled"])
 	}
 }
 

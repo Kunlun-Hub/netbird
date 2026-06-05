@@ -241,13 +241,31 @@ func TestBuildFlowConfig(t *testing.T) {
 
 	t.Run("dns only enables transport without traffic collection", func(t *testing.T) {
 		cfg := buildFlowConfig(&nbconfig.Config{}, relayToken, &types.ExtraSettings{
-			FlowDnsCollectionEnabled: true,
+			FlowDnsCollectionEnabled:  true,
+			FlowLocalStorageEnabled:   true,
+			FlowLocalStoragePath:      "/var/lib/netbird/flow",
+			FlowLocalStorageMaxSizeMB: 200,
+			FlowLocalStorageMaxFiles:  7,
+			FlowSyslogEnabled:         true,
+			FlowSyslogServer:          "syslog.example.com:514",
+			FlowSyslogProtocol:        "tcp",
+			FlowSyslogFacility:        "local0",
+			FlowSyslogTag:             "netbird-flow",
 		})
 		assert.NotNil(t, cfg)
 		assert.True(t, cfg.Enabled)
 		assert.NotNil(t, cfg.TrafficCollection)
 		assert.False(t, cfg.GetTrafficCollection())
 		assert.True(t, cfg.DnsCollection)
+		assert.True(t, cfg.FlowLocalStorageEnabled)
+		assert.Equal(t, "/var/lib/netbird/flow", cfg.FlowLocalStoragePath)
+		assert.Equal(t, int32(200), cfg.FlowLocalStorageMaxSizeMb)
+		assert.Equal(t, int32(7), cfg.FlowLocalStorageMaxFiles)
+		assert.True(t, cfg.FlowSyslogEnabled)
+		assert.Equal(t, "syslog.example.com:514", cfg.FlowSyslogServer)
+		assert.Equal(t, "tcp", cfg.FlowSyslogProtocol)
+		assert.Equal(t, "local0", cfg.FlowSyslogFacility)
+		assert.Equal(t, "netbird-flow", cfg.FlowSyslogTag)
 		assert.Equal(t, "https://flow.example.com", cfg.Url)
 	})
 }

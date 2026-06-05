@@ -144,6 +144,33 @@ func mergeFlowExtraSettings(target, source *types.ExtraSettings) {
 	if len(source.FlowDNSDomainFilterList) > 0 {
 		target.FlowDNSDomainFilterList = slices.Clone(source.FlowDNSDomainFilterList)
 	}
+	if source.FlowLocalStorageEnabled {
+		target.FlowLocalStorageEnabled = true
+	}
+	if source.FlowLocalStoragePath != "" {
+		target.FlowLocalStoragePath = source.FlowLocalStoragePath
+	}
+	if source.FlowLocalStorageMaxSizeMB > 0 {
+		target.FlowLocalStorageMaxSizeMB = source.FlowLocalStorageMaxSizeMB
+	}
+	if source.FlowLocalStorageMaxFiles > 0 {
+		target.FlowLocalStorageMaxFiles = source.FlowLocalStorageMaxFiles
+	}
+	if source.FlowSyslogEnabled {
+		target.FlowSyslogEnabled = true
+	}
+	if source.FlowSyslogServer != "" {
+		target.FlowSyslogServer = source.FlowSyslogServer
+	}
+	if source.FlowSyslogProtocol != "" {
+		target.FlowSyslogProtocol = source.FlowSyslogProtocol
+	}
+	if source.FlowSyslogFacility != "" {
+		target.FlowSyslogFacility = source.FlowSyslogFacility
+	}
+	if source.FlowSyslogTag != "" {
+		target.FlowSyslogTag = source.FlowSyslogTag
+	}
 }
 
 // GetEffectiveNetworkRanges returns the actual allocated network ranges from the account's network object.

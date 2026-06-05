@@ -1596,6 +1596,18 @@ type AccountExtraSettings struct {
 	// FlowGroups Legacy alias for network_traffic_logs_groups.
 	FlowGroups *[]string `json:"flow_groups,omitempty"`
 
+	// FlowLocalStorageEnabled Enables or disables local storage of flow logs.
+	FlowLocalStorageEnabled *bool `json:"flow_local_storage_enabled,omitempty"`
+
+	// FlowLocalStorageMaxFiles Sets the max number of local flow log files to keep.
+	FlowLocalStorageMaxFiles *int `json:"flow_local_storage_max_files,omitempty"`
+
+	// FlowLocalStorageMaxSizeMb Sets the max size of local flow log files in MB.
+	FlowLocalStorageMaxSizeMb *int `json:"flow_local_storage_max_size_mb,omitempty"`
+
+	// FlowLocalStoragePath Sets the path where flow logs are stored locally.
+	FlowLocalStoragePath *string `json:"flow_local_storage_path,omitempty"`
+
 	// FlowLogsEnabled Legacy alias for network_traffic_logs_enabled.
 	FlowLogsEnabled *bool `json:"flow_logs_enabled,omitempty"`
 
@@ -1604,6 +1616,21 @@ type AccountExtraSettings struct {
 
 	// FlowPacketCounterEnabled Legacy alias for network_traffic_packet_counter_enabled.
 	FlowPacketCounterEnabled *bool `json:"flow_packet_counter_enabled,omitempty"`
+
+	// FlowSyslogEnabled Enables or disables sending flow logs to a syslog server.
+	FlowSyslogEnabled *bool `json:"flow_syslog_enabled,omitempty"`
+
+	// FlowSyslogFacility Sets the syslog facility.
+	FlowSyslogFacility *string `json:"flow_syslog_facility,omitempty"`
+
+	// FlowSyslogProtocol Sets the syslog protocol.
+	FlowSyslogProtocol *string `json:"flow_syslog_protocol,omitempty"`
+
+	// FlowSyslogServer Sets the syslog server address.
+	FlowSyslogServer *string `json:"flow_syslog_server,omitempty"`
+
+	// FlowSyslogTag Sets the syslog tag.
+	FlowSyslogTag *string `json:"flow_syslog_tag,omitempty"`
 
 	// Groups Legacy alias for network_traffic_logs_groups.
 	Groups *[]string `json:"groups,omitempty"`

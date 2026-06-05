@@ -113,6 +113,15 @@ type accountFlowSettingsCompat struct {
 	DnsDomainFilterList                     []string `json:"dns_domain_filter_list"`
 	FlowDnsDomainFilterList                 []string `json:"flow_dns_domain_filter_list"`
 	NetworkTrafficDnsDomainFilterList       []string `json:"network_traffic_dns_domain_filter_list"`
+	FlowLocalStorageEnabled                 *bool    `json:"flow_local_storage_enabled"`
+	FlowLocalStoragePath                    *string  `json:"flow_local_storage_path"`
+	FlowLocalStorageMaxSizeMB               *int     `json:"flow_local_storage_max_size_mb"`
+	FlowLocalStorageMaxFiles                *int     `json:"flow_local_storage_max_files"`
+	FlowSyslogEnabled                       *bool    `json:"flow_syslog_enabled"`
+	FlowSyslogServer                        *string  `json:"flow_syslog_server"`
+	FlowSyslogProtocol                      *string  `json:"flow_syslog_protocol"`
+	FlowSyslogFacility                      *string  `json:"flow_syslog_facility"`
+	FlowSyslogTag                           *string  `json:"flow_syslog_tag"`
 }
 
 type accountSettingsCompatRequest struct {
@@ -226,6 +235,15 @@ func augmentFlowFilterCompatMap(target map[string]any, extraSettings *types.Extr
 	target["dns_domain_filter_list"] = extraSettings.FlowDNSDomainFilterList
 	target["flow_dns_domain_filter_list"] = extraSettings.FlowDNSDomainFilterList
 	target["network_traffic_dns_domain_filter_list"] = extraSettings.FlowDNSDomainFilterList
+	target["flow_local_storage_enabled"] = extraSettings.FlowLocalStorageEnabled
+	target["flow_local_storage_path"] = extraSettings.FlowLocalStoragePath
+	target["flow_local_storage_max_size_mb"] = extraSettings.FlowLocalStorageMaxSizeMB
+	target["flow_local_storage_max_files"] = extraSettings.FlowLocalStorageMaxFiles
+	target["flow_syslog_enabled"] = extraSettings.FlowSyslogEnabled
+	target["flow_syslog_server"] = extraSettings.FlowSyslogServer
+	target["flow_syslog_protocol"] = extraSettings.FlowSyslogProtocol
+	target["flow_syslog_facility"] = extraSettings.FlowSyslogFacility
+	target["flow_syslog_tag"] = extraSettings.FlowSyslogTag
 }
 
 func boolOrDefault(value *bool, fallback bool) bool {
@@ -651,18 +669,29 @@ func (h *handler) updateAccountRequestSettings(req api.PutApiAccountsAccountIdJS
 
 	if req.Settings.Extra != nil {
 		returnSettings.Extra = &types.ExtraSettings{
-			PeerApprovalEnabled:      req.Settings.Extra.PeerApprovalEnabled,
-			UserApprovalRequired:     req.Settings.Extra.UserApprovalRequired,
-			FlowEnabled:              req.Settings.Extra.NetworkTrafficLogsEnabled,
-			FlowGroups:               req.Settings.Extra.NetworkTrafficLogsGroups,
-			FlowPacketCounterEnabled: req.Settings.Extra.NetworkTrafficPacketCounterEnabled,
-			FlowENCollectionEnabled:  req.Settings.Extra.NetworkTrafficExitNodeCollectionEnabled,
-			FlowDnsCollectionEnabled: req.Settings.Extra.NetworkTrafficDnsCollectionEnabled,
-			BrandingLogoDataURL:      stringValue(req.Settings.Extra.BrandingLogoDataUrl),
-			BrandingLogoDarkDataURL:  stringValue(req.Settings.Extra.BrandingLogoDarkDataUrl),
-			BrandingIconDataURL:      stringValue(req.Settings.Extra.BrandingIconDataUrl),
-			BrandingTabTitle:         stringValue(req.Settings.Extra.BrandingTabTitle),
-			BrandingPrimaryColor:     stringValue(req.Settings.Extra.BrandingPrimaryColor),
+			PeerApprovalEnabled:       req.Settings.Extra.PeerApprovalEnabled,
+			UserApprovalRequired:      req.Settings.Extra.UserApprovalRequired,
+			FlowEnabled:               req.Settings.Extra.NetworkTrafficLogsEnabled,
+			FlowGroups:                req.Settings.Extra.NetworkTrafficLogsGroups,
+			FlowPacketCounterEnabled:  req.Settings.Extra.NetworkTrafficPacketCounterEnabled,
+			FlowENCollectionEnabled:   req.Settings.Extra.NetworkTrafficExitNodeCollectionEnabled,
+			FlowDnsCollectionEnabled:  req.Settings.Extra.NetworkTrafficDnsCollectionEnabled,
+			FlowLocalStorageEnabled:   boolPtrValue(req.Settings.Extra.FlowLocalStorageEnabled),
+			FlowLocalStoragePath:      stringValue(req.Settings.Extra.FlowLocalStoragePath),
+			FlowLocalStorageMaxSizeMB: intValue(req.Settings.Extra.FlowLocalStorageMaxSizeMb),
+			FlowLocalStorageMaxFiles:  intValue(req.Settings.Extra.FlowLocalStorageMaxFiles),
+			FlowLocalStorageSet:       hasFlowLocalStorageSettings(req.Settings.Extra),
+			FlowSyslogEnabled:         boolPtrValue(req.Settings.Extra.FlowSyslogEnabled),
+			FlowSyslogServer:          stringValue(req.Settings.Extra.FlowSyslogServer),
+			FlowSyslogProtocol:        stringValue(req.Settings.Extra.FlowSyslogProtocol),
+			FlowSyslogFacility:        stringValue(req.Settings.Extra.FlowSyslogFacility),
+			FlowSyslogTag:             stringValue(req.Settings.Extra.FlowSyslogTag),
+			FlowSyslogSet:             hasFlowSyslogSettings(req.Settings.Extra),
+			BrandingLogoDataURL:       stringValue(req.Settings.Extra.BrandingLogoDataUrl),
+			BrandingLogoDarkDataURL:   stringValue(req.Settings.Extra.BrandingLogoDarkDataUrl),
+			BrandingIconDataURL:       stringValue(req.Settings.Extra.BrandingIconDataUrl),
+			BrandingTabTitle:          stringValue(req.Settings.Extra.BrandingTabTitle),
+			BrandingPrimaryColor:      stringValue(req.Settings.Extra.BrandingPrimaryColor),
 		}
 	}
 
@@ -775,6 +804,50 @@ func applyFlowCompatSettings(settings *types.Settings, compat *accountSettingsCo
 		if groups := firstStrings(source.Groups, source.FlowGroups, source.FlowLogsGroups, source.NetworkTrafficLogsGroups); groups != nil {
 			settings.Extra.FlowGroups = groups
 		}
+		applyFlowStorageCompatSettings(settings.Extra, source)
+	}
+}
+
+func applyFlowStorageCompatSettings(extra *types.ExtraSettings, source *accountFlowSettingsCompat) {
+	if extra == nil || source == nil {
+		return
+	}
+
+	if source.FlowLocalStorageEnabled != nil {
+		extra.FlowLocalStorageEnabled = *source.FlowLocalStorageEnabled
+		extra.FlowLocalStorageSet = true
+	}
+	if source.FlowLocalStoragePath != nil {
+		extra.FlowLocalStoragePath = *source.FlowLocalStoragePath
+		extra.FlowLocalStorageSet = true
+	}
+	if source.FlowLocalStorageMaxSizeMB != nil {
+		extra.FlowLocalStorageMaxSizeMB = *source.FlowLocalStorageMaxSizeMB
+		extra.FlowLocalStorageSet = true
+	}
+	if source.FlowLocalStorageMaxFiles != nil {
+		extra.FlowLocalStorageMaxFiles = *source.FlowLocalStorageMaxFiles
+		extra.FlowLocalStorageSet = true
+	}
+	if source.FlowSyslogEnabled != nil {
+		extra.FlowSyslogEnabled = *source.FlowSyslogEnabled
+		extra.FlowSyslogSet = true
+	}
+	if source.FlowSyslogServer != nil {
+		extra.FlowSyslogServer = *source.FlowSyslogServer
+		extra.FlowSyslogSet = true
+	}
+	if source.FlowSyslogProtocol != nil {
+		extra.FlowSyslogProtocol = *source.FlowSyslogProtocol
+		extra.FlowSyslogSet = true
+	}
+	if source.FlowSyslogFacility != nil {
+		extra.FlowSyslogFacility = *source.FlowSyslogFacility
+		extra.FlowSyslogSet = true
+	}
+	if source.FlowSyslogTag != nil {
+		extra.FlowSyslogTag = *source.FlowSyslogTag
+		extra.FlowSyslogSet = true
 	}
 }
 
@@ -812,6 +885,35 @@ func stringValue(value *string) string {
 	return *value
 }
 
+func hasFlowLocalStorageSettings(extra *api.AccountExtraSettings) bool {
+	return extra.FlowLocalStorageEnabled != nil ||
+		extra.FlowLocalStoragePath != nil ||
+		extra.FlowLocalStorageMaxSizeMb != nil ||
+		extra.FlowLocalStorageMaxFiles != nil
+}
+
+func hasFlowSyslogSettings(extra *api.AccountExtraSettings) bool {
+	return extra.FlowSyslogEnabled != nil ||
+		extra.FlowSyslogServer != nil ||
+		extra.FlowSyslogProtocol != nil ||
+		extra.FlowSyslogFacility != nil ||
+		extra.FlowSyslogTag != nil
+}
+
+func boolPtrValue(value *bool) bool {
+	if value == nil {
+		return false
+	}
+	return *value
+}
+
+func intValue(value *int) int {
+	if value == nil {
+		return 0
+	}
+	return *value
+}
+
 func optionalBool(value bool) *bool {
 	if !value {
 		return nil
@@ -821,6 +923,13 @@ func optionalBool(value bool) *bool {
 
 func optionalString(value string) *string {
 	if value == "" {
+		return nil
+	}
+	return &value
+}
+
+func optionalInt(value int) *int {
+	if value == 0 {
 		return nil
 	}
 	return &value
@@ -1020,7 +1129,16 @@ func toAccountResponse(accountID string, settings *types.Settings, meta *types.A
 			FlowLogsGroups:                          optionalStrings(settings.Extra.FlowGroups),
 			FlowDnsCollectionEnabled:                optionalBool(settings.Extra.FlowDnsCollectionEnabled),
 			FlowExitNodeCollectionEnabled:           optionalBool(settings.Extra.FlowENCollectionEnabled),
+			FlowLocalStorageEnabled:                 optionalBool(settings.Extra.FlowLocalStorageEnabled),
+			FlowLocalStoragePath:                    optionalString(settings.Extra.FlowLocalStoragePath),
+			FlowLocalStorageMaxSizeMb:               optionalInt(settings.Extra.FlowLocalStorageMaxSizeMB),
+			FlowLocalStorageMaxFiles:                optionalInt(settings.Extra.FlowLocalStorageMaxFiles),
 			FlowPacketCounterEnabled:                optionalBool(settings.Extra.FlowPacketCounterEnabled),
+			FlowSyslogEnabled:                       optionalBool(settings.Extra.FlowSyslogEnabled),
+			FlowSyslogServer:                        optionalString(settings.Extra.FlowSyslogServer),
+			FlowSyslogProtocol:                      optionalString(settings.Extra.FlowSyslogProtocol),
+			FlowSyslogFacility:                      optionalString(settings.Extra.FlowSyslogFacility),
+			FlowSyslogTag:                           optionalString(settings.Extra.FlowSyslogTag),
 			Groups:                                  optionalStrings(settings.Extra.FlowGroups),
 			PeerApprovalEnabled:                     settings.Extra.PeerApprovalEnabled,
 			UserApprovalRequired:                    settings.Extra.UserApprovalRequired,
@@ -1060,6 +1178,15 @@ func hasAccountExtraSettings(extra *types.ExtraSettings) bool {
 		extra.FlowPacketCounterEnabled ||
 		extra.FlowENCollectionEnabled ||
 		extra.FlowDnsCollectionEnabled ||
+		extra.FlowLocalStorageEnabled ||
+		extra.FlowLocalStoragePath != "" ||
+		extra.FlowLocalStorageMaxSizeMB > 0 ||
+		extra.FlowLocalStorageMaxFiles > 0 ||
+		extra.FlowSyslogEnabled ||
+		extra.FlowSyslogServer != "" ||
+		extra.FlowSyslogProtocol != "" ||
+		extra.FlowSyslogFacility != "" ||
+		extra.FlowSyslogTag != "" ||
 		extra.BrandingLogoDataURL != "" ||
 		extra.BrandingLogoDarkDataURL != "" ||
 		extra.BrandingIconDataURL != "" ||
