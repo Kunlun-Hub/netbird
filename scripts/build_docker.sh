@@ -39,7 +39,7 @@ print_error() {
 # 默认配置
 IMAGE_NAME="${IMAGE_NAME:-ohoimager/cloink}"
 IMAGE_TAG="${IMAGE_TAG:-latest}"
-VERSION="${VERSION:-0.68.0}"
+VERSION="${VERSION:-0.72.2}"
 REGISTRY="${REGISTRY:-}"
 PUSH="${PUSH:-false}"
 CLEANUP="${CLEANUP:-true}"
@@ -232,8 +232,8 @@ fi
 # 准备 Docker 构建上下文
 print_info "准备 Docker 构建上下文..."
 
-if [ "$MULTISTAGE" = "true" ]; then
-    # 多阶段构建 - 使用当前目录
+if [ "$MULTISTAGE" = "true" ] || [ "$MULTIARCH" = "true" ]; then
+    # 多阶段构建 - 使用当前目录。多架构构建必须在 Dockerfile 内为每个平台编译二进制。
     cp client/Dockerfile.multistage Dockerfile
     print_info "使用多阶段 Dockerfile"
     BUILD_DIR=$(pwd)
@@ -287,7 +287,9 @@ if [ "$MULTIARCH" = "true" ]; then
     if [ "$PUSH" = "true" ]; then
         BUILD_ARGS+=(--push)
     else
-        BUILD_ARGS+=(--load)
+        OUTPUT_FILE="dist/docker/cloink-${IMAGE_TAG}-multiarch.oci.tar"
+        print_warning "多架构镜像无法直接 --load 到本地 Docker，将导出 OCI 镜像包: ${OUTPUT_FILE}"
+        BUILD_ARGS+=(--output "type=oci,dest=${OUTPUT_FILE}")
     fi
     
     docker buildx build "${BUILD_ARGS[@]}" .

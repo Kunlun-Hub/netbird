@@ -3,7 +3,9 @@
 # 暂时关闭严格错误检查，便于调试
 # set -eo pipefail
 
-CLOINK_API_URL="${1:-}"
+CLOINK_API_URL=""
+CLOINK_VERSION=""
+CLOINK_DOWNLOAD_URL=""
 
 echo "========================================"
 echo "       Cloink 客户端安装程序"
@@ -12,18 +14,36 @@ echo ""
 
 echo "调试参数："
 echo "  CLOINK_API_URL=${CLOINK_API_URL}"
+echo "  CLOINK_VERSION=${CLOINK_VERSION}"
 echo "  第1个参数：${1}"
 echo ""
 
-if [ -z "${CLOINK_API_URL}" ]; then
-    if [ -n "${1}" ] && echo "${1}" | grep -q "^--"; then
-        true
-    elif [ -n "${1}" ]; then
-        CLOINK_API_URL="${1}"
-    fi
-fi
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -v|--version)
+            CLOINK_VERSION="$2"
+            shift 2
+            ;;
+        -u|--url)
+            CLOINK_DOWNLOAD_URL="$2"
+            shift 2
+            ;;
+        -m|--management)
+            CLOINK_API_URL="$2"
+            shift 2
+            ;;
+        http://*|https://*)
+            CLOINK_API_URL="$1"
+            shift
+            ;;
+        *)
+            shift
+            ;;
+    esac
+done
 
 echo "最终 CLOINK_API_URL=${CLOINK_API_URL}"
+echo "最终 CLOINK_VERSION=${CLOINK_VERSION}"
 echo ""
 
 if command -v cloink >/dev/null 2>&1; then
@@ -84,18 +104,44 @@ install_dependencies() {
     esac
 }
 
+normalize_architecture() {
+    case "$(uname -m)" in
+        x86_64|amd64)
+            echo "amd64"
+            ;;
+        aarch64|arm64)
+            echo "arm64"
+            ;;
+        armv7l|armv7|armhf)
+            echo "armv7"
+            ;;
+        *)
+            echo "$(uname -m)"
+            ;;
+    esac
+}
+
 # 只返回下载链接，不输出额外内容
 get_download_url_value() {
+    if [ -n "${CLOINK_DOWNLOAD_URL}" ]; then
+        echo "${CLOINK_DOWNLOAD_URL}"
+        return
+    fi
     if [ -z "${CLOINK_API_URL}" ]; then
         exit 1
     fi
     RESPONSE=$(curl -s "${CLOINK_API_URL}/api/version-releases/public")
-    # 提取所有 downloadUrl
-    ALL_URLS=$(echo "${RESPONSE}" | grep -o '"downloadUrl":"[^"]*"' | cut -d'"' -f4)
-    # 找包含 linux 的链接
-    DOWNLOAD_URL=$(echo "${ALL_URLS}" | grep -i linux | head -n1)
+    ARCH=$(normalize_architecture)
+    MATCHED_RELEASES=$(echo "${RESPONSE}" | grep -o '{[^{}]*"platform":"linux"[^{}]*}')
+    if [ -n "${CLOINK_VERSION}" ]; then
+        MATCHED_RELEASES=$(echo "${MATCHED_RELEASES}" | grep "\"version\":\"${CLOINK_VERSION}\"")
+    fi
+    DOWNLOAD_URL=$(echo "${MATCHED_RELEASES}" | grep "\"architecture\":\"${ARCH}\"" | head -n1 | grep -o '"downloadUrl":"[^"]*"' | cut -d'"' -f4)
     if [ -z "${DOWNLOAD_URL}" ]; then
-        DOWNLOAD_URL=$(echo "${ALL_URLS}" | head -n1)
+        DOWNLOAD_URL=$(echo "${MATCHED_RELEASES}" | grep '"architecture":"universal"' | head -n1 | grep -o '"downloadUrl":"[^"]*"' | cut -d'"' -f4)
+    fi
+    if [ -z "${DOWNLOAD_URL}" ]; then
+        DOWNLOAD_URL=$(echo "${MATCHED_RELEASES}" | head -n1 | grep -o '"downloadUrl":"[^"]*"' | cut -d'"' -f4)
     fi
     echo "${DOWNLOAD_URL}"
 }
@@ -109,6 +155,9 @@ download_and_install() {
     detect_architecture
     echo "获取下载链接..."
     echo "正在请求 API：${CLOINK_API_URL}/api/version-releases/public"
+    if [ -n "${CLOINK_VERSION}" ]; then
+        echo "指定安装版本：${CLOINK_VERSION}"
+    fi
     
     # 先测试 API
     RESPONSE=$(curl -s "${CLOINK_API_URL}/api/version-releases/public")
