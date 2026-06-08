@@ -328,24 +328,30 @@ func setupServerHooks(servers *serverInstances, cfg *CombinedConfig) {
 		return
 	}
 
-	if s, ok := servers.mgmtSrv.GetContainer(mgmtServer.ContainerKeyBaseServer); ok {
-		if baseServer, ok := s.(*mgmtServer.BaseServer); ok {
-			baseServer.AfterInit(func(s *mgmtServer.BaseServer) {
-				grpcSrv := s.GRPCServer()
-
-				if servers.signalSrv != nil {
-					proto.RegisterSignalExchangeServer(grpcSrv, servers.signalSrv)
-					log.Infof("Signal server registered on port %s", cfg.Server.ListenAddress)
-				}
-
-				s.SetHandlerFunc(createCombinedHandler(grpcSrv, s.APIHandler(), s.IDPHandler(), servers.relaySrv, servers.metricsServer.Meter, cfg))
-				if servers.relaySrv != nil {
-					log.Infof("Relay WebSocket handler added (path: /relay)")
-				}
-			})
+	baseServer, ok := servers.mgmtSrv.(*mgmtServer.BaseServer)
+	if !ok {
+		if s, found := servers.mgmtSrv.GetContainer(mgmtServer.ContainerKeyBaseServer); found {
+			baseServer, ok = s.(*mgmtServer.BaseServer)
 		}
 	}
+	if !ok || baseServer == nil {
+		log.Warn("combined server could not register Signal and Relay handlers: base management server unavailable")
+		return
+	}
 
+	baseServer.AfterInit(func(s *mgmtServer.BaseServer) {
+		grpcSrv := s.GRPCServer()
+
+		if servers.signalSrv != nil {
+			proto.RegisterSignalExchangeServer(grpcSrv, servers.signalSrv)
+			log.Infof("Signal server registered on port %s", cfg.Server.ListenAddress)
+		}
+
+		s.SetHandlerFunc(createCombinedHandler(grpcSrv, s.APIHandler(), s.IDPHandler(), servers.relaySrv, servers.metricsServer.Meter, cfg))
+		if servers.relaySrv != nil {
+			log.Infof("Relay WebSocket handler added (path: /relay)")
+		}
+	})
 }
 
 func startServers(wg *sync.WaitGroup, srv *relayServer.Server, httpHealthcheck *healthcheck.Server, stunServer *stun.Server, metricsServer *sharedMetrics.Metrics) {

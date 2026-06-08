@@ -5,7 +5,9 @@ import (
 )
 
 var newServer = func(cfg *mgmtServer.Config) mgmtServer.Server {
-	return mgmtServer.NewServer(cfg)
+	srv := mgmtServer.NewServer(cfg)
+	srv.SetContainer(mgmtServer.ContainerKeyBaseServer, srv)
+	return srv
 }
 
 func SetNewServer(fn func(*mgmtServer.Config) mgmtServer.Server) {
