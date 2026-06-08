@@ -17,10 +17,11 @@ type store interface {
 	UpdateProxyHeartbeat(ctx context.Context, p *proxy.Proxy) error
 	GetActiveProxyClusterAddresses(ctx context.Context) ([]string, error)
 	GetActiveProxyClusterAddressesForAccount(ctx context.Context, accountID string) ([]string, error)
-	GetActiveProxyClusters(ctx context.Context, accountID string) ([]proxy.Cluster, error)
+	GetProxyClusters(ctx context.Context, accountID string) ([]proxy.Cluster, error)
 	GetClusterSupportsCustomPorts(ctx context.Context, clusterAddr string) *bool
 	GetClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool
 	GetClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool
+	GetClusterSupportsPrivate(ctx context.Context, clusterAddr string) *bool
 	CleanupStaleProxies(ctx context.Context, inactivityDuration time.Duration) error
 	GetProxyByAccountID(ctx context.Context, accountID string) (*proxy.Proxy, error)
 	CountProxiesByAccountID(ctx context.Context, accountID string) (int64, error)
@@ -135,6 +136,11 @@ func (m Manager) ClusterRequireSubdomain(ctx context.Context, clusterAddr string
 // have CrowdSec configured (unanimous). Returns nil when no proxy has reported capabilities.
 func (m Manager) ClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool {
 	return m.store.GetClusterSupportsCrowdSec(ctx, clusterAddr)
+}
+
+// ClusterSupportsPrivate reports whether any active proxy claims the private capability (nil = unreported).
+func (m Manager) ClusterSupportsPrivate(ctx context.Context, clusterAddr string) *bool {
+	return m.store.GetClusterSupportsPrivate(ctx, clusterAddr)
 }
 
 // CleanupStale removes proxies that haven't sent heartbeat in the specified duration

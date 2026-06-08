@@ -24,7 +24,7 @@ var errInvalidDomainName = errors.New("invalid domain name")
 
 // GetNameServerGroup gets a nameserver group object from account and nameserver group IDs
 func (am *DefaultAccountManager) GetNameServerGroup(ctx context.Context, accountID, userID, nsGroupID string) (*nbdns.NameServerGroup, error) {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Nameservers, operations.Read)
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Nameservers, operations.Read)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -37,7 +37,7 @@ func (am *DefaultAccountManager) GetNameServerGroup(ctx context.Context, account
 
 // CreateNameServerGroup creates and saves a new nameserver group
 func (am *DefaultAccountManager) CreateNameServerGroup(ctx context.Context, accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, primary bool, domains []string, enabled bool, userID string, searchDomainEnabled bool) (*nbdns.NameServerGroup, error) {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Nameservers, operations.Create)
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Nameservers, operations.Create)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -99,7 +99,7 @@ func (am *DefaultAccountManager) SaveNameServerGroup(ctx context.Context, accoun
 		return status.Errorf(status.InvalidArgument, "nameserver group provided is nil")
 	}
 
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Nameservers, operations.Update)
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Nameservers, operations.Update)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
 	}
@@ -150,7 +150,7 @@ func (am *DefaultAccountManager) SaveNameServerGroup(ctx context.Context, accoun
 
 // DeleteNameServerGroup deletes nameserver group with nsGroupID
 func (am *DefaultAccountManager) DeleteNameServerGroup(ctx context.Context, accountID, nsGroupID, userID string) error {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Nameservers, operations.Delete)
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Nameservers, operations.Delete)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
 	}
@@ -193,7 +193,7 @@ func (am *DefaultAccountManager) DeleteNameServerGroup(ctx context.Context, acco
 
 // ListNameServerGroups returns a list of nameserver groups from account
 func (am *DefaultAccountManager) ListNameServerGroups(ctx context.Context, accountID string, userID string) ([]*nbdns.NameServerGroup, error) {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Nameservers, operations.Read)
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Nameservers, operations.Read)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}

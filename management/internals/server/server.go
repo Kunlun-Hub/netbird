@@ -34,6 +34,8 @@ const (
 	ManagementLegacyPort = 33073
 	// DefaultSelfHostedDomain is the default domain used for self-hosted fresh installs.
 	DefaultSelfHostedDomain = "cloink.local"
+
+	ContainerKeyBaseServer = "baseServer"
 )
 
 type Server interface {
@@ -117,7 +119,7 @@ func (s *BaseServer) Start(ctx context.Context) error {
 	s.errCh = make(chan error, 4)
 
 	if s.autoResolveDomains {
-		s.resolveDomains(srvCtx)
+		s.ResolveDomains(srvCtx)
 	}
 
 	s.PeersManager()
@@ -395,10 +397,10 @@ func (s *BaseServer) serveGRPCWithHTTP(ctx context.Context, listener net.Listene
 	}()
 }
 
-// resolveDomains determines dnsDomain and mgmtSingleAccModeDomain based on store state.
+// ResolveDomains determines dnsDomain and mgmtSingleAccModeDomain based on store state.
 // Fresh installs use the default self-hosted domain, while existing installs reuse the
 // persisted account domain to keep addressing stable across config changes.
-func (s *BaseServer) resolveDomains(ctx context.Context) {
+func (s *BaseServer) ResolveDomains(ctx context.Context) {
 	st := s.Store()
 
 	setDefault := func(logMsg string, args ...any) {

@@ -111,6 +111,7 @@ type LocalPeerState struct {
 	PubKey          string
 	KernelInterface bool
 	FQDN            string
+	WgPort          int
 	Routes          map[string]struct{}
 }
 
@@ -191,9 +192,12 @@ func (s *StatusChangeSubscription) Events() chan map[string]RouterState {
 	return s.eventsChan
 }
 
-// Status holds a state of peers, signal, management connections and relays
+// Status holds a state of peers, signal, management connections and relays.
+// mux is an RWMutex so hot read paths (notably PeerStateByIP, called for
+// every private-service request) don't contend against each other.
+// Pure read methods take RLock; anything that mutates state takes Lock.
 type Status struct {
-	mux                   sync.Mutex
+	mux                   sync.RWMutex
 	peers                 map[string]State
 	changeNotify          map[string]map[string]*StatusChangeSubscription // map[peerID]map[subscriptionID]*StatusChangeSubscription
 	signalState           bool
@@ -291,8 +295,8 @@ func (d *Status) AddPeer(peerPubKey string, fqdn string, ip string, ipv6 string)
 
 // GetPeer adds peer to Daemon status map
 func (d *Status) GetPeer(peerPubKey string) (State, error) {
-	d.mux.Lock()
-	defer d.mux.Unlock()
+	d.mux.RLock()
+	defer d.mux.RUnlock()
 
 	state, ok := d.peers[peerPubKey]
 	if !ok {
@@ -302,8 +306,8 @@ func (d *Status) GetPeer(peerPubKey string) (State, error) {
 }
 
 func (d *Status) PeerByIP(ip string) (string, bool) {
-	d.mux.Lock()
-	defer d.mux.Unlock()
+	d.mux.RLock()
+	defer d.mux.RUnlock()
 
 	for _, state := range d.peers {
 		if state.IP == ip {
@@ -311,6 +315,34 @@ func (d *Status) PeerByIP(ip string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// PeerStateByIP returns the full peer State for the given tunnel IP.
+// Matches against either the IPv4 (State.IP) or IPv6 (State.IPv6) tunnel
+// address so dual-stack peers are reachable on either family. Searches
+// both d.peers and d.offlinePeers — peers that have been moved into
+// the offline slice by ReplaceOfflinePeers are still part of the
+// account's roster and callers (DNS filter, embed.Client.IdentityForIP)
+// need to recognise them rather than treating them as unknown. Returns
+// the zero State and false when no peer matches or the input is empty.
+func (d *Status) PeerStateByIP(ip string) (State, bool) {
+	if ip == "" {
+		return State{}, false
+	}
+	d.mux.RLock()
+	defer d.mux.RUnlock()
+
+	for _, state := range d.peers {
+		if (state.IP != "" && state.IP == ip) || (state.IPv6 != "" && state.IPv6 == ip) {
+			return state, true
+		}
+	}
+	for _, state := range d.offlinePeers {
+		if (state.IP != "" && state.IP == ip) || (state.IPv6 != "" && state.IPv6 == ip) {
+			return state, true
+		}
+	}
+	return State{}, false
 }
 
 // RemovePeer removes peer from Daemon status map
@@ -717,8 +749,8 @@ func (d *Status) UnsubscribePeerStateChanges(subscription *StatusChangeSubscript
 
 // GetLocalPeerState returns the local peer state
 func (d *Status) GetLocalPeerState() LocalPeerState {
-	d.mux.Lock()
-	defer d.mux.Unlock()
+	d.mux.RLock()
+	defer d.mux.RUnlock()
 	return d.localPeer.Clone()
 }
 
@@ -931,8 +963,8 @@ func (d *Status) DeleteResolvedDomainsStates(domain domain.Domain) {
 }
 
 func (d *Status) GetRosenpassState() RosenpassState {
-	d.mux.Lock()
-	defer d.mux.Unlock()
+	d.mux.RLock()
+	defer d.mux.RUnlock()
 	return RosenpassState{
 		d.rosenpassEnabled,
 		d.rosenpassPermissive,
@@ -940,8 +972,8 @@ func (d *Status) GetRosenpassState() RosenpassState {
 }
 
 func (d *Status) GetLazyConnection() bool {
-	d.mux.Lock()
-	defer d.mux.Unlock()
+	d.mux.RLock()
+	defer d.mux.RUnlock()
 	return d.lazyConnectionEnabled
 }
 
@@ -955,8 +987,8 @@ func (d *Status) GetFlowState() FlowState {
 }
 
 func (d *Status) GetManagementState() ManagementState {
-	d.mux.Lock()
-	defer d.mux.Unlock()
+	d.mux.RLock()
+	defer d.mux.RUnlock()
 	return ManagementState{
 		d.mgmAddress,
 		d.managementState,
@@ -982,8 +1014,8 @@ func (d *Status) UpdateLatency(pubKey string, latency time.Duration) error {
 
 // IsLoginRequired determines if a peer's login has expired.
 func (d *Status) IsLoginRequired() bool {
-	d.mux.Lock()
-	defer d.mux.Unlock()
+	d.mux.RLock()
+	defer d.mux.RUnlock()
 
 	// if peer is connected to the management then login is not expired
 	if d.managementState {
@@ -998,8 +1030,8 @@ func (d *Status) IsLoginRequired() bool {
 }
 
 func (d *Status) GetSignalState() SignalState {
-	d.mux.Lock()
-	defer d.mux.Unlock()
+	d.mux.RLock()
+	defer d.mux.RUnlock()
 	return SignalState{
 		d.signalAddress,
 		d.signalState,
@@ -1009,8 +1041,8 @@ func (d *Status) GetSignalState() SignalState {
 
 // GetRelayStates returns the stun/turn/permanent relay states
 func (d *Status) GetRelayStates() []relay.ProbeResult {
-	d.mux.Lock()
-	defer d.mux.Unlock()
+	d.mux.RLock()
+	defer d.mux.RUnlock()
 	if d.relayMgr == nil {
 		return d.relayStates
 	}
@@ -1039,8 +1071,8 @@ func (d *Status) GetRelayStates() []relay.ProbeResult {
 }
 
 func (d *Status) ForwardingRules() []firewall.ForwardRule {
-	d.mux.Lock()
-	defer d.mux.Unlock()
+	d.mux.RLock()
+	defer d.mux.RUnlock()
 	if d.ingressGwMgr == nil {
 		return nil
 	}
@@ -1049,16 +1081,16 @@ func (d *Status) ForwardingRules() []firewall.ForwardRule {
 }
 
 func (d *Status) GetDNSStates() []NSGroupState {
-	d.mux.Lock()
-	defer d.mux.Unlock()
+	d.mux.RLock()
+	defer d.mux.RUnlock()
 
 	// shallow copy is good enough, as slices fields are currently not updated
 	return slices.Clone(d.nsGroupStates)
 }
 
 func (d *Status) GetResolvedDomainsStates() map[domain.Domain]ResolvedDomainInfo {
-	d.mux.Lock()
-	defer d.mux.Unlock()
+	d.mux.RLock()
+	defer d.mux.RUnlock()
 	return maps.Clone(d.resolvedDomainsStates)
 }
 
@@ -1075,8 +1107,8 @@ func (d *Status) GetFullStatus() FullStatus {
 		FlowState:             d.GetFlowState(),
 	}
 
-	d.mux.Lock()
-	defer d.mux.Unlock()
+	d.mux.RLock()
+	defer d.mux.RUnlock()
 
 	fullStatus.LocalPeerState = d.localPeer
 
@@ -1251,8 +1283,8 @@ func (d *Status) SetWgIface(wgInterface WGIfaceStatus) {
 }
 
 func (d *Status) PeersStatus() (*configurer.Stats, error) {
-	d.mux.Lock()
-	defer d.mux.Unlock()
+	d.mux.RLock()
+	defer d.mux.RUnlock()
 	if d.wgIface == nil {
 		return nil, fmt.Errorf("wgInterface is nil, cannot retrieve peers status")
 	}
@@ -1358,6 +1390,7 @@ func (fs FullStatus) ToProto() *proto.FullStatus {
 	pbFullStatus.LocalPeerState.PubKey = fs.LocalPeerState.PubKey
 	pbFullStatus.LocalPeerState.KernelInterface = fs.LocalPeerState.KernelInterface
 	pbFullStatus.LocalPeerState.Fqdn = fs.LocalPeerState.FQDN
+	pbFullStatus.LocalPeerState.WgPort = int32(fs.LocalPeerState.WgPort)
 	pbFullStatus.LocalPeerState.RosenpassPermissive = fs.RosenpassState.Permissive
 	pbFullStatus.LocalPeerState.RosenpassEnabled = fs.RosenpassState.Enabled
 	pbFullStatus.NumberOfForwardingRules = int32(fs.NumOfForwardingRules)

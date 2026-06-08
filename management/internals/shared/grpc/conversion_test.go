@@ -6,6 +6,7 @@ import (
 	"os"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 
@@ -336,5 +337,23 @@ func TestDeriveFlowURL(t *testing.T) {
 			},
 		}
 		assert.Equal(t, "https://issuer.example.com", deriveFlowURL(cfg))
+	})
+}
+
+// TestEncodeSessionExpiresAt pins the wire encoding the client's
+// applySessionDeadline depends on.
+func TestEncodeSessionExpiresAt(t *testing.T) {
+	t.Run("zero deadline encodes as explicit-zero sentinel", func(t *testing.T) {
+		got := encodeSessionExpiresAt(time.Time{})
+		assert.NotNil(t, got, "must not return nil; nil means 'no info', not 'disabled'")
+		assert.Equal(t, int64(0), got.GetSeconds())
+		assert.Equal(t, int32(0), got.GetNanos())
+	})
+
+	t.Run("non-zero deadline round-trips", func(t *testing.T) {
+		deadline := time.Date(2030, 1, 2, 3, 4, 5, 0, time.UTC)
+		got := encodeSessionExpiresAt(deadline)
+		assert.NotNil(t, got)
+		assert.True(t, got.AsTime().Equal(deadline))
 	})
 }

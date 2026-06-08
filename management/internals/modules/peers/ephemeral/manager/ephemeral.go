@@ -11,6 +11,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral"
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/telemetry"
 
 	"github.com/netbirdio/netbird/management/server/store"
 )
@@ -48,6 +49,8 @@ type EphemeralManager struct {
 
 	lifeTime      time.Duration
 	cleanupWindow time.Duration
+
+	metrics *telemetry.EphemeralPeersMetrics
 }
 
 // NewEphemeralManager instantiate new EphemeralManager
@@ -59,6 +62,12 @@ func NewEphemeralManager(store store.Store, peersManager peers.Manager) *Ephemer
 		lifeTime:      ephemeral.EphemeralLifeTime,
 		cleanupWindow: cleanupWindow,
 	}
+}
+
+func (e *EphemeralManager) SetMetrics(m *telemetry.EphemeralPeersMetrics) {
+	e.peersLock.Lock()
+	e.metrics = m
+	e.peersLock.Unlock()
 }
 
 // LoadInitialPeers load from the database the ephemeral type of peers and schedule a cleanup procedure to the head
@@ -153,6 +162,7 @@ func (e *EphemeralManager) loadEphemeralPeers(ctx context.Context) {
 		}
 		e.addPeer(p.AccountID, p.ID, e.disconnectDeadline(), false)
 	}
+	e.metrics.AddPending(int64(len(peers)))
 
 	log.WithContext(ctx).Debugf("loaded ephemeral peer(s): %d", len(peers))
 }
@@ -178,6 +188,11 @@ func (e *EphemeralManager) cleanup(ctx context.Context) {
 	e.scheduleCleanup(ctx)
 
 	e.peersLock.Unlock()
+
+	if len(deletePeers) > 0 {
+		e.metrics.CountCleanupRun()
+		e.metrics.DecPending(int64(len(deletePeers)))
+	}
 
 	regularPeerIDsPerAccount := make(map[string][]string)
 	for id, p := range deletePeers {

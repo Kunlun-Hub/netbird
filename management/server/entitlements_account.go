@@ -11,7 +11,7 @@ import (
 )
 
 func (am *DefaultAccountManager) GetAccountEntitlements(ctx context.Context, accountID, userID string) (*entitlements.Entitlements, error) {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Accounts, operations.Read)
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Accounts, operations.Read)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}

@@ -489,7 +489,7 @@ func (s *serviceClient) getConnectionForm() *widget.Form {
 			{Text: "预共享密钥", Widget: s.iPreSharedKey},
 			{Text: "量子抗性", Widget: s.sRosenpassPermissive},
 			{Text: "接口名称", Widget: s.iInterfaceName},
-			{Text: "接口端口", Widget: s.iInterfacePort},
+			{Text: "接口端口", Widget: s.iInterfacePort, HintText: "设置为 0 时会自动使用随机空闲端口"},
 			{Text: "MTU", Widget: s.iMTU},
 			{Text: "日志文件", Widget: s.iLogFile},
 		},

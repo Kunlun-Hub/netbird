@@ -12,7 +12,7 @@ import (
 )
 
 func (am *DefaultAccountManager) GetAccountLicense(ctx context.Context, accountID, userID, serverURL string) (*licensing.State, error) {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Accounts, operations.Read)
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Accounts, operations.Read)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -36,7 +36,7 @@ func (am *DefaultAccountManager) GetAccountLicense(ctx context.Context, accountI
 }
 
 func (am *DefaultAccountManager) UpdateAccountLicense(ctx context.Context, accountID, userID, serverURL, licenseKey string) (*licensing.State, error) {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Settings, operations.Update)
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Settings, operations.Update)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
