@@ -13,6 +13,7 @@ import (
 	"github.com/gorilla/mux"
 	grpcMiddleware "github.com/grpc-ecosystem/go-grpc-middleware/v2"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/realip"
+	"github.com/rs/cors"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
@@ -33,6 +34,7 @@ import (
 	nbContext "github.com/netbirdio/netbird/management/server/context"
 	nbhttp "github.com/netbirdio/netbird/management/server/http"
 	"github.com/netbirdio/netbird/management/server/http/middleware"
+	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	mgmtProto "github.com/netbirdio/netbird/shared/management/proto"
@@ -118,6 +120,14 @@ func (s *BaseServer) APIHandler() http.Handler {
 		}
 		return httpAPIHandler
 	})
+}
+
+func (s *BaseServer) IDPHandler() http.Handler {
+	embeddedIdP, ok := s.IdpManager().(*idp.EmbeddedIdPManager)
+	if !ok || embeddedIdP == nil {
+		return nil
+	}
+	return cors.AllowAll().Handler(embeddedIdP.Handler())
 }
 
 func (s *BaseServer) Router() *mux.Router {
