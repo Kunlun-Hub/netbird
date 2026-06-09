@@ -102,8 +102,10 @@ func (h *handler) getAllDNSEvents(w http.ResponseWriter, r *http.Request) {
 	filter.ParseFromRequest(r)
 	dnsOnly := true
 	aggregateFlows := false
+	requireDNSAnswers := true
 	filter.DNS = &dnsOnly
 	filter.AggregateFlows = &aggregateFlows
+	filter.RequireDNSAnswers = &requireDNSAnswers
 	filter.InternalDNS = nil
 
 	events, totalCount, err := h.accountManager.GetStore().GetAccountNetworkTrafficEvents(

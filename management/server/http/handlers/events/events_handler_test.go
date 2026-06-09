@@ -83,6 +83,8 @@ func TestGetAllDNSEventsForcesDNSOnlyFilter(t *testing.T) {
 			require.True(t, *filter.DNS)
 			require.NotNil(t, filter.AggregateFlows)
 			require.False(t, *filter.AggregateFlows)
+			require.NotNil(t, filter.RequireDNSAnswers)
+			require.True(t, *filter.RequireDNSAnswers)
 			require.Nil(t, filter.InternalDNS)
 			require.Equal(t, "example.com", *filter.DNSDomain)
 

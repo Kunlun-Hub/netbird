@@ -32,22 +32,23 @@ type Filter struct {
 	SortBy   string
 	SortOrd  string
 
-	Search         *string
-	UserID         *string
-	ReporterID     *string
-	Protocol       *int
-	EventType      *string
-	ConnectionType *string
-	Direction      *string
-	DNS            *bool
-	NetworkOnly    *bool
-	AggregateFlows *bool
-	InternalDNS    *bool
-	DNSDomain      *string
-	DNSType        *string
-	ClientKey      *string
-	StartDate      *time.Time
-	EndDate        *time.Time
+	Search            *string
+	UserID            *string
+	ReporterID        *string
+	Protocol          *int
+	EventType         *string
+	ConnectionType    *string
+	Direction         *string
+	DNS               *bool
+	NetworkOnly       *bool
+	AggregateFlows    *bool
+	InternalDNS       *bool
+	RequireDNSAnswers *bool
+	DNSDomain         *string
+	DNSType           *string
+	ClientKey         *string
+	StartDate         *time.Time
+	EndDate           *time.Time
 }
 
 func (f *Filter) ParseFromRequest(r *http.Request) {
@@ -67,6 +68,7 @@ func (f *Filter) ParseFromRequest(r *http.Request) {
 	f.NetworkOnly = parseOptionalBool(query.Get("network_only"))
 	f.AggregateFlows = parseOptionalBool(query.Get("aggregate_flows"))
 	f.InternalDNS = parseOptionalBool(query.Get("internal_dns"))
+	f.RequireDNSAnswers = parseOptionalBool(query.Get("require_dns_answers"))
 	f.DNSDomain = parseOptionalString(query.Get("dns_domain"))
 	f.DNSType = parseOptionalString(query.Get("dns_type"))
 	f.ClientKey = parseOptionalString(query.Get("client_key"))

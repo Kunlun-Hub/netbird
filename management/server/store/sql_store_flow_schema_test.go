@@ -569,6 +569,15 @@ func TestGetAccountNetworkTrafficEventsDNSFilterExcludesNOERRORWithoutAnswers(t 
 	require.Len(t, result, 2)
 	require.Equal(t, "dns-failed", result[0].ID)
 	require.Equal(t, "dns-success-answer", result[1].ID)
+
+	requireAnswers := true
+	filter.RequireDNSAnswers = &requireAnswers
+
+	result, total, err = sqlStore.GetAccountNetworkTrafficEvents(ctx, LockingStrengthNone, accountID, filter)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), total)
+	require.Len(t, result, 1)
+	require.Equal(t, "dns-success-answer", result[0].ID)
 }
 
 func TestGetAccountNetworkTrafficEventsInternalDNSFiltersByNameserverGroup(t *testing.T) {

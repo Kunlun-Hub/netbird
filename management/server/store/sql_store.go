@@ -6822,6 +6822,10 @@ func (s *SqlStore) applyNetworkTrafficFilters(query *gorm.DB, filter networktraf
 		}
 	}
 
+	if filter.RequireDNSAnswers != nil && *filter.RequireDNSAnswers {
+		query = query.Where("NOT (" + noDNSAnswersCondition() + ")")
+	}
+
 	if filter.NetworkOnly != nil && *filter.NetworkOnly {
 		dnsPortPattern := "%:53"
 		dnsForwarderClientPattern := fmt.Sprintf("%%:%d", nbdns.ForwarderClientPort)
@@ -6909,6 +6913,10 @@ func (s *SqlStore) applyNetworkTrafficSummaryFilters(query *gorm.DB, filter netw
 		} else {
 			query = query.Where(networkTrafficNoDNSCondition())
 		}
+	}
+
+	if filter.RequireDNSAnswers != nil && *filter.RequireDNSAnswers {
+		query = query.Where("NOT (" + noDNSAnswersCondition() + ")")
 	}
 
 	if filter.NetworkOnly != nil && *filter.NetworkOnly {
