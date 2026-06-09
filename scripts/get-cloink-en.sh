@@ -890,7 +890,7 @@ $traefik_dynamic_volume
     labels:
       - traefik.enable=true
       # gRPC router (needs h2c backend for HTTP/2 cleartext)
-      - traefik.http.routers.netbird-grpc.rule=Host(\`$NETBIRD_DOMAIN\`) && (PathPrefix(\`/signalexchange.SignalExchange/\`) || PathPrefix(\`/management.ManagementService/\`) || PathPrefix(\`/flow.FlowService/\`))
+      - traefik.http.routers.netbird-grpc.rule=Host(\`$NETBIRD_DOMAIN\`) && (PathPrefix(\`/signalexchange.SignalExchange/\`) || PathPrefix(\`/management.ManagementService/\`) || PathPrefix(\`/flow.FlowService/\`) || PathPrefix(\`/management.ProxyService/\`))
       - traefik.http.routers.netbird-grpc.entrypoints=$TRAEFIK_ENTRYPOINT
       - traefik.http.routers.netbird-grpc.tls=true
       - traefik.http.routers.netbird-grpc.tls.certresolver=letsencrypt
@@ -1083,7 +1083,7 @@ $(if [[ -n "$tls_labels" ]]; then echo "      - traefik.http.routers.netbird-das
     labels:
       - traefik.enable=true
       # gRPC router (needs h2c backend for HTTP/2 cleartext)
-      - traefik.http.routers.netbird-grpc.rule=Host(\`$NETBIRD_DOMAIN\`) && (PathPrefix(\`/signalexchange.SignalExchange/\`) || PathPrefix(\`/management.ManagementService/\`) || PathPrefix(\`/flow.FlowService/\`))
+      - traefik.http.routers.netbird-grpc.rule=Host(\`$NETBIRD_DOMAIN\`) && (PathPrefix(\`/signalexchange.SignalExchange/\`) || PathPrefix(\`/management.ManagementService/\`) || PathPrefix(\`/flow.FlowService/\`) || PathPrefix(\`/management.ProxyService/\`))
       - traefik.http.routers.netbird-grpc.entrypoints=$TRAEFIK_ENTRYPOINT
       - traefik.http.routers.netbird-grpc.tls=true
 $(if [[ -n "$tls_labels" ]]; then echo "      - traefik.http.routers.netbird-grpc.${tls_labels}"; fi)
@@ -1271,8 +1271,8 @@ server {
         proxy_send_timeout 1d;
     }
 
-    # Native gRPC (signal + management + flow log upload)
-    location ~ ^/(signalexchange\.SignalExchange|management\.ManagementService|flow\.FlowService)/ {
+    # Native gRPC (signal + management + flow log upload + reverse proxy control)
+    location ~ ^/(signalexchange\.SignalExchange|management\.ManagementService|flow\.FlowService|management\.ProxyService)/ {
         grpc_pass grpc://netbird_server;
         grpc_read_timeout 1d;
         grpc_send_timeout 1d;
@@ -1371,8 +1371,8 @@ location ~ ^/(relay(?:/|$)|ws-proxy/) {
     proxy_read_timeout 1d;
 }
 
-# Native gRPC (signal + management + flow log upload)
-location ~ ^/(signalexchange\.SignalExchange|management\.ManagementService|flow\.FlowService)/ {
+# Native gRPC (signal + management + flow log upload + reverse proxy control)
+location ~ ^/(signalexchange\.SignalExchange|management\.ManagementService|flow\.FlowService|management\.ProxyService)/ {
     grpc_pass grpc://${server_addr};
     grpc_read_timeout 1d;
     grpc_send_timeout 1d;
@@ -1631,10 +1631,11 @@ print_manual_instructions() {
   echo "    /relay, /relay/*, /ws-proxy/*  -> ${upstream_host}:${MANAGEMENT_HOST_PORT}"
   echo "    (HTTP with WebSocket upgrade, extended timeout)"
   echo ""
-  echo "  Native gRPC (signal + management + flow log upload):"
+  echo "  Native gRPC (signal + management + flow log upload + reverse proxy control):"
   echo "    /signalexchange.SignalExchange/* -> ${upstream_host}:${MANAGEMENT_HOST_PORT}"
   echo "    /management.ManagementService/* -> ${upstream_host}:${MANAGEMENT_HOST_PORT}"
   echo "    /flow.FlowService/*            -> ${upstream_host}:${MANAGEMENT_HOST_PORT}"
+  echo "    /management.ProxyService/*     -> ${upstream_host}:${MANAGEMENT_HOST_PORT}"
   echo "    (gRPC/h2c - plaintext HTTP/2)"
   echo ""
   echo "  HTTP (API + embedded IdP):"
