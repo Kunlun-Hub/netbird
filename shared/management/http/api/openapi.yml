@@ -7738,6 +7738,31 @@ paths:
           "$ref": "#/components/responses/forbidden"
         '500':
           "$ref": "#/components/responses/internal_error"
+  /api/networks/resources:
+    get:
+      summary: List all Network Resources in account
+      description: Returns a list of all resources in the account
+      tags: [ Networks ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      responses:
+        '200':
+          description: A JSON Array of Resources
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/NetworkResource'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
   /api/networks/{networkId}:
     get:
       summary: Retrieve a Network
