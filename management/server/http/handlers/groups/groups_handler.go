@@ -163,6 +163,7 @@ func (h *handler) updateGroup(w http.ResponseWriter, r *http.Request) {
 		Peers:                peers,
 		Resources:            resources,
 		Issued:               existingGroup.Issued,
+		Type:                 existingGroup.Type,
 		IntegrationReference: existingGroup.IntegrationReference,
 	}
 
@@ -224,6 +225,10 @@ func (h *handler) createGroup(w http.ResponseWriter, r *http.Request) {
 		Peers:     peers,
 		Resources: resources,
 		Issued:    types.GroupIssuedAPI,
+		Type:      types.GroupTypePeer,
+	}
+	if req.Type != nil {
+		group.Type = string(*req.Type)
 	}
 
 	err = h.accountManager.CreateGroup(r.Context(), accountID, userID, &group)
@@ -310,10 +315,15 @@ func toGroupResponse(peers []*nbpeer.Peer, group *types.Group) *api.Group {
 	}
 
 	peerCache := make(map[string]api.PeerMinimum)
+	groupType := group.Type
+	if groupType == "" {
+		groupType = types.GroupTypePeer
+	}
 	gr := api.Group{
 		Id:     group.ID,
 		Name:   group.Name,
 		Issued: (*api.GroupIssued)(&group.Issued),
+		Type:   (*api.GroupType)(&groupType),
 	}
 
 	for _, pid := range group.Peers {

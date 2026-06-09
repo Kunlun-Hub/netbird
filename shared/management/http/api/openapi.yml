@@ -755,6 +755,12 @@ components:
           items:
             type: string
             example: ch8i4ug6lnn4g9hqv7m0
+        user_groups:
+          description: User group IDs this user belongs to
+          type: array
+          items:
+            type: string
+            example: ch8i4ug6lnn4g9hqv7m0
         is_current:
           description: Is true if authenticated user is the same as this user
           type: boolean
@@ -789,6 +795,7 @@ components:
         - name
         - role
         - auto_groups
+        - user_groups
         - status
         - is_blocked
         - pending_approval
@@ -827,6 +834,12 @@ components:
           items:
             type: string
             example: ch8i4ug6lnn4g9hqv7m0
+        user_groups:
+          description: User group IDs this user belongs to
+          type: array
+          items:
+            type: string
+            example: ch8i4ug6lnn4g9hqv7m0
         is_blocked:
           description: If set to true then user is blocked and can't use the system
           type: boolean
@@ -834,6 +847,7 @@ components:
       required:
         - role
         - auto_groups
+        - user_groups
         - is_blocked
     UserCreateRequest:
       type: object
@@ -856,6 +870,12 @@ components:
           items:
             type: string
             example: ch8i4ug6lnn4g9hqv7m0
+        user_groups:
+          description: User group IDs this user belongs to
+          type: array
+          items:
+            type: string
+            example: ch8i4ug6lnn4g9hqv7m0
         is_service_user:
           description: Is true if this user is a service user
           type: boolean
@@ -863,6 +883,7 @@ components:
       required:
         - role
         - auto_groups
+        - user_groups
         - is_service_user
     UserInviteCreateRequest:
       type: object
@@ -886,6 +907,12 @@ components:
           items:
             type: string
             example: ch8i4ug6lnn4g9hqv7m0
+        user_groups:
+          description: User group IDs this user belongs to
+          type: array
+          items:
+            type: string
+            example: ch8i4ug6lnn4g9hqv7m0
         expires_in:
           description: Invite expiration time in seconds (default 72 hours)
           type: integer
@@ -895,6 +922,7 @@ components:
         - name
         - role
         - auto_groups
+        - user_groups
     UserInvite:
       type: object
       description: A user invite
@@ -917,6 +945,12 @@ components:
           example: user
         auto_groups:
           description: Group IDs to auto-assign to peers registered by this user
+          type: array
+          items:
+            type: string
+            example: ch8i4ug6lnn4g9hqv7m0
+        user_groups:
+          description: User group IDs this user belongs to
           type: array
           items:
             type: string
@@ -945,6 +979,7 @@ components:
         - name
         - role
         - auto_groups
+        - user_groups
         - expires_at
         - created_at
         - expired
@@ -1621,6 +1656,11 @@ components:
           type: string
           enum: [ "api", "integration", "jwt" ]
           example: api
+        type:
+          description: Group usage type. Peer groups are used for devices/resources. User groups are used for team users and identity-based policies.
+          type: string
+          enum: [ "peer", "user" ]
+          example: peer
       required:
         - id
         - name
@@ -1643,6 +1683,11 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Resource'
+        type:
+          description: Group usage type. Defaults to peer when omitted.
+          type: string
+          enum: [ "peer", "user" ]
+          example: peer
       required:
         - name
     Group:

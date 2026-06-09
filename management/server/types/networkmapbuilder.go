@@ -228,7 +228,7 @@ func (b *NetworkMapBuilder) buildGlobalIndexes(account *Account) {
 					if user == nil || user.IsBlocked() || user.IsServiceUser {
 						continue
 					}
-					if slices.Contains(user.AutoGroups, groupID) {
+					if slices.Contains(userGroupIDs(user), groupID) {
 						b.cache.userToPolicies[userID] = append(b.cache.userToPolicies[userID], policy)
 					}
 				}
@@ -479,7 +479,7 @@ func (b *NetworkMapBuilder) isPeerInSourcesCached(account *Account, rule *Policy
 	if slices.Contains(rule.SourceUsers, userID) {
 		return true
 	}
-	for _, groupID := range user.AutoGroups {
+	for _, groupID := range userGroupIDs(user) {
 		if slices.Contains(rule.SourceUserGroups, groupID) {
 			return true
 		}
@@ -546,7 +546,7 @@ func (b *NetworkMapBuilder) getPeersFromUserGroupsCached(account *Account, group
 		if user == nil || user.IsBlocked() || user.IsServiceUser {
 			continue
 		}
-		for _, groupID := range user.AutoGroups {
+		for _, groupID := range userGroupIDs(user) {
 			if _, ok := sourceGroups[groupID]; ok {
 				sourceUsers[userID] = struct{}{}
 				break

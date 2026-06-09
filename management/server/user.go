@@ -66,6 +66,7 @@ func (am *DefaultAccountManager) createServiceUser(ctx context.Context, accountI
 		Name:          newUser.ServiceUserName,
 		Role:          string(newUser.Role),
 		AutoGroups:    newUser.AutoGroups,
+		UserGroups:    newUser.UserGroups,
 		Status:        string(types.UserStatusActive),
 		IsServiceUser: true,
 		LastLogin:     time.Time{},
@@ -97,6 +98,9 @@ func (am *DefaultAccountManager) inviteNewUser(ctx context.Context, accountID, u
 	}
 	if !allowed {
 		return nil, status.NewPermissionDeniedError()
+	}
+	if err := am.validateUserInfoGroups(ctx, accountID, invite); err != nil {
+		return nil, err
 	}
 
 	if err := am.requireUserLimitForCreate(ctx, accountID); err != nil {
@@ -135,6 +139,7 @@ func (am *DefaultAccountManager) inviteNewUser(ctx context.Context, accountID, u
 		AccountID:            accountID,
 		Role:                 types.StrRoleToUserRole(invite.Role),
 		AutoGroups:           invite.AutoGroups,
+		UserGroups:           invite.UserGroups,
 		Issued:               invite.Issued,
 		IntegrationReference: invite.IntegrationReference,
 		CreatedAt:            time.Now().UTC(),
@@ -786,6 +791,7 @@ func (am *DefaultAccountManager) processUserUpdate(ctx context.Context, transact
 	updatedUser.Role = update.Role
 	updatedUser.Blocked = update.Blocked
 	updatedUser.AutoGroups = update.AutoGroups
+	updatedUser.UserGroups = update.UserGroups
 	// these fields can't be set via API, only via direct call to the method
 	updatedUser.Issued = update.Issued
 	updatedUser.IntegrationReference = update.IntegrationReference
@@ -837,8 +843,10 @@ func (am *DefaultAccountManager) processUserUpdate(ctx context.Context, transact
 		}
 	}
 
+	removedUserGroups := util.Difference(oldUser.UserGroups, updatedUser.UserGroups)
+	addedUserGroups := util.Difference(updatedUser.UserGroups, oldUser.UserGroups)
 	updateAccountPeers := len(userPeers) > 0
-	userEventsToAdd := am.prepareUserUpdateEvents(ctx, updatedUser.AccountID, initiatorUserId, oldUser, updatedUser, transferredOwnerRole, isNewUser, removedGroups, addedGroups, transaction)
+	userEventsToAdd := am.prepareUserUpdateEvents(ctx, updatedUser.AccountID, initiatorUserId, oldUser, updatedUser, transferredOwnerRole, isNewUser, removedUserGroups, addedUserGroups, transaction)
 
 	return updateAccountPeers, updatedUser, peersToExpire, userEventsToAdd, nil
 }
@@ -940,7 +948,20 @@ func validateUserUpdate(groupsMap map[string]*types.Group, initiatorUser, oldUse
 				newGroupID, update.Id)
 		}
 		if group.IsGroupAll() {
-			return status.Errorf(status.InvalidArgument, "can't add All group to the user")
+			return status.Errorf(status.InvalidArgument, "can't add All group to the user's device groups")
+		}
+		if group.Type == types.GroupTypeUser {
+			return status.Errorf(status.InvalidArgument, "can't add user group %s to the user's device groups", newGroupID)
+		}
+	}
+	for _, newGroupID := range update.UserGroups {
+		group, ok := groupsMap[newGroupID]
+		if !ok {
+			return status.Errorf(status.InvalidArgument, "provided user group ID %s in the user %s update doesn't exist",
+				newGroupID, update.Id)
+		}
+		if group.Type != types.GroupTypeUser {
+			return status.Errorf(status.InvalidArgument, "can't add device group %s to the user's user groups", newGroupID)
 		}
 	}
 
@@ -1113,6 +1134,7 @@ func (am *DefaultAccountManager) BuildUserInfosForAccount(ctx context.Context, a
 				Name:          name,
 				Role:          string(localUser.Role),
 				AutoGroups:    localUser.AutoGroups,
+				UserGroups:    localUser.UserGroups,
 				Status:        string(types.UserStatusActive),
 				IsServiceUser: localUser.IsServiceUser,
 				NonDeletable:  localUser.NonDeletable,
@@ -1390,6 +1412,43 @@ func validateUserInvite(invite *types.UserInfo) error {
 	return nil
 }
 
+func (am *DefaultAccountManager) validateUserInfoGroups(ctx context.Context, accountID string, userInfo *types.UserInfo) error {
+	groupIDs := slices.Concat(userInfo.AutoGroups, userInfo.UserGroups)
+	if len(groupIDs) == 0 {
+		return nil
+	}
+
+	groups, err := am.Store.GetGroupsByIDs(ctx, store.LockingStrengthNone, accountID, groupIDs)
+	if err != nil {
+		return err
+	}
+
+	for _, groupID := range userInfo.AutoGroups {
+		group, ok := groups[groupID]
+		if !ok {
+			return status.Errorf(status.InvalidArgument, "provided group ID %s doesn't exist", groupID)
+		}
+		if group.IsGroupAll() {
+			return status.Errorf(status.InvalidArgument, "can't add All group to the user's device groups")
+		}
+		if group.Type == types.GroupTypeUser {
+			return status.Errorf(status.InvalidArgument, "can't add user group %s to the user's device groups", groupID)
+		}
+	}
+
+	for _, groupID := range userInfo.UserGroups {
+		group, ok := groups[groupID]
+		if !ok {
+			return status.Errorf(status.InvalidArgument, "provided user group ID %s doesn't exist", groupID)
+		}
+		if group.Type != types.GroupTypeUser {
+			return status.Errorf(status.InvalidArgument, "can't add device group %s to the user's user groups", groupID)
+		}
+	}
+
+	return nil
+}
+
 // GetCurrentUserInfo retrieves the account's current user info and permissions
 func (am *DefaultAccountManager) GetCurrentUserInfo(ctx context.Context, userAuth auth.UserAuth) (*users.UserInfoWithPermissions, error) {
 	accountID, userID := userAuth.AccountId, userAuth.UserId
@@ -1531,6 +1590,9 @@ func (am *DefaultAccountManager) CreateUserInvite(ctx context.Context, accountID
 	if !allowed {
 		return nil, status.NewPermissionDeniedError()
 	}
+	if err := am.validateUserInfoGroups(ctx, accountID, invite); err != nil {
+		return nil, err
+	}
 
 	// Check if user already exists in NetBird DB
 	existingUsers, err := am.Store.GetAccountUsers(ctx, store.LockingStrengthNone, accountID)
@@ -1582,6 +1644,7 @@ func (am *DefaultAccountManager) CreateUserInvite(ctx context.Context, accountID
 		Name:        invite.Name,
 		Role:        invite.Role,
 		AutoGroups:  invite.AutoGroups,
+		UserGroups:  invite.UserGroups,
 		HashedToken: hashedToken,
 		ExpiresAt:   expiresAt,
 		CreatedAt:   time.Now().UTC(),
@@ -1601,6 +1664,7 @@ func (am *DefaultAccountManager) CreateUserInvite(ctx context.Context, accountID
 			Name:       invite.Name,
 			Role:       invite.Role,
 			AutoGroups: invite.AutoGroups,
+			UserGroups: invite.UserGroups,
 			Status:     string(types.UserStatusInvited),
 			Issued:     types.UserIssuedAPI,
 		},
@@ -1667,6 +1731,7 @@ func (am *DefaultAccountManager) ListUserInvites(ctx context.Context, accountID,
 				Name:       record.Name,
 				Role:       record.Role,
 				AutoGroups: record.AutoGroups,
+				UserGroups: record.UserGroups,
 			},
 			InviteExpiresAt: record.ExpiresAt,
 			InviteCreatedAt: record.CreatedAt,
@@ -1725,6 +1790,7 @@ func (am *DefaultAccountManager) AcceptUserInvite(ctx context.Context, token, pa
 		AccountID:  invite.AccountID,
 		Role:       types.StrRoleToUserRole(invite.Role),
 		AutoGroups: invite.AutoGroups,
+		UserGroups: invite.UserGroups,
 		Issued:     types.UserIssuedAPI,
 		CreatedAt:  time.Now().UTC(),
 		Email:      invite.Email,
@@ -1810,6 +1876,7 @@ func (am *DefaultAccountManager) RegenerateUserInvite(ctx context.Context, accou
 			Name:       existingInvite.Name,
 			Role:       existingInvite.Role,
 			AutoGroups: existingInvite.AutoGroups,
+			UserGroups: existingInvite.UserGroups,
 			Status:     string(types.UserStatusInvited),
 			Issued:     types.UserIssuedAPI,
 		},

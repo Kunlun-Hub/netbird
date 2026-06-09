@@ -1296,7 +1296,7 @@ func (a *Account) getAllPeersFromUserGroups(ctx context.Context, groupIDs []stri
 		if user == nil || user.IsBlocked() || user.IsServiceUser {
 			continue
 		}
-		for _, groupID := range user.AutoGroups {
+		for _, groupID := range userGroupIDs(user) {
 			if _, ok := sourceGroups[groupID]; ok {
 				sourceUsers[userID] = struct{}{}
 				break
@@ -1773,7 +1773,11 @@ func (a *Account) GetActiveGroupUsers() map[string][]string {
 	groups := make(map[string][]string, len(a.GroupsG))
 	for _, user := range a.Users {
 		if !user.IsBlocked() && !user.IsServiceUser {
-			for _, groupID := range user.AutoGroups {
+			userGroups := userGroupIDs(user)
+			if userGroups == nil {
+				userGroups = user.AutoGroups
+			}
+			for _, groupID := range userGroups {
 				groups[groupID] = append(groups[groupID], user.Id)
 			}
 			groups[allGroupID] = append(groups[allGroupID], user.Id)

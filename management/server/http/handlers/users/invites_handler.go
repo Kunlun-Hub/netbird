@@ -32,6 +32,10 @@ func toUserInviteResponse(invite *types.UserInvite) api.UserInvite {
 	if autoGroups == nil {
 		autoGroups = []string{}
 	}
+	userGroups := invite.UserInfo.UserGroups
+	if userGroups == nil {
+		userGroups = []string{}
+	}
 	var inviteLink *string
 	if invite.InviteToken != "" {
 		inviteLink = &invite.InviteToken
@@ -42,6 +46,7 @@ func toUserInviteResponse(invite *types.UserInvite) api.UserInvite {
 		Name:        invite.UserInfo.Name,
 		Role:        invite.UserInfo.Role,
 		AutoGroups:  autoGroups,
+		UserGroups:  userGroups,
 		ExpiresAt:   invite.InviteExpiresAt.UTC(),
 		CreatedAt:   invite.InviteCreatedAt.UTC(),
 		Expired:     time.Now().After(invite.InviteExpiresAt),
@@ -115,12 +120,17 @@ func (h *invitesHandler) createInvite(w http.ResponseWriter, r *http.Request) {
 		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
 		return
 	}
+	userGroups := req.UserGroups
+	if userGroups == nil {
+		userGroups = []string{}
+	}
 
 	invite := &types.UserInfo{
 		Email:      req.Email,
 		Name:       req.Name,
 		Role:       req.Role,
 		AutoGroups: req.AutoGroups,
+		UserGroups: userGroups,
 	}
 
 	expiresIn := 0

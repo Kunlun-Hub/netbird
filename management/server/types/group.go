@@ -11,6 +11,11 @@ const (
 	GroupIssuedIntegration = "integration"
 )
 
+const (
+	GroupTypePeer = "peer"
+	GroupTypeUser = "user"
+)
+
 // Group of the peers for ACL
 type Group struct {
 	// ID of the group
@@ -24,6 +29,9 @@ type Group struct {
 
 	// Issued defines how this group was created (enum of "api", "integration" or "jwt")
 	Issued string
+
+	// Type defines the group usage (peer/device group or user group)
+	Type string `gorm:"default:peer"`
 
 	// Peers list of the group
 	Peers      []string    `gorm:"-"` // Peers and GroupPeers list will be ignored when writing to the DB. Use AddPeerToGroup and RemovePeerFromGroup methods to modify group membership
@@ -76,6 +84,7 @@ func (g *Group) Copy() *Group {
 		AccountID:            g.AccountID,
 		Name:                 g.Name,
 		Issued:               g.Issued,
+		Type:                 g.Type,
 		Peers:                make([]string, len(g.Peers)),
 		GroupPeers:           make([]GroupPeer, len(g.GroupPeers)),
 		Resources:            make([]Resource, len(g.Resources)),

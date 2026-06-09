@@ -596,6 +596,24 @@ func (e GroupIssued) Valid() bool {
 	}
 }
 
+// Defines values for GroupType.
+const (
+	GroupTypePeer GroupType = "peer"
+	GroupTypeUser GroupType = "user"
+)
+
+// Valid indicates whether the value is a known member of the GroupType enum.
+func (e GroupType) Valid() bool {
+	switch e {
+	case GroupTypePeer:
+		return true
+	case GroupTypeUser:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for GroupMinimumIssued.
 const (
 	GroupMinimumIssuedApi         GroupMinimumIssued = "api"
@@ -611,6 +629,42 @@ func (e GroupMinimumIssued) Valid() bool {
 	case GroupMinimumIssuedIntegration:
 		return true
 	case GroupMinimumIssuedJwt:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for GroupMinimumType.
+const (
+	GroupMinimumTypePeer GroupMinimumType = "peer"
+	GroupMinimumTypeUser GroupMinimumType = "user"
+)
+
+// Valid indicates whether the value is a known member of the GroupMinimumType enum.
+func (e GroupMinimumType) Valid() bool {
+	switch e {
+	case GroupMinimumTypePeer:
+		return true
+	case GroupMinimumTypeUser:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for GroupRequestType.
+const (
+	GroupRequestTypePeer GroupRequestType = "peer"
+	GroupRequestTypeUser GroupRequestType = "user"
+)
+
+// Valid indicates whether the value is a known member of the GroupRequestType enum.
+func (e GroupRequestType) Valid() bool {
+	switch e {
+	case GroupRequestTypePeer:
+		return true
+	case GroupRequestTypeUser:
 		return true
 	default:
 		return false
@@ -2634,10 +2688,16 @@ type Group struct {
 
 	// ResourcesCount Count of resources associated to the group
 	ResourcesCount int `json:"resources_count"`
+
+	// Type Group usage type. Peer groups are used for devices/resources. User groups are used for team users and identity-based policies.
+	Type *GroupType `json:"type,omitempty"`
 }
 
 // GroupIssued How the group was issued (api, integration, jwt)
 type GroupIssued string
+
+// GroupType Group usage type. Peer groups are used for devices/resources. User groups are used for team users and identity-based policies.
+type GroupType string
 
 // GroupMinimum defines model for GroupMinimum.
 type GroupMinimum struct {
@@ -2655,10 +2715,16 @@ type GroupMinimum struct {
 
 	// ResourcesCount Count of resources associated to the group
 	ResourcesCount int `json:"resources_count"`
+
+	// Type Group usage type. Peer groups are used for devices/resources. User groups are used for team users and identity-based policies.
+	Type *GroupMinimumType `json:"type,omitempty"`
 }
 
 // GroupMinimumIssued How the group was issued (api, integration, jwt)
 type GroupMinimumIssued string
+
+// GroupMinimumType Group usage type. Peer groups are used for devices/resources. User groups are used for team users and identity-based policies.
+type GroupMinimumType string
 
 // GroupRequest defines model for GroupRequest.
 type GroupRequest struct {
@@ -2668,7 +2734,13 @@ type GroupRequest struct {
 	// Peers List of peers ids
 	Peers     *[]string   `json:"peers,omitempty"`
 	Resources *[]Resource `json:"resources,omitempty"`
+
+	// Type Group usage type. Defaults to peer when omitted.
+	Type *GroupRequestType `json:"type,omitempty"`
 }
+
+// GroupRequestType Group usage type. Defaults to peer when omitted.
+type GroupRequestType string
 
 // HeaderAuthConfig Static header-value authentication. The proxy checks that the named header matches the configured value.
 type HeaderAuthConfig struct {
@@ -5125,6 +5197,9 @@ type User struct {
 
 	// Status User's status
 	Status UserStatus `json:"status"`
+
+	// UserGroups User group IDs this user belongs to
+	UserGroups []string `json:"user_groups"`
 }
 
 // UserStatus User's status
@@ -5146,6 +5221,9 @@ type UserCreateRequest struct {
 
 	// Role User's NetBird account role
 	Role string `json:"role"`
+
+	// UserGroups User group IDs this user belongs to
+	UserGroups []string `json:"user_groups"`
 }
 
 // UserInvite A user invite
@@ -5176,6 +5254,9 @@ type UserInvite struct {
 
 	// Role User's NetBird account role
 	Role string `json:"role"`
+
+	// UserGroups User group IDs this user belongs to
+	UserGroups []string `json:"user_groups"`
 }
 
 // UserInviteAcceptRequest Request to accept an invite and set password
@@ -5206,6 +5287,9 @@ type UserInviteCreateRequest struct {
 
 	// Role User's NetBird account role
 	Role string `json:"role"`
+
+	// UserGroups User group IDs this user belongs to
+	UserGroups []string `json:"user_groups"`
 }
 
 // UserInviteInfo Public information about an invite
@@ -5258,6 +5342,9 @@ type UserRequest struct {
 
 	// Role User's NetBird account role
 	Role string `json:"role"`
+
+	// UserGroups User group IDs this user belongs to
+	UserGroups []string `json:"user_groups"`
 }
 
 // WebhookTarget Target configuration for webhook notification channels.

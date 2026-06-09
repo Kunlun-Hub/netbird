@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/netip"
 	"net/http/httptest"
+	"net/netip"
 	"strings"
 	"testing"
 
@@ -176,6 +176,7 @@ func TestGetGroup(t *testing.T) {
 func TestWriteGroup(t *testing.T) {
 	groupIssuedAPI := "api"
 	groupIssuedJWT := "jwt"
+	groupTypePeer := api.GroupTypePeer
 	tt := []struct {
 		name           string
 		expectedStatus int
@@ -197,6 +198,7 @@ func TestWriteGroup(t *testing.T) {
 				Id:     "id-was-set",
 				Name:   "Default POSTed Group",
 				Issued: (*api.GroupIssued)(&groupIssuedAPI),
+				Type:   &groupTypePeer,
 			},
 		},
 		{
@@ -219,6 +221,7 @@ func TestWriteGroup(t *testing.T) {
 				Id:     "id-existed",
 				Name:   "Default POSTed Group",
 				Issued: (*api.GroupIssued)(&groupIssuedAPI),
+				Type:   &groupTypePeer,
 			},
 		},
 		{
@@ -250,6 +253,7 @@ func TestWriteGroup(t *testing.T) {
 				Id:     "id-jwt-group",
 				Name:   "changed",
 				Issued: (*api.GroupIssued)(&groupIssuedJWT),
+				Type:   &groupTypePeer,
 			},
 		},
 	}

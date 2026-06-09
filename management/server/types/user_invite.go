@@ -38,6 +38,7 @@ type UserInviteRecord struct {
 	Name        string    `gorm:"not null"`
 	Role        string    `gorm:"not null"`
 	AutoGroups  []string  `gorm:"serializer:json"`
+	UserGroups  []string  `gorm:"serializer:json"`
 	HashedToken string    `gorm:"index;not null"` // SHA-256 hash of the token (base64 encoded)
 	ExpiresAt   time.Time `gorm:"not null"`
 	CreatedAt   time.Time `gorm:"not null"`
@@ -185,6 +186,8 @@ func (i *UserInviteRecord) DecryptSensitiveData(enc *crypt.FieldEncrypt) error {
 func (i *UserInviteRecord) Copy() *UserInviteRecord {
 	autoGroups := make([]string, len(i.AutoGroups))
 	copy(autoGroups, i.AutoGroups)
+	userGroups := make([]string, len(i.UserGroups))
+	copy(userGroups, i.UserGroups)
 
 	return &UserInviteRecord{
 		ID:          i.ID,
@@ -193,6 +196,7 @@ func (i *UserInviteRecord) Copy() *UserInviteRecord {
 		Name:        i.Name,
 		Role:        i.Role,
 		AutoGroups:  autoGroups,
+		UserGroups:  userGroups,
 		HashedToken: i.HashedToken,
 		ExpiresAt:   i.ExpiresAt,
 		CreatedAt:   i.CreatedAt,

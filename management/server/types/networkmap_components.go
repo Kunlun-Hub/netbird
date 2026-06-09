@@ -428,7 +428,7 @@ func (c *NetworkMapComponents) getAllPeersFromUserGroups(groupIDs []string, peer
 		if user == nil || user.IsBlocked() || user.IsServiceUser {
 			continue
 		}
-		for _, groupID := range user.AutoGroups {
+		for _, groupID := range userGroupIDs(user) {
 			if _, ok := sourceGroups[groupID]; ok {
 				sourceUsers[userID] = struct{}{}
 				break

@@ -628,6 +628,16 @@ func (am *DefaultAccountManager) GroupDeleteResource(ctx context.Context, accoun
 
 // validateNewGroup validates the new group for existence and required fields.
 func validateNewGroup(ctx context.Context, transaction store.Store, accountID string, newGroup *types.Group) error {
+	if newGroup.Type == "" {
+		newGroup.Type = types.GroupTypePeer
+	}
+	if newGroup.Type != types.GroupTypePeer && newGroup.Type != types.GroupTypeUser {
+		return status.Errorf(status.InvalidArgument, "invalid group type: %s", newGroup.Type)
+	}
+	if newGroup.Type == types.GroupTypeUser && (len(newGroup.Peers) > 0 || len(newGroup.Resources) > 0) {
+		return status.Errorf(status.InvalidArgument, "user groups can't contain peers or resources")
+	}
+
 	if newGroup.ID == "" && newGroup.Issued != types.GroupIssuedAPI {
 		return status.Errorf(status.InvalidArgument, "%s group without ID set", newGroup.Issued)
 	}
@@ -808,7 +818,7 @@ func isGroupLinkedToUser(ctx context.Context, transaction store.Store, accountID
 	}
 
 	for _, user := range users {
-		if slices.Contains(user.AutoGroups, groupID) {
+		if slices.Contains(user.AutoGroups, groupID) || slices.Contains(user.UserGroups, groupID) {
 			return true, user
 		}
 	}

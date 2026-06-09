@@ -240,6 +240,9 @@ func validateSetupKeyAutoGroups(ctx context.Context, transaction store.Store, ac
 		if group.IsGroupAll() {
 			return status.Errorf(status.InvalidArgument, "can't add 'All' group to the setup key")
 		}
+		if group.Type == types.GroupTypeUser {
+			return status.Errorf(status.InvalidArgument, "can't add user group %s to the setup key", groupID)
+		}
 	}
 
 	return nil

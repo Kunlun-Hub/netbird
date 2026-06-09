@@ -59,6 +59,7 @@ type UserInfo struct {
 	Name                 string                                     `json:"name"`
 	Role                 string                                     `json:"role"`
 	AutoGroups           []string                                   `json:"auto_groups"`
+	UserGroups           []string                                   `json:"user_groups"`
 	Status               string                                     `json:"-"`
 	IsServiceUser        bool                                       `json:"is_service_user"`
 	IsBlocked            bool                                       `json:"is_blocked"`
@@ -85,7 +86,9 @@ type User struct {
 	// ServiceUserName is only set if IsServiceUser is true
 	ServiceUserName string
 	// AutoGroups is a list of Group IDs to auto-assign to peers registered by this user
-	AutoGroups []string                        `gorm:"serializer:json"`
+	AutoGroups []string `gorm:"serializer:json"`
+	// UserGroups is a list of user group IDs that this user belongs to
+	UserGroups []string                        `gorm:"serializer:json"`
 	PATs       map[string]*PersonalAccessToken `gorm:"-"`
 	PATsG      []PersonalAccessToken           `json:"-" gorm:"foreignKey:UserID;references:id;constraint:OnDelete:CASCADE;"`
 	// Blocked indicates whether the user is blocked. Blocked users can't use the system.
@@ -149,6 +152,10 @@ func (u *User) ToUserInfo(userData *idp.UserData) (*UserInfo, error) {
 	if autoGroups == nil {
 		autoGroups = []string{}
 	}
+	userGroups := u.UserGroups
+	if userGroups == nil {
+		userGroups = []string{}
+	}
 
 	if userData == nil {
 
@@ -162,7 +169,8 @@ func (u *User) ToUserInfo(userData *idp.UserData) (*UserInfo, error) {
 			Email:           u.Email,
 			Name:            name,
 			Role:            string(u.Role),
-			AutoGroups:      u.AutoGroups,
+			AutoGroups:      autoGroups,
+			UserGroups:      userGroups,
 			Status:          string(UserStatusActive),
 			IsServiceUser:   u.IsServiceUser,
 			IsBlocked:       u.Blocked,
@@ -186,6 +194,7 @@ func (u *User) ToUserInfo(userData *idp.UserData) (*UserInfo, error) {
 		Name:            userData.Name,
 		Role:            string(u.Role),
 		AutoGroups:      autoGroups,
+		UserGroups:      userGroups,
 		Status:          string(userStatus),
 		IsServiceUser:   u.IsServiceUser,
 		IsBlocked:       u.Blocked,
@@ -200,6 +209,8 @@ func (u *User) ToUserInfo(userData *idp.UserData) (*UserInfo, error) {
 func (u *User) Copy() *User {
 	autoGroups := make([]string, len(u.AutoGroups))
 	copy(autoGroups, u.AutoGroups)
+	userGroups := make([]string, len(u.UserGroups))
+	copy(userGroups, u.UserGroups)
 	pats := make(map[string]*PersonalAccessToken, len(u.PATs))
 	for k, v := range u.PATs {
 		pats[k] = v.Copy()
@@ -209,6 +220,7 @@ func (u *User) Copy() *User {
 		AccountID:            u.AccountID,
 		Role:                 u.Role,
 		AutoGroups:           autoGroups,
+		UserGroups:           userGroups,
 		IsServiceUser:        u.IsServiceUser,
 		NonDeletable:         u.NonDeletable,
 		ServiceUserName:      u.ServiceUserName,
@@ -224,6 +236,16 @@ func (u *User) Copy() *User {
 	}
 }
 
+func userGroupIDs(user *User) []string {
+	if user == nil {
+		return nil
+	}
+	if user.UserGroups != nil {
+		return user.UserGroups
+	}
+	return user.AutoGroups
+}
+
 // NewUser creates a new user
 func NewUser(id string, role UserRole, isServiceUser bool, nonDeletable bool, serviceUserName string, autoGroups []string, issued string, email string, name string) *User {
 	return &User{
@@ -233,6 +255,7 @@ func NewUser(id string, role UserRole, isServiceUser bool, nonDeletable bool, se
 		NonDeletable:    nonDeletable,
 		ServiceUserName: serviceUserName,
 		AutoGroups:      autoGroups,
+		UserGroups:      []string{},
 		Issued:          issued,
 		CreatedAt:       time.Now().UTC(),
 		Name:            name,

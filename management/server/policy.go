@@ -265,10 +265,10 @@ func validatePolicy(ctx context.Context, transaction store.Store, accountID stri
 			ruleCopy.PolicyID = policy.ID
 		}
 
-		ruleCopy.Sources = getValidGroupIDs(groups, ruleCopy.Sources)
+		ruleCopy.Sources = getValidGroupIDsByType(groups, ruleCopy.Sources, types.GroupTypePeer)
 		ruleCopy.SourceUsers = getValidUserIDs(usersByID, ruleCopy.SourceUsers)
-		ruleCopy.SourceUserGroups = getValidGroupIDs(groups, ruleCopy.SourceUserGroups)
-		ruleCopy.Destinations = getValidGroupIDs(groups, ruleCopy.Destinations)
+		ruleCopy.SourceUserGroups = getValidGroupIDsByType(groups, ruleCopy.SourceUserGroups, types.GroupTypeUser)
+		ruleCopy.Destinations = getValidGroupIDsByType(groups, ruleCopy.Destinations, types.GroupTypePeer)
 		policy.Rules[i] = ruleCopy
 	}
 
@@ -311,11 +311,11 @@ func policyUsesNetbirdSSH(policy *types.Policy) bool {
 	return false
 }
 
-// getValidGroupIDs filters and returns only the valid group IDs from the provided list.
-func getValidGroupIDs(groups map[string]*types.Group, groupIDs []string) []string {
+// getValidGroupIDsByType filters and returns only valid group IDs of the requested usage type.
+func getValidGroupIDsByType(groups map[string]*types.Group, groupIDs []string, groupType string) []string {
 	validIDs := make([]string, 0, len(groupIDs))
 	for _, id := range groupIDs {
-		if _, exists := groups[id]; exists {
+		if group, exists := groups[id]; exists && (group.Type == groupType || group.Type == "") {
 			validIDs = append(validIDs, id)
 		}
 	}

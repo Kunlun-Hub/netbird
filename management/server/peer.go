@@ -659,7 +659,16 @@ func (am *DefaultAccountManager) handleUserAddedPeer(ctx context.Context, accoun
 		}
 	} else {
 		config.AccountID = user.AccountID
-		config.GroupsToAdd = user.AutoGroups
+		groups, err := am.Store.GetGroupsByIDs(ctx, store.LockingStrengthNone, accountID, user.AutoGroups)
+		if err != nil {
+			return err
+		}
+		config.GroupsToAdd = make([]string, 0, len(user.AutoGroups))
+		for _, groupID := range user.AutoGroups {
+			if group, ok := groups[groupID]; ok && (group.Type == types.GroupTypePeer || group.Type == "") {
+				config.GroupsToAdd = append(config.GroupsToAdd, groupID)
+			}
+		}
 	}
 
 	opEvent.InitiatorID = userID

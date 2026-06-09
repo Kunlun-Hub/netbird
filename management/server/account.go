@@ -2850,7 +2850,14 @@ func (am *DefaultAccountManager) propagateUserGroupMemberships(ctx context.Conte
 		}
 	}
 
-	updatedGroups, err := propagateAutoGroupsForUsers(ctx, transaction, accountID, users, accountGroupPeers)
+	peerGroupIDs := make(map[string]struct{}, len(accountGroups))
+	for _, group := range accountGroups {
+		if group.Type == types.GroupTypePeer || group.Type == "" {
+			peerGroupIDs[group.ID] = struct{}{}
+		}
+	}
+
+	updatedGroups, err := propagateAutoGroupsForUsers(ctx, transaction, accountID, users, accountGroupPeers, peerGroupIDs)
 	if err != nil {
 		return false, false, err
 	}
@@ -2869,7 +2876,7 @@ func (am *DefaultAccountManager) propagateUserGroupMemberships(ctx context.Conte
 
 // propagateAutoGroupsForUsers adds each user's peers to their AutoGroups where not already present.
 // Returns the list of group IDs that were modified.
-func propagateAutoGroupsForUsers(ctx context.Context, transaction store.Store, accountID string, users []*types.User, accountGroupPeers map[string]map[string]struct{}) ([]string, error) {
+func propagateAutoGroupsForUsers(ctx context.Context, transaction store.Store, accountID string, users []*types.User, accountGroupPeers map[string]map[string]struct{}, peerGroupIDs map[string]struct{}) ([]string, error) {
 	var updatedGroups []string
 	for _, user := range users {
 		userPeers, err := transaction.GetUserPeers(ctx, store.LockingStrengthNone, accountID, user.Id)
@@ -2879,6 +2886,9 @@ func propagateAutoGroupsForUsers(ctx context.Context, transaction store.Store, a
 
 		for _, peer := range userPeers {
 			for _, groupID := range user.AutoGroups {
+				if _, ok := peerGroupIDs[groupID]; !ok {
+					continue
+				}
 				if _, exists := accountGroupPeers[groupID]; !exists {
 					log.WithContext(ctx).Warnf("group %s does not exist for user group propagation", groupID)
 					continue

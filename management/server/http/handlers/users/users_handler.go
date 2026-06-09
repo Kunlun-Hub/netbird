@@ -82,6 +82,10 @@ func (h *handler) updateUser(w http.ResponseWriter, r *http.Request) {
 		util.WriteErrorResponse("auto_groups field can't be absent", http.StatusBadRequest, w)
 		return
 	}
+	userGroups := req.UserGroups
+	if req.UserGroups == nil {
+		userGroups = existingUser.UserGroups
+	}
 
 	userRole := types.StrRoleToUserRole(req.Role)
 	if userRole == types.UserRoleUnknown {
@@ -93,6 +97,7 @@ func (h *handler) updateUser(w http.ResponseWriter, r *http.Request) {
 		Id:                   targetUserID,
 		Role:                 userRole,
 		AutoGroups:           req.AutoGroups,
+		UserGroups:           userGroups,
 		Blocked:              req.IsBlocked,
 		Issued:               existingUser.Issued,
 		IntegrationReference: existingUser.IntegrationReference,
@@ -170,12 +175,17 @@ func (h *handler) createUser(w http.ResponseWriter, r *http.Request) {
 	if req.Name != nil {
 		name = *req.Name
 	}
+	userGroups := req.UserGroups
+	if userGroups == nil {
+		userGroups = []string{}
+	}
 
 	newUser, err := h.accountManager.CreateUser(r.Context(), accountID, userID, &types.UserInfo{
 		Email:         email,
 		Name:          name,
 		Role:          req.Role,
 		AutoGroups:    req.AutoGroups,
+		UserGroups:    userGroups,
 		IsServiceUser: req.IsServiceUser,
 		Issued:        types.UserIssuedAPI,
 	})
@@ -343,6 +353,7 @@ func toUserResponse(user *types.UserInfo, currenUserID string) *api.User {
 		Email:           user.Email,
 		Role:            user.Role,
 		AutoGroups:      autoGroups,
+		UserGroups:      user.UserGroups,
 		Status:          userStatus,
 		IsCurrent:       &isCurrent,
 		IsServiceUser:   &user.IsServiceUser,

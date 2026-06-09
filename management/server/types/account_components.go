@@ -436,7 +436,7 @@ func (a *Account) getPeersFromUserGroups(ctx context.Context, groupIDs []string,
 		if user == nil || user.IsBlocked() || user.IsServiceUser {
 			continue
 		}
-		for _, groupID := range user.AutoGroups {
+		for _, groupID := range userGroupIDs(user) {
 			if _, ok := sourceGroups[groupID]; ok {
 				sourceUsers[userID] = struct{}{}
 				break
@@ -515,7 +515,7 @@ func (a *Account) getPeerIDsFromUserGroups(groupIDs []string) []string {
 		if user == nil || user.IsBlocked() || user.IsServiceUser {
 			continue
 		}
-		for _, groupID := range user.AutoGroups {
+		for _, groupID := range userGroupIDs(user) {
 			if _, ok := sourceGroups[groupID]; ok {
 				sourceUsers[userID] = struct{}{}
 				break
