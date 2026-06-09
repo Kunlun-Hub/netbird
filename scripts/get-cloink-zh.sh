@@ -92,16 +92,17 @@ read_reverse_proxy_type() {
   echo "  [4] 外部 Caddy（生成 Caddyfile 片段）" > /dev/stderr
   echo "  [5] 其他/手动配置（输出配置说明）" > /dev/stderr
   echo "  [6] Traefik（自定义 HTTPS 端口，DNS 验证申请证书）" > /dev/stderr
+  echo "  [7] Traefik（自定义 HTTPS 端口，使用本地证书）" > /dev/stderr
   echo "" > /dev/stderr
-  echo -n "请输入选项 [0-6]（默认：0）： " > /dev/stderr
+  echo -n "请输入选项 [0-7]（默认：0）： " > /dev/stderr
   read -r CHOICE < /dev/tty
 
   if [[ -z "$CHOICE" ]]; then
     CHOICE="0"
   fi
 
-  if [[ ! "$CHOICE" =~ ^[0-6]$ ]]; then
-    echo "选项无效，请输入 0 到 6 之间的数字。" > /dev/stderr
+  if [[ ! "$CHOICE" =~ ^[0-7]$ ]]; then
+    echo "选项无效，请输入 0 到 7 之间的数字。" > /dev/stderr
     read_reverse_proxy_type
     return
   fi
@@ -283,6 +284,28 @@ read_traefik_dns_env_value() {
   return 0
 }
 
+read_local_certificate_file() {
+  local label="$1"
+  local example="$2"
+  echo "" > /dev/stderr
+  echo "请输入本地 TLS ${label}文件路径。" > /dev/stderr
+  echo "示例：${example}" > /dev/stderr
+  echo -n "${label}文件路径： " > /dev/stderr
+  read -r CERT_FILE < /dev/tty
+  if [[ -z "$CERT_FILE" ]]; then
+    echo "${label}文件路径不能为空。" > /dev/stderr
+    read_local_certificate_file "$label" "$example"
+    return
+  fi
+  if [[ ! -f "$CERT_FILE" ]]; then
+    echo "文件不存在：$CERT_FILE" > /dev/stderr
+    read_local_certificate_file "$label" "$example"
+    return
+  fi
+  echo "$CERT_FILE"
+  return 0
+}
+
 get_bind_address() {
   if [[ "$BIND_LOCALHOST_ONLY" == "true" ]]; then
     echo "127.0.0.1"
@@ -398,6 +421,8 @@ initialize_default_values() {
   TRAEFIK_DNS_PROVIDER=""
   TRAEFIK_DNS_ENV_NAME=""
   TRAEFIK_DNS_ENV_VALUE=""
+  TRAEFIK_LOCAL_CERT_FILE=""
+  TRAEFIK_LOCAL_KEY_FILE=""
   DASHBOARD_HOST_PORT="8080"
   MANAGEMENT_HOST_PORT="8081"  # Combined server port (management + signal + relay)
   BIND_LOCALHOST_ONLY="true"
@@ -470,6 +495,22 @@ configure_reverse_proxy() {
     fi
   fi
 
+  # Handle built-in Traefik with custom HTTPS port and local certificate files (option 7)
+  if [[ "$REVERSE_PROXY_TYPE" == "7" ]]; then
+    TRAEFIK_HTTPS_PORT=$(read_traefik_https_port)
+    NETBIRD_PORT="$TRAEFIK_HTTPS_PORT"
+    NETBIRD_HTTP_PROTOCOL="https"
+    NETBIRD_RELAY_PROTO="rels"
+    NETBIRD_PUBLIC_URL="$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN:$NETBIRD_PORT"
+    TRAEFIK_ACME_CHALLENGE="local"
+    TRAEFIK_LOCAL_CERT_FILE=$(read_local_certificate_file "证书" "./cret/saas.4w.ink.pem")
+    TRAEFIK_LOCAL_KEY_FILE=$(read_local_certificate_file "私钥" "./cret/saas.4w.ink.key")
+    ENABLE_PROXY=$(read_enable_proxy)
+    if [[ "$ENABLE_PROXY" == "true" ]]; then
+      ENABLE_CROWDSEC=$(read_enable_crowdsec)
+    fi
+  fi
+
   # Handle external Traefik-specific prompts (option 1)
   if [[ "$REVERSE_PROXY_TYPE" == "1" ]]; then
     TRAEFIK_EXTERNAL_NETWORK=$(read_traefik_network)
@@ -478,7 +519,7 @@ configure_reverse_proxy() {
   fi
 
   # Handle port binding for external proxy options (2-5)
-  if [[ "$REVERSE_PROXY_TYPE" -ge 2 && "$REVERSE_PROXY_TYPE" != "6" ]]; then
+  if [[ "$REVERSE_PROXY_TYPE" -ge 2 && "$REVERSE_PROXY_TYPE" != "6" && "$REVERSE_PROXY_TYPE" != "7" ]]; then
     BIND_LOCALHOST_ONLY=$(read_port_binding_preference)
   fi
 
@@ -509,8 +550,11 @@ generate_configuration_files() {
 
   # Render docker-compose and proxy config based on selection
   case "$REVERSE_PROXY_TYPE" in
-    0|6)
+    0|6|7)
       render_docker_compose_traefik_builtin > docker-compose.yml
+      if [[ "$TRAEFIK_ACME_CHALLENGE" == "local" ]]; then
+        render_traefik_dynamic > traefik-dynamic.yaml
+      fi
       if [[ "$ENABLE_PROXY" == "true" ]]; then
         # Create placeholder proxy.env so docker-compose can validate
         # This will be overwritten with the actual token after netbird-server starts
@@ -706,22 +750,55 @@ render_docker_compose_traefik_builtin() {
   local traefik_file_provider=""
   local traefik_dynamic_volume=""
   local traefik_acme_challenge='      - "--certificatesresolvers.letsencrypt.acme.tlschallenge=true"'
+  local traefik_acme_config="
+      # Let's Encrypt ACME
+      - \"--certificatesresolvers.letsencrypt.acme.email=$TRAEFIK_ACME_EMAIL\"
+      - \"--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json\"
+${traefik_acme_challenge}"
   local traefik_dns_environment=""
   local traefik_web_entrypoint='      - "--entrypoints.web.address=:80"'
   local traefik_redirect="
       - \"--entrypoints.web.http.redirections.entrypoint.to=$TRAEFIK_ENTRYPOINT\"
       - \"--entrypoints.web.http.redirections.entrypoint.scheme=https\""
   local traefik_http_port="      - '80:80'"
+  local traefik_certresolver_label="      - traefik.http.routers.netbird-dashboard.tls.certresolver=letsencrypt"
+  local traefik_grpc_certresolver_label="      - traefik.http.routers.netbird-grpc.tls.certresolver=letsencrypt"
+  local traefik_backend_certresolver_label="      - traefik.http.routers.netbird-backend.tls.certresolver=letsencrypt"
+  local traefik_letsencrypt_volume="      - netbird_traefik_letsencrypt:/letsencrypt"
+  local traefik_local_cert_volumes=""
+  local traefik_letsencrypt_named_volume="  netbird_traefik_letsencrypt:"
 
   if [[ "$TRAEFIK_ACME_CHALLENGE" == "dns" ]]; then
     traefik_acme_challenge="      - \"--certificatesresolvers.letsencrypt.acme.dnschallenge=true\"
       - \"--certificatesresolvers.letsencrypt.acme.dnschallenge.provider=$TRAEFIK_DNS_PROVIDER\""
+    traefik_acme_config="
+      # Let's Encrypt ACME
+      - \"--certificatesresolvers.letsencrypt.acme.email=$TRAEFIK_ACME_EMAIL\"
+      - \"--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json\"
+${traefik_acme_challenge}"
     traefik_dns_environment="
     environment:
       $TRAEFIK_DNS_ENV_NAME: \"$TRAEFIK_DNS_ENV_VALUE\""
     traefik_web_entrypoint=""
     traefik_redirect=""
     traefik_http_port=""
+  fi
+
+  if [[ "$TRAEFIK_ACME_CHALLENGE" == "local" ]]; then
+    traefik_file_provider='      - "--providers.file.filename=/etc/traefik/dynamic.yaml"'
+    traefik_dynamic_volume="      - ./traefik-dynamic.yaml:/etc/traefik/dynamic.yaml:ro"
+    traefik_acme_config=""
+    traefik_web_entrypoint=""
+    traefik_redirect=""
+    traefik_http_port=""
+    traefik_certresolver_label=""
+    traefik_grpc_certresolver_label=""
+    traefik_backend_certresolver_label=""
+    traefik_letsencrypt_volume=""
+    traefik_letsencrypt_named_volume=""
+    traefik_local_cert_volumes="
+      - $TRAEFIK_LOCAL_CERT_FILE:/certs/local/fullchain.pem:ro
+      - $TRAEFIK_LOCAL_KEY_FILE:/certs/local/privkey.pem:ro"
   fi
 
   if [[ "$ENABLE_PROXY" == "true" ]]; then
@@ -830,10 +907,7 @@ ${traefik_web_entrypoint}
       - "--entrypoints.$TRAEFIK_ENTRYPOINT.transport.respondingTimeouts.idleTimeout=0"
       # HTTP to HTTPS redirect
 ${traefik_redirect}
-      # Let's Encrypt ACME
-      - "--certificatesresolvers.letsencrypt.acme.email=$TRAEFIK_ACME_EMAIL"
-      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
-${traefik_acme_challenge}
+${traefik_acme_config}
       # gRPC transport settings
       - "--serverstransport.forwardingtimeouts.responseheadertimeout=0s"
       - "--serverstransport.forwardingtimeouts.idleconntimeout=0s"
@@ -844,8 +918,9 @@ ${traefik_dns_environment}
 ${traefik_http_port}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - netbird_traefik_letsencrypt:/letsencrypt
+${traefik_letsencrypt_volume}
 $traefik_dynamic_volume
+$traefik_local_cert_volumes
     logging:
       driver: "json-file"
       options:
@@ -865,7 +940,7 @@ $traefik_dynamic_volume
       - traefik.http.routers.netbird-dashboard.rule=Host(\`$NETBIRD_DOMAIN\`)
       - traefik.http.routers.netbird-dashboard.entrypoints=$TRAEFIK_ENTRYPOINT
       - traefik.http.routers.netbird-dashboard.tls=true
-      - traefik.http.routers.netbird-dashboard.tls.certresolver=letsencrypt
+${traefik_certresolver_label}
       - traefik.http.routers.netbird-dashboard.service=dashboard
       - traefik.http.routers.netbird-dashboard.priority=1
       - traefik.http.services.dashboard.loadbalancer.server.port=80
@@ -893,14 +968,14 @@ $traefik_dynamic_volume
       - traefik.http.routers.netbird-grpc.rule=Host(\`$NETBIRD_DOMAIN\`) && (PathPrefix(\`/signalexchange.SignalExchange/\`) || PathPrefix(\`/management.ManagementService/\`) || PathPrefix(\`/flow.FlowService/\`) || PathPrefix(\`/management.ProxyService/\`))
       - traefik.http.routers.netbird-grpc.entrypoints=$TRAEFIK_ENTRYPOINT
       - traefik.http.routers.netbird-grpc.tls=true
-      - traefik.http.routers.netbird-grpc.tls.certresolver=letsencrypt
+${traefik_grpc_certresolver_label}
       - traefik.http.routers.netbird-grpc.service=netbird-server-h2c
       - traefik.http.routers.netbird-grpc.priority=100
       # Backend router (relay, WebSocket, log APIs, API, OAuth2)
       - traefik.http.routers.netbird-backend.rule=Host(\`$NETBIRD_DOMAIN\`) && (Path(\`/relay\`) || PathPrefix(\`/relay/\`) || PathPrefix(\`/ws-proxy/\`) || PathPrefix(\`/api/events/audit\`) || PathPrefix(\`/api/events/proxy\`) || PathPrefix(\`/api/events/dns\`) || PathPrefix(\`/api/events/network-traffic\`) || PathPrefix(\`/api\`) || PathPrefix(\`/oauth2\`))
       - traefik.http.routers.netbird-backend.entrypoints=$TRAEFIK_ENTRYPOINT
       - traefik.http.routers.netbird-backend.tls=true
-      - traefik.http.routers.netbird-backend.tls.certresolver=letsencrypt
+${traefik_backend_certresolver_label}
       - traefik.http.routers.netbird-backend.service=netbird-server
       - traefik.http.routers.netbird-backend.priority=100
       # Services
@@ -915,7 +990,7 @@ $traefik_dynamic_volume
 ${proxy_service}${crowdsec_service}
 volumes:
   netbird_data:
-  netbird_traefik_letsencrypt:${proxy_volumes}${crowdsec_volumes}
+${traefik_letsencrypt_named_volume}${proxy_volumes}${crowdsec_volumes}
 
 networks:
   netbird:
@@ -988,13 +1063,24 @@ EOF
 }
 
 render_traefik_dynamic() {
-  cat <<'EOF'
+  if [[ "$TRAEFIK_ACME_CHALLENGE" == "local" ]]; then
+    cat <<'EOF'
+tls:
+  certificates:
+    - certFile: /certs/local/fullchain.pem
+      keyFile: /certs/local/privkey.pem
+EOF
+  fi
+
+  if [[ "$ENABLE_PROXY" == "true" ]]; then
+    cat <<'EOF'
 tcp:
   serversTransports:
     pp-v2:
       proxyProtocol:
         version: 2
 EOF
+  fi
   return 0
 }
 
@@ -1417,14 +1503,22 @@ print_builtin_traefik_instructions() {
   if [[ "$TRAEFIK_ACME_CHALLENGE" == "dns" ]]; then
     echo "Traefik 会通过 Let's Encrypt DNS-01 验证自动处理 TLS 证书。"
     echo "DNS provider: $TRAEFIK_DNS_PROVIDER"
+  elif [[ "$TRAEFIK_ACME_CHALLENGE" == "local" ]]; then
+    echo "Traefik 会使用你提供的本地 TLS 证书。"
+    echo "证书文件：$TRAEFIK_LOCAL_CERT_FILE"
+    echo "私钥文件：$TRAEFIK_LOCAL_KEY_FILE"
   else
     echo "Traefik 会通过 Let's Encrypt 自动处理 TLS 证书。"
   fi
-  echo "如果看到证书警告，请稍等片刻，等待证书签发完成。"
+  if [[ "$TRAEFIK_ACME_CHALLENGE" == "local" ]]; then
+    echo "如果看到证书警告，请确认域名、证书链和私钥是否匹配。"
+  else
+    echo "如果看到证书警告，请稍等片刻，等待证书签发完成。"
+  fi
   echo ""
   echo "需要开放的端口："
   echo "  - $TRAEFIK_HTTPS_PORT/tcp   (HTTPS - 所有 Cloink 服务)"
-  if [[ "$TRAEFIK_ACME_CHALLENGE" != "dns" ]]; then
+  if [[ "$TRAEFIK_ACME_CHALLENGE" != "dns" && "$TRAEFIK_ACME_CHALLENGE" != "local" ]]; then
     echo "  - 80/tcp    (HTTP - 重定向到 HTTPS)"
   fi
   echo "  - $NETBIRD_STUN_PORT/udp   (STUN - NAT 穿透必需)"
@@ -1652,7 +1746,7 @@ print_manual_instructions() {
 
 print_post_setup_instructions() {
   case "$REVERSE_PROXY_TYPE" in
-    0|6)
+    0|6|7)
       print_builtin_traefik_instructions
       ;;
     1)
