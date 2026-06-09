@@ -87,6 +87,100 @@ func TestNetworkMapComponents_IntraGroupConnectivity(t *testing.T) {
 	assert.Contains(t, peerIDs(nm.Peers), "peer-src-2", "should see peer from same group with intra-group policy")
 }
 
+func TestNetworkMapComponents_UserSourceConnectivity(t *testing.T) {
+	account := createComponentTestAccount()
+	account.Policies = []*types.Policy{{
+		ID: "policy-user-source", Name: "User source connectivity", Enabled: true, AccountID: account.Id,
+		Rules: []*types.PolicyRule{{
+			ID: "rule-user-source", Name: "user-1 -> dst", Enabled: true,
+			Action: types.PolicyTrafficActionAccept, Protocol: types.PolicyRuleProtocolALL,
+			SourceUsers:  []string{"user-1"},
+			Destinations: []string{"group-dst"},
+		}},
+	}}
+	validated := allPeersValidated(account)
+
+	nmFirstDevice := networkMapFromComponents(t, account, "peer-src-1", validated)
+	assert.Contains(t, peerIDs(nmFirstDevice.Peers), "peer-dst-1", "first user device should inherit user policy")
+
+	nmSecondDevice := networkMapFromComponents(t, account, "peer-src-2", validated)
+	assert.Contains(t, peerIDs(nmSecondDevice.Peers), "peer-dst-1", "second user device should inherit user policy")
+
+	account.Peers["peer-src-3"] = &nbpeer.Peer{ID: "peer-src-3", UserID: "user-1", IP: netip.MustParseAddr("100.64.0.13"), Status: &nbpeer.PeerStatus{Connected: true}}
+	validated = allPeersValidated(account)
+	nmNewDevice := networkMapFromComponents(t, account, "peer-src-3", validated)
+	assert.Contains(t, peerIDs(nmNewDevice.Peers), "peer-dst-1", "new user device should inherit user policy without editing the policy")
+}
+
+func TestNetworkMapComponents_UserGroupSourceConnectivity(t *testing.T) {
+	account := createComponentTestAccount()
+	account.Users["user-1"].AutoGroups = []string{"engineering"}
+	account.Policies = []*types.Policy{{
+		ID: "policy-user-group-source", Name: "User group source connectivity", Enabled: true, AccountID: account.Id,
+		Rules: []*types.PolicyRule{{
+			ID: "rule-user-group-source", Name: "engineering -> dst", Enabled: true,
+			Action: types.PolicyTrafficActionAccept, Protocol: types.PolicyRuleProtocolALL,
+			SourceUserGroups: []string{"engineering"},
+			Destinations:     []string{"group-dst"},
+		}},
+	}}
+	validated := allPeersValidated(account)
+
+	nm := networkMapFromComponents(t, account, "peer-src-1", validated)
+	assert.Contains(t, peerIDs(nm.Peers), "peer-dst-1", "user group member device should inherit user group policy")
+
+	account.Users["user-1"].AutoGroups = []string{"support"}
+	nmAfterRemoval := networkMapFromComponents(t, account, "peer-src-1", validated)
+	assert.NotContains(t, peerIDs(nmAfterRemoval.Peers), "peer-dst-1", "removed user group membership should remove inherited access")
+}
+
+func TestNetworkMapComponents_BlockedUserSourceHasNoConnectivity(t *testing.T) {
+	account := createComponentTestAccount()
+	account.Users["user-1"].Blocked = true
+	account.Users["user-1"].AutoGroups = []string{"engineering"}
+	account.Policies = []*types.Policy{{
+		ID: "policy-blocked-user-source", Name: "Blocked user source connectivity", Enabled: true, AccountID: account.Id,
+		Rules: []*types.PolicyRule{{
+			ID: "rule-blocked-user-source", Name: "blocked user -> dst", Enabled: true,
+			Action: types.PolicyTrafficActionAccept, Protocol: types.PolicyRuleProtocolALL,
+			SourceUsers:      []string{"user-1"},
+			SourceUserGroups: []string{"engineering"},
+			Destinations:     []string{"group-dst"},
+		}},
+	}}
+	validated := allPeersValidated(account)
+
+	nm := networkMapFromComponents(t, account, "peer-src-1", validated)
+	assert.NotContains(t, peerIDs(nm.Peers), "peer-dst-1", "blocked user should not inherit user or user-group policy")
+}
+
+func TestNetworkMapBuilder_UserSourceConnectivity(t *testing.T) {
+	account := createComponentTestAccount()
+	account.Users["user-1"].AutoGroups = []string{"engineering"}
+	account.Policies = []*types.Policy{{
+		ID: "policy-builder-user-source", Name: "Builder user source connectivity", Enabled: true, AccountID: account.Id,
+		Rules: []*types.PolicyRule{{
+			ID: "rule-builder-user-source", Name: "user source -> dst", Enabled: true,
+			Action: types.PolicyTrafficActionAccept, Protocol: types.PolicyRuleProtocolALL,
+			SourceUsers:      []string{"user-1"},
+			SourceUserGroups: []string{"engineering"},
+			Destinations:     []string{"group-dst"},
+		}},
+	}}
+	validated := allPeersValidated(account)
+
+	nm := account.GetPeerNetworkMapExp(
+		context.Background(),
+		"peer-src-1",
+		account.GetPeersCustomZone(context.Background(), "netbird.io"),
+		nil,
+		validated,
+		nil,
+	)
+
+	assert.Contains(t, peerIDs(nm.Peers), "peer-dst-1", "cached builder should inherit user and user-group source policy")
+}
+
 func TestNetworkMapComponents_FirewallRules(t *testing.T) {
 	account := createComponentTestAccount()
 	validated := allPeersValidated(account)

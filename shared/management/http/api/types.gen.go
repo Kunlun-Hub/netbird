@@ -3955,6 +3955,12 @@ type PolicyRule struct {
 	Protocol       PolicyRuleProtocol `json:"protocol"`
 	SourceResource *Resource          `json:"sourceResource,omitempty"`
 
+	// SourceUserGroups Policy rule source user group IDs whose users' devices inherit this rule
+	SourceUserGroups *[]string `json:"source_user_groups,omitempty"`
+
+	// SourceUsers Policy rule source user IDs whose devices inherit this rule
+	SourceUsers *[]string `json:"source_users,omitempty"`
+
 	// Sources Policy rule source group IDs
 	Sources *[]GroupMinimum `json:"sources,omitempty"`
 }
@@ -4037,6 +4043,12 @@ type PolicyRuleUpdate struct {
 	// Protocol Policy rule type of the traffic
 	Protocol       PolicyRuleUpdateProtocol `json:"protocol"`
 	SourceResource *Resource                `json:"sourceResource,omitempty"`
+
+	// SourceUserGroups Policy rule source user group IDs whose users' devices inherit this rule
+	SourceUserGroups *[]string `json:"source_user_groups,omitempty"`
+
+	// SourceUsers Policy rule source user IDs whose devices inherit this rule
+	SourceUsers *[]string `json:"source_users,omitempty"`
 
 	// Sources Policy rule source group IDs
 	Sources *[]string `json:"sources,omitempty"`

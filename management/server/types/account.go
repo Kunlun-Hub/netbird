@@ -1034,7 +1034,7 @@ func (a *Account) GetPeerConnectionResources(ctx context.Context, peer *nbpeer.P
 			if rule.SourceResource.Type == ResourceTypePeer && rule.SourceResource.ID != "" {
 				sourcePeers, peerInSources = a.getPeerFromResource(rule.SourceResource, peer.ID)
 			} else {
-				sourcePeers, peerInSources = a.getAllPeersFromGroups(ctx, rule.Sources, peer.ID, policy.SourcePostureChecks, validatedPeersMap)
+				sourcePeers, peerInSources = a.getAllSourcePeers(ctx, rule, peer.ID, policy.SourcePostureChecks, validatedPeersMap)
 			}
 
 			if rule.DestinationResource.Type == ResourceTypePeer && rule.DestinationResource.ID != "" {
@@ -1232,6 +1232,106 @@ func (a *Account) getAllPeersFromGroups(ctx context.Context, groups []string, pe
 	}
 
 	return filteredPeers, peerInGroups
+}
+
+func (a *Account) getAllSourcePeers(ctx context.Context, rule *PolicyRule, peerID string, sourcePostureChecksIDs []string, validatedPeersMap map[string]struct{}) ([]*nbpeer.Peer, bool) {
+	peersByID := make(map[string]*nbpeer.Peer)
+	peerInSources := false
+
+	groupPeers, peerInGroups := a.getAllPeersFromGroups(ctx, rule.Sources, peerID, sourcePostureChecksIDs, validatedPeersMap)
+	peerInSources = peerInSources || peerInGroups
+	for _, peer := range groupPeers {
+		peersByID[peer.ID] = peer
+	}
+
+	userPeers, peerInUsers := a.getAllPeersFromUsers(ctx, rule.SourceUsers, peerID, sourcePostureChecksIDs, validatedPeersMap)
+	peerInSources = peerInSources || peerInUsers
+	for _, peer := range userPeers {
+		peersByID[peer.ID] = peer
+	}
+
+	userGroupPeers, peerInUserGroups := a.getAllPeersFromUserGroups(ctx, rule.SourceUserGroups, peerID, sourcePostureChecksIDs, validatedPeersMap)
+	peerInSources = peerInSources || peerInUserGroups
+	for _, peer := range userGroupPeers {
+		peersByID[peer.ID] = peer
+	}
+
+	peers := make([]*nbpeer.Peer, 0, len(peersByID))
+	for _, peer := range peersByID {
+		peers = append(peers, peer)
+	}
+
+	return peers, peerInSources
+}
+
+func (a *Account) getAllPeersFromUsers(ctx context.Context, userIDs []string, peerID string, sourcePostureChecksIDs []string, validatedPeersMap map[string]struct{}) ([]*nbpeer.Peer, bool) {
+	if len(userIDs) == 0 {
+		return nil, false
+	}
+
+	sourceUsers := make(map[string]struct{}, len(userIDs))
+	for _, userID := range userIDs {
+		user := a.Users[userID]
+		if user == nil || user.IsBlocked() || user.IsServiceUser {
+			continue
+		}
+		sourceUsers[userID] = struct{}{}
+	}
+
+	return a.getAllPeersFromUserIDSet(ctx, sourceUsers, peerID, sourcePostureChecksIDs, validatedPeersMap)
+}
+
+func (a *Account) getAllPeersFromUserGroups(ctx context.Context, groupIDs []string, peerID string, sourcePostureChecksIDs []string, validatedPeersMap map[string]struct{}) ([]*nbpeer.Peer, bool) {
+	if len(groupIDs) == 0 {
+		return nil, false
+	}
+
+	sourceGroups := make(map[string]struct{}, len(groupIDs))
+	for _, groupID := range groupIDs {
+		sourceGroups[groupID] = struct{}{}
+	}
+
+	sourceUsers := make(map[string]struct{})
+	for userID, user := range a.Users {
+		if user == nil || user.IsBlocked() || user.IsServiceUser {
+			continue
+		}
+		for _, groupID := range user.AutoGroups {
+			if _, ok := sourceGroups[groupID]; ok {
+				sourceUsers[userID] = struct{}{}
+				break
+			}
+		}
+	}
+
+	return a.getAllPeersFromUserIDSet(ctx, sourceUsers, peerID, sourcePostureChecksIDs, validatedPeersMap)
+}
+
+func (a *Account) getAllPeersFromUserIDSet(ctx context.Context, userIDs map[string]struct{}, peerID string, sourcePostureChecksIDs []string, validatedPeersMap map[string]struct{}) ([]*nbpeer.Peer, bool) {
+	peerInUsers := false
+	filteredPeers := make([]*nbpeer.Peer, 0)
+
+	for id, peerInfo := range a.Peers {
+		if peerInfo == nil {
+			continue
+		}
+		if _, ok := userIDs[peerInfo.UserID]; !ok {
+			continue
+		}
+		if _, ok := validatedPeersMap[id]; !ok {
+			continue
+		}
+		if !a.validatePostureChecksOnPeer(context.Background(), sourcePostureChecksIDs, id) {
+			continue
+		}
+		if id == peerID {
+			peerInUsers = true
+			continue
+		}
+		filteredPeers = append(filteredPeers, peerInfo)
+	}
+
+	return filteredPeers, peerInUsers
 }
 
 func (a *Account) getPeerFromResource(resource Resource, peerID string) ([]*nbpeer.Peer, bool) {

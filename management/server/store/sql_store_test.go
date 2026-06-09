@@ -1924,11 +1924,13 @@ func TestSqlStore_CreatePolicy(t *testing.T) {
 		Enabled:   true,
 		Rules: []*types.PolicyRule{
 			{
-				Enabled:       true,
-				Sources:       []string{"groupA"},
-				Destinations:  []string{"groupC"},
-				Bidirectional: true,
-				Action:        types.PolicyTrafficActionAccept,
+				Enabled:          true,
+				Sources:          []string{"groupA"},
+				SourceUsers:      []string{"userA"},
+				SourceUserGroups: []string{"userGroupA"},
+				Destinations:     []string{"groupC"},
+				Bidirectional:    true,
+				Action:           types.PolicyTrafficActionAccept,
 			},
 		},
 	}
@@ -1955,6 +1957,8 @@ func TestSqlStore_SavePolicy(t *testing.T) {
 	policy.Enabled = false
 	policy.Description = "policy"
 	policy.Rules[0].Sources = []string{"group"}
+	policy.Rules[0].SourceUsers = []string{"userA", "userB"}
+	policy.Rules[0].SourceUserGroups = []string{"userGroupA"}
 	policy.Rules[0].Ports = []string{"80", "443"}
 	err = store.SavePolicy(context.Background(), policy)
 	require.NoError(t, err)

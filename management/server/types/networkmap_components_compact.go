@@ -24,6 +24,7 @@ type NetworkMapComponentsCompact struct {
 	AllPeers          []*nbpeer.Peer
 	PeerIndexes       []int
 	RouterPeerIndexes []int
+	Users             map[string]*User
 
 	Groups              map[string]*GroupCompact
 	AllPolicies         []*Policy
@@ -130,6 +131,7 @@ func (c *NetworkMapComponents) ToCompact() *NetworkMapComponentsCompact {
 		AllPeers:          allPeers,
 		PeerIndexes:       peerIndexes,
 		RouterPeerIndexes: routerPeerIndexes,
+		Users:             c.Users,
 
 		Groups:              groups,
 		AllPolicies:         allPolicies,
@@ -210,6 +212,7 @@ func (c *NetworkMapComponentsCompact) ToFull() *NetworkMapComponents {
 		CustomZoneDomain: c.CustomZoneDomain,
 
 		Peers:       peers,
+		Users:       c.Users,
 		RouterPeers: routerPeers,
 
 		Groups:           groups,

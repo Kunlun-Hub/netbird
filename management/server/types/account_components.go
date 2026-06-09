@@ -112,6 +112,7 @@ func (a *Account) GetPeerNetworkMapComponents(
 	}
 
 	components.Peers = relevantPeers
+	components.Users = a.Users
 	components.Groups = relevantGroups
 	components.Policies = relevantPolicies
 	components.Routes = relevantRoutes
@@ -157,6 +158,8 @@ func (a *Account) GetPeerNetworkMapComponents(
 					policy.SourceResourcePeers(),
 					a.getUniquePeerIDsFromGroupsIDs(ctx, policy.SourceGroups())...,
 				)
+				peers = append(peers, a.getPeerIDsFromUsers(policy.SourceUsers())...)
+				peers = append(peers, a.getPeerIDsFromUserGroups(policy.SourceUserGroups())...)
 				for _, pID := range a.getPostureValidPeersSaveFailed(peers, policy.SourcePostureChecks, validatedPeersMap, &components.PostureFailedPeers) {
 					if _, exists := components.Peers[pID]; !exists {
 						components.Peers[pID] = a.GetPeer(pID)
@@ -171,6 +174,12 @@ func (a *Account) GetPeerNetworkMapComponents(
 							break
 						}
 					}
+				}
+				if !peerInSources {
+					peerInSources = slices.Contains(a.getPeerIDsFromUsers(policy.SourceUsers()), peerID)
+				}
+				if !peerInSources {
+					peerInSources = slices.Contains(a.getPeerIDsFromUserGroups(policy.SourceUserGroups()), peerID)
 				}
 				if !peerInSources {
 					continue
@@ -308,7 +317,7 @@ func (a *Account) getPeersGroupsPoliciesRoutes(
 					peerInSources = true
 				}
 			} else {
-				sourcePeers, peerInSources = a.getPeersFromGroups(ctx, rule.Sources, peerID, policy.SourcePostureChecks, validatedPeersMap, postureFailedPeers)
+				sourcePeers, peerInSources = a.getSourcePeers(ctx, rule, peerID, policy.SourcePostureChecks, validatedPeersMap, postureFailedPeers)
 			}
 
 			if rule.DestinationResource.Type == ResourceTypePeer && rule.DestinationResource.ID != "" {
@@ -360,6 +369,174 @@ func (a *Account) getPeersGroupsPoliciesRoutes(
 	}
 
 	return relevantPeerIDs, relevantGroupIDs, relevantPolicies, relevantRoutes, sshReqs
+}
+
+func (a *Account) getSourcePeers(ctx context.Context, rule *PolicyRule, peerID string, sourcePostureChecksIDs []string,
+	validatedPeersMap map[string]struct{}, postureFailedPeers *map[string]map[string]struct{}) ([]string, bool) {
+	sourcePeers := make(map[string]struct{})
+	peerInSources := false
+
+	groupPeers, peerInGroups := a.getPeersFromGroups(ctx, rule.Sources, peerID, sourcePostureChecksIDs, validatedPeersMap, postureFailedPeers)
+	peerInSources = peerInSources || peerInGroups
+	for _, pid := range groupPeers {
+		sourcePeers[pid] = struct{}{}
+	}
+
+	userPeers, peerInUsers := a.getPeersFromUsers(ctx, rule.SourceUsers, peerID, sourcePostureChecksIDs, validatedPeersMap, postureFailedPeers)
+	peerInSources = peerInSources || peerInUsers
+	for _, pid := range userPeers {
+		sourcePeers[pid] = struct{}{}
+	}
+
+	userGroupPeers, peerInUserGroups := a.getPeersFromUserGroups(ctx, rule.SourceUserGroups, peerID, sourcePostureChecksIDs, validatedPeersMap, postureFailedPeers)
+	peerInSources = peerInSources || peerInUserGroups
+	for _, pid := range userGroupPeers {
+		sourcePeers[pid] = struct{}{}
+	}
+
+	ids := make([]string, 0, len(sourcePeers))
+	for pid := range sourcePeers {
+		ids = append(ids, pid)
+	}
+
+	return ids, peerInSources
+}
+
+func (a *Account) getPeersFromUsers(ctx context.Context, userIDs []string, peerID string, sourcePostureChecksIDs []string,
+	validatedPeersMap map[string]struct{}, postureFailedPeers *map[string]map[string]struct{}) ([]string, bool) {
+	if len(userIDs) == 0 {
+		return nil, false
+	}
+
+	sourceUsers := make(map[string]struct{}, len(userIDs))
+	for _, userID := range userIDs {
+		user := a.Users[userID]
+		if user == nil || user.IsBlocked() || user.IsServiceUser {
+			continue
+		}
+		sourceUsers[userID] = struct{}{}
+	}
+
+	return a.getPeersFromUserIDSet(ctx, sourceUsers, peerID, sourcePostureChecksIDs, validatedPeersMap, postureFailedPeers)
+}
+
+func (a *Account) getPeersFromUserGroups(ctx context.Context, groupIDs []string, peerID string, sourcePostureChecksIDs []string,
+	validatedPeersMap map[string]struct{}, postureFailedPeers *map[string]map[string]struct{}) ([]string, bool) {
+	if len(groupIDs) == 0 {
+		return nil, false
+	}
+
+	sourceGroups := make(map[string]struct{}, len(groupIDs))
+	for _, groupID := range groupIDs {
+		sourceGroups[groupID] = struct{}{}
+	}
+
+	sourceUsers := make(map[string]struct{})
+	for userID, user := range a.Users {
+		if user == nil || user.IsBlocked() || user.IsServiceUser {
+			continue
+		}
+		for _, groupID := range user.AutoGroups {
+			if _, ok := sourceGroups[groupID]; ok {
+				sourceUsers[userID] = struct{}{}
+				break
+			}
+		}
+	}
+
+	return a.getPeersFromUserIDSet(ctx, sourceUsers, peerID, sourcePostureChecksIDs, validatedPeersMap, postureFailedPeers)
+}
+
+func (a *Account) getPeersFromUserIDSet(ctx context.Context, userIDs map[string]struct{}, peerID string, sourcePostureChecksIDs []string,
+	validatedPeersMap map[string]struct{}, postureFailedPeers *map[string]map[string]struct{}) ([]string, bool) {
+	peerInUsers := false
+	filteredPeerIDs := make([]string, 0)
+
+	for pid, peer := range a.Peers {
+		if peer == nil {
+			continue
+		}
+		if _, ok := userIDs[peer.UserID]; !ok {
+			continue
+		}
+		if _, ok := validatedPeersMap[pid]; !ok {
+			continue
+		}
+
+		isValid, pname := a.validatePostureChecksOnPeerGetFailed(ctx, sourcePostureChecksIDs, pid)
+		if !isValid && len(pname) > 0 {
+			if _, ok := (*postureFailedPeers)[pname]; !ok {
+				(*postureFailedPeers)[pname] = make(map[string]struct{})
+			}
+			(*postureFailedPeers)[pname][pid] = struct{}{}
+			continue
+		}
+
+		if pid == peerID {
+			peerInUsers = true
+			continue
+		}
+
+		filteredPeerIDs = append(filteredPeerIDs, pid)
+	}
+
+	return filteredPeerIDs, peerInUsers
+}
+
+func (a *Account) getPeerIDsFromUsers(userIDs []string) []string {
+	if len(userIDs) == 0 {
+		return nil
+	}
+
+	sourceUsers := make(map[string]struct{}, len(userIDs))
+	for _, userID := range userIDs {
+		user := a.Users[userID]
+		if user == nil || user.IsBlocked() || user.IsServiceUser {
+			continue
+		}
+		sourceUsers[userID] = struct{}{}
+	}
+
+	return a.getPeerIDsFromUserIDSet(sourceUsers)
+}
+
+func (a *Account) getPeerIDsFromUserGroups(groupIDs []string) []string {
+	if len(groupIDs) == 0 {
+		return nil
+	}
+
+	sourceGroups := make(map[string]struct{}, len(groupIDs))
+	for _, groupID := range groupIDs {
+		sourceGroups[groupID] = struct{}{}
+	}
+
+	sourceUsers := make(map[string]struct{})
+	for userID, user := range a.Users {
+		if user == nil || user.IsBlocked() || user.IsServiceUser {
+			continue
+		}
+		for _, groupID := range user.AutoGroups {
+			if _, ok := sourceGroups[groupID]; ok {
+				sourceUsers[userID] = struct{}{}
+				break
+			}
+		}
+	}
+
+	return a.getPeerIDsFromUserIDSet(sourceUsers)
+}
+
+func (a *Account) getPeerIDsFromUserIDSet(userIDs map[string]struct{}) []string {
+	peerIDs := make([]string, 0)
+	for pid, peer := range a.Peers {
+		if peer == nil {
+			continue
+		}
+		if _, ok := userIDs[peer.UserID]; ok {
+			peerIDs = append(peerIDs, pid)
+		}
+	}
+	return peerIDs
 }
 
 func (a *Account) getPeersFromGroups(ctx context.Context, groups []string, peerID string, sourcePostureChecksIDs []string,

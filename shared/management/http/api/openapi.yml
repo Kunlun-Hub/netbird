@@ -1748,6 +1748,18 @@ components:
               items:
                 type: string
                 example: "ch8i4ug6lnn4g9hqv797"
+            source_users:
+              description: Policy rule source user IDs whose devices inherit this rule
+              type: array
+              items:
+                type: string
+                example: "user@example.com"
+            source_user_groups:
+              description: Policy rule source user group IDs whose users' devices inherit this rule
+              type: array
+              items:
+                type: string
+                example: "ch8i4ug6lnn4g9hqv798"
             sourceResource:
               description: Policy rule source resource that the rule is applied to
               $ref: '#/components/schemas/Resource'
@@ -1772,6 +1784,18 @@ components:
               items:
                 type: string
                 example: "ch8i4ug6lnn4g9hqv797"
+            source_users:
+              description: Policy rule source user IDs whose devices inherit this rule
+              type: array
+              items:
+                type: string
+                example: "user@example.com"
+            source_user_groups:
+              description: Policy rule source user group IDs whose users' devices inherit this rule
+              type: array
+              items:
+                type: string
+                example: "ch8i4ug6lnn4g9hqv798"
             sourceResource:
               description: Policy rule source resource that the rule is applied to
               $ref: '#/components/schemas/Resource'
@@ -1798,6 +1822,18 @@ components:
               type: array
               items:
                 $ref: '#/components/schemas/GroupMinimum'
+            source_users:
+              description: Policy rule source user IDs whose devices inherit this rule
+              type: array
+              items:
+                type: string
+                example: "user@example.com"
+            source_user_groups:
+              description: Policy rule source user group IDs whose users' devices inherit this rule
+              type: array
+              items:
+                type: string
+                example: "ch8i4ug6lnn4g9hqv798"
             sourceResource:
               description: Policy rule source resource that the rule is applied to
               $ref: '#/components/schemas/Resource'

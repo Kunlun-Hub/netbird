@@ -2697,17 +2697,17 @@ func (s *SqlStore) getPolicyRules(ctx context.Context, policyIDs []string) ([]*t
 	if len(policyIDs) == 0 {
 		return nil, nil
 	}
-	const query = `SELECT id, policy_id, name, description, enabled, action, destinations, destination_resource, sources, source_resource, bidirectional, protocol, ports, port_ranges, authorized_groups, authorized_user FROM policy_rules WHERE policy_id = ANY($1)`
+	const query = `SELECT id, policy_id, name, description, enabled, action, destinations, destination_resource, sources, source_users, source_user_groups, source_resource, bidirectional, protocol, ports, port_ranges, authorized_groups, authorized_user FROM policy_rules WHERE policy_id = ANY($1)`
 	rows, err := s.pool.Query(ctx, query, policyIDs)
 	if err != nil {
 		return nil, err
 	}
 	rules, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*types.PolicyRule, error) {
 		var r types.PolicyRule
-		var dest, destRes, sources, sourceRes, ports, portRanges, authorizedGroups []byte
+		var dest, destRes, sources, sourceUsers, sourceUserGroups, sourceRes, ports, portRanges, authorizedGroups []byte
 		var enabled, bidirectional sql.NullBool
 		var authorizedUser sql.NullString
-		err := row.Scan(&r.ID, &r.PolicyID, &r.Name, &r.Description, &enabled, &r.Action, &dest, &destRes, &sources, &sourceRes, &bidirectional, &r.Protocol, &ports, &portRanges, &authorizedGroups, &authorizedUser)
+		err := row.Scan(&r.ID, &r.PolicyID, &r.Name, &r.Description, &enabled, &r.Action, &dest, &destRes, &sources, &sourceUsers, &sourceUserGroups, &sourceRes, &bidirectional, &r.Protocol, &ports, &portRanges, &authorizedGroups, &authorizedUser)
 		if err == nil {
 			if enabled.Valid {
 				r.Enabled = enabled.Bool
@@ -2723,6 +2723,12 @@ func (s *SqlStore) getPolicyRules(ctx context.Context, policyIDs []string) ([]*t
 			}
 			if sources != nil {
 				_ = json.Unmarshal(sources, &r.Sources)
+			}
+			if sourceUsers != nil {
+				_ = json.Unmarshal(sourceUsers, &r.SourceUsers)
+			}
+			if sourceUserGroups != nil {
+				_ = json.Unmarshal(sourceUserGroups, &r.SourceUserGroups)
 			}
 			if sourceRes != nil {
 				_ = json.Unmarshal(sourceRes, &r.SourceResource)

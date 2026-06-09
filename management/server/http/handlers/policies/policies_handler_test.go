@@ -12,6 +12,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/mock_server"
@@ -188,9 +189,39 @@ func TestToPolicyResponseRepeatedSourceGroupAcrossRules(t *testing.T) {
 	assert.Equal(t, []api.GroupMinimum{{Id: "DNS", Name: "DNS"}}, *response.Rules[1].Destinations)
 }
 
+func TestToPolicyResponseIncludesUserSources(t *testing.T) {
+	policy := &types.Policy{
+		ID:      "policy-id",
+		Name:    "user-source-rule",
+		Enabled: true,
+		Rules: []*types.PolicyRule{
+			{
+				ID:               "rule-1",
+				Name:             "allow-users",
+				SourceUsers:      []string{"user-1", "user-2"},
+				SourceUserGroups: []string{"group-hr"},
+				Destinations:     []string{"dst"},
+				Bidirectional:    true,
+				Protocol:         types.PolicyRuleProtocolALL,
+				Action:           types.PolicyTrafficActionAccept,
+				Enabled:          true,
+			},
+		},
+	}
+
+	response := toPolicyResponse([]*types.Group{{ID: "dst", Name: "Destinations"}}, policy)
+
+	require.Len(t, response.Rules, 1)
+	require.NotNil(t, response.Rules[0].SourceUsers)
+	require.NotNil(t, response.Rules[0].SourceUserGroups)
+	assert.ElementsMatch(t, []string{"user-1", "user-2"}, *response.Rules[0].SourceUsers)
+	assert.ElementsMatch(t, []string{"group-hr"}, *response.Rules[0].SourceUserGroups)
+}
+
 func TestPoliciesWritePolicy(t *testing.T) {
 	str := func(s string) *string { return &s }
 	emptyString := ""
+	nilGroupMinimum := []api.GroupMinimum(nil)
 	tt := []struct {
 		name           string
 		expectedStatus int
@@ -246,6 +277,46 @@ func TestPoliciesWritePolicy(t *testing.T) {
 				[]byte(`{"Name":""}`)),
 			expectedStatus: http.StatusUnprocessableEntity,
 			expectedBody:   false,
+		},
+		{
+			name:        "WritePolicy POST User Sources OK",
+			requestType: http.MethodPost,
+			requestPath: "/api/policies",
+			requestBody: bytes.NewBuffer(
+				[]byte(`{
+                    "Name":"User Source Policy",
+                    "Rules":[
+                        {
+                            "Name":"User Source Rule",
+                            "Protocol": "all",
+                            "Action": "accept",
+                            "Bidirectional":false,
+							"source_users": ["user-1"],
+							"source_user_groups": ["G"],
+							"Destinations": ["F"]
+                        }
+                ]}`)),
+			expectedStatus: http.StatusOK,
+			expectedBody:   true,
+			expectedPolicy: &api.Policy{
+				Id:          str("id-was-set"),
+				Name:        "User Source Policy",
+				Description: &emptyString,
+				Rules: []api.PolicyRule{
+					{
+						Id:               str("id-was-set"),
+						Name:             "User Source Rule",
+						Description:      &emptyString,
+						Protocol:         "all",
+						Action:           "accept",
+						Bidirectional:    false,
+						SourceUsers:      &[]string{"user-1"},
+						SourceUserGroups: &[]string{"G"},
+						Sources:          &nilGroupMinimum,
+						Destinations:     &[]api.GroupMinimum{{Id: "F"}},
+					},
+				},
+			},
 		},
 		{
 			name:        "WritePolicy PUT OK",

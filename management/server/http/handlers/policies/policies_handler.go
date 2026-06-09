@@ -148,13 +148,16 @@ func (h *handler) savePolicy(w http.ResponseWriter, r *http.Request, accountID s
 		}
 
 		hasSources := rule.Sources != nil
+		hasSourceUsers := rule.SourceUsers != nil
+		hasSourceUserGroups := rule.SourceUserGroups != nil
+		hasIdentitySources := hasSourceUsers || hasSourceUserGroups
 		hasSourceResource := rule.SourceResource != nil
 
 		hasDestinations := rule.Destinations != nil
 		hasDestinationResource := rule.DestinationResource != nil
 
-		if hasSources && hasSourceResource {
-			util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "specify either sources or  source resources, not both"), w)
+		if (hasSources || hasIdentitySources) && hasSourceResource {
+			util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "specify either source groups, source users, or source user groups, or source resources, not both"), w)
 			return
 		}
 
@@ -163,8 +166,8 @@ func (h *handler) savePolicy(w http.ResponseWriter, r *http.Request, accountID s
 			return
 		}
 
-		if !(hasSources || hasSourceResource) || !(hasDestinations || hasDestinationResource) {
-			util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "specify either sources or source resources and destinations or destination resources"), w)
+		if !(hasSources || hasIdentitySources || hasSourceResource) || !(hasDestinations || hasDestinationResource) {
+			util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "specify either source groups, source users, source user groups, or source resources and destinations or destination resources"), w)
 			return
 		}
 
@@ -177,6 +180,12 @@ func (h *handler) savePolicy(w http.ResponseWriter, r *http.Request, accountID s
 
 		if hasSources {
 			pr.Sources = *rule.Sources
+		}
+		if hasSourceUsers {
+			pr.SourceUsers = *rule.SourceUsers
+		}
+		if hasSourceUserGroups {
+			pr.SourceUserGroups = *rule.SourceUserGroups
 		}
 
 		if hasSourceResource {
@@ -421,6 +430,14 @@ func toPolicyResponse(groups []*types.Group, policy *types.Policy) *api.Policy {
 		if len(r.Ports) != 0 {
 			portsCopy := r.Ports
 			rule.Ports = &portsCopy
+		}
+		if len(r.SourceUsers) != 0 {
+			sourceUsersCopy := r.SourceUsers
+			rule.SourceUsers = &sourceUsersCopy
+		}
+		if len(r.SourceUserGroups) != 0 {
+			sourceUserGroupsCopy := r.SourceUserGroups
+			rule.SourceUserGroups = &sourceUserGroupsCopy
 		}
 
 		if len(r.PortRanges) != 0 {

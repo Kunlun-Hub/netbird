@@ -43,6 +43,7 @@ type NetworkMapCache struct {
 	peerToGroups    map[string][]string
 	policyToRules   map[string][]*PolicyRule //policyId
 	groupToPolicies map[string][]*Policy
+	userToPolicies  map[string][]*Policy
 	groupToRoutes   map[string][]*route.Route
 	peerToRoutes    map[string][]*route.Route
 
@@ -114,6 +115,7 @@ func NewNetworkMapBuilder(account *Account, validatedPeers map[string]struct{}) 
 			peerToGroups:     make(map[string][]string),
 			policyToRules:    make(map[string][]*PolicyRule),
 			groupToPolicies:  make(map[string][]*Policy),
+			userToPolicies:   make(map[string][]*Policy),
 			groupToRoutes:    make(map[string][]*route.Route),
 			peerToRoutes:     make(map[string][]*route.Route),
 			peerACLs:         make(map[string]*PeerACLView),
@@ -171,6 +173,7 @@ func (b *NetworkMapBuilder) buildGlobalIndexes(account *Account) {
 	clear(b.cache.peerToGroups)
 	clear(b.cache.policyToRules)
 	clear(b.cache.groupToPolicies)
+	clear(b.cache.userToPolicies)
 	clear(b.cache.globalRoutes)
 	clear(b.cache.globalRules)
 	clear(b.cache.globalRouteRules)
@@ -216,6 +219,19 @@ func (b *NetworkMapBuilder) buildGlobalIndexes(account *Account) {
 			}
 			for _, groupID := range rule.Destinations {
 				affectedGroups[groupID] = struct{}{}
+			}
+			for _, userID := range rule.SourceUsers {
+				b.cache.userToPolicies[userID] = append(b.cache.userToPolicies[userID], policy)
+			}
+			for _, groupID := range rule.SourceUserGroups {
+				for userID, user := range account.Users {
+					if user == nil || user.IsBlocked() || user.IsServiceUser {
+						continue
+					}
+					if slices.Contains(user.AutoGroups, groupID) {
+						b.cache.userToPolicies[userID] = append(b.cache.userToPolicies[userID], policy)
+					}
+				}
 			}
 			if rule.SourceResource.Type == ResourceTypePeer && rule.SourceResource.ID != "" {
 				groupId := rule.SourceResource.ID
@@ -318,120 +334,258 @@ func (b *NetworkMapBuilder) getPeerConnectionResources(account *Account, peer *n
 	authorizedUsers := make(map[string]map[string]struct{})
 	sshEnabled := false
 
-	for _, group := range peerGroups {
-		policies := b.cache.groupToPolicies[group]
-		for _, policy := range policies {
-			if isValid := account.validatePostureChecksOnPeer(ctx, policy.SourcePostureChecks, peerID); !isValid {
+	policies := b.getPeerPolicies(peer.UserID, peerGroups)
+	for _, policy := range policies {
+		if isValid := account.validatePostureChecksOnPeer(ctx, policy.SourcePostureChecks, peerID); !isValid {
+			continue
+		}
+		rules := b.cache.policyToRules[policy.ID]
+		for _, rule := range rules {
+			var sourcePeers, destinationPeers []*nbpeer.Peer
+			var peerInSources, peerInDestinations bool
+
+			if rule.SourceResource.Type == ResourceTypePeer && rule.SourceResource.ID != "" {
+				peerInSources = rule.SourceResource.ID == peerID
+			} else {
+				peerInSources = b.isPeerInSourcesCached(account, rule, peerID, peer.UserID, peerGroupsMap)
+			}
+
+			if rule.DestinationResource.Type == ResourceTypePeer && rule.DestinationResource.ID != "" {
+				peerInDestinations = rule.DestinationResource.ID == peerID
+			} else {
+				peerInDestinations = b.isPeerInGroupscached(rule.Destinations, peerGroupsMap)
+			}
+
+			if !peerInSources && !peerInDestinations {
 				continue
 			}
-			rules := b.cache.policyToRules[policy.ID]
-			for _, rule := range rules {
-				var sourcePeers, destinationPeers []*nbpeer.Peer
-				var peerInSources, peerInDestinations bool
 
-				if rule.SourceResource.Type == ResourceTypePeer && rule.SourceResource.ID != "" {
-					peerInSources = rule.SourceResource.ID == peerID
-				} else {
-					peerInSources = b.isPeerInGroupscached(rule.Sources, peerGroupsMap)
+			if rule.SourceResource.Type == ResourceTypePeer && rule.SourceResource.ID != "" {
+				peer := account.GetPeer(rule.SourceResource.ID)
+				if peer != nil {
+					sourcePeers = []*nbpeer.Peer{peer}
 				}
+			} else {
+				sourcePeers = b.getSourcePeersCached(account, rule, peerID, policy.SourcePostureChecks, validatedPeersMap)
+			}
 
-				if rule.DestinationResource.Type == ResourceTypePeer && rule.DestinationResource.ID != "" {
-					peerInDestinations = rule.DestinationResource.ID == peerID
-				} else {
-					peerInDestinations = b.isPeerInGroupscached(rule.Destinations, peerGroupsMap)
+			if rule.DestinationResource.Type == ResourceTypePeer && rule.DestinationResource.ID != "" {
+				peer := account.GetPeer(rule.DestinationResource.ID)
+				if peer != nil {
+					destinationPeers = []*nbpeer.Peer{peer}
 				}
+			} else {
+				destinationPeers = b.getPeersFromGroupscached(account, rule.Destinations, peerID, nil, validatedPeersMap)
+			}
 
-				if !peerInSources && !peerInDestinations {
-					continue
-				}
-
-				if rule.SourceResource.Type == ResourceTypePeer && rule.SourceResource.ID != "" {
-					peer := account.GetPeer(rule.SourceResource.ID)
-					if peer != nil {
-						sourcePeers = []*nbpeer.Peer{peer}
-					}
-				} else {
-					sourcePeers = b.getPeersFromGroupscached(account, rule.Sources, peerID, policy.SourcePostureChecks, validatedPeersMap)
-				}
-
-				if rule.DestinationResource.Type == ResourceTypePeer && rule.DestinationResource.ID != "" {
-					peer := account.GetPeer(rule.DestinationResource.ID)
-					if peer != nil {
-						destinationPeers = []*nbpeer.Peer{peer}
-					}
-				} else {
-					destinationPeers = b.getPeersFromGroupscached(account, rule.Destinations, peerID, nil, validatedPeersMap)
-				}
-
-				if rule.Bidirectional {
-					if peerInSources {
-						b.generateResourcescached(
-							rule, destinationPeers, FirewallRuleDirectionIN,
-							peer, &peers, &fwRules, peersExists, rulesExists,
-						)
-					}
-					if peerInDestinations {
-						b.generateResourcescached(
-							rule, sourcePeers, FirewallRuleDirectionOUT,
-							peer, &peers, &fwRules, peersExists, rulesExists,
-						)
-					}
-				}
-
+			if rule.Bidirectional {
 				if peerInSources {
 					b.generateResourcescached(
-						rule, destinationPeers, FirewallRuleDirectionOUT,
+						rule, destinationPeers, FirewallRuleDirectionIN,
 						peer, &peers, &fwRules, peersExists, rulesExists,
 					)
 				}
-
 				if peerInDestinations {
 					b.generateResourcescached(
-						rule, sourcePeers, FirewallRuleDirectionIN,
+						rule, sourcePeers, FirewallRuleDirectionOUT,
 						peer, &peers, &fwRules, peersExists, rulesExists,
 					)
+				}
+			}
 
-					if rule.Protocol == PolicyRuleProtocolNetbirdSSH {
-						sshEnabled = true
-						switch {
-						case len(rule.AuthorizedGroups) > 0:
-							for groupID, localUsers := range rule.AuthorizedGroups {
-								userIDs, ok := b.cache.groupIDToUserIDs[groupID]
-								if !ok {
-									continue
+			if peerInSources {
+				b.generateResourcescached(
+					rule, destinationPeers, FirewallRuleDirectionOUT,
+					peer, &peers, &fwRules, peersExists, rulesExists,
+				)
+			}
+
+			if peerInDestinations {
+				b.generateResourcescached(
+					rule, sourcePeers, FirewallRuleDirectionIN,
+					peer, &peers, &fwRules, peersExists, rulesExists,
+				)
+
+				if rule.Protocol == PolicyRuleProtocolNetbirdSSH {
+					sshEnabled = true
+					switch {
+					case len(rule.AuthorizedGroups) > 0:
+						for groupID, localUsers := range rule.AuthorizedGroups {
+							userIDs, ok := b.cache.groupIDToUserIDs[groupID]
+							if !ok {
+								continue
+							}
+
+							if len(localUsers) == 0 {
+								localUsers = []string{auth.Wildcard}
+							}
+
+							for _, localUser := range localUsers {
+								if authorizedUsers[localUser] == nil {
+									authorizedUsers[localUser] = make(map[string]struct{})
 								}
-
-								if len(localUsers) == 0 {
-									localUsers = []string{auth.Wildcard}
-								}
-
-								for _, localUser := range localUsers {
-									if authorizedUsers[localUser] == nil {
-										authorizedUsers[localUser] = make(map[string]struct{})
-									}
-									for _, userID := range userIDs {
-										authorizedUsers[localUser][userID] = struct{}{}
-									}
+								for _, userID := range userIDs {
+									authorizedUsers[localUser][userID] = struct{}{}
 								}
 							}
-						case rule.AuthorizedUser != "":
-							if authorizedUsers[auth.Wildcard] == nil {
-								authorizedUsers[auth.Wildcard] = make(map[string]struct{})
-							}
-							authorizedUsers[auth.Wildcard][rule.AuthorizedUser] = struct{}{}
-						default:
-							authorizedUsers[auth.Wildcard] = maps.Clone(b.cache.allowedUserIDs)
 						}
-					} else if policyRuleImpliesLegacySSH(rule) && peer.SSHEnabled {
-						sshEnabled = true
+					case rule.AuthorizedUser != "":
+						if authorizedUsers[auth.Wildcard] == nil {
+							authorizedUsers[auth.Wildcard] = make(map[string]struct{})
+						}
+						authorizedUsers[auth.Wildcard][rule.AuthorizedUser] = struct{}{}
+					default:
 						authorizedUsers[auth.Wildcard] = maps.Clone(b.cache.allowedUserIDs)
 					}
+				} else if policyRuleImpliesLegacySSH(rule) && peer.SSHEnabled {
+					sshEnabled = true
+					authorizedUsers[auth.Wildcard] = maps.Clone(b.cache.allowedUserIDs)
 				}
 			}
 		}
 	}
 
 	return peers, fwRules, authorizedUsers, sshEnabled
+}
+
+func (b *NetworkMapBuilder) getPeerPolicies(userID string, peerGroups []string) []*Policy {
+	policyByID := make(map[string]*Policy)
+	for _, group := range peerGroups {
+		for _, policy := range b.cache.groupToPolicies[group] {
+			policyByID[policy.ID] = policy
+		}
+	}
+	for _, policy := range b.cache.userToPolicies[userID] {
+		policyByID[policy.ID] = policy
+	}
+
+	policies := make([]*Policy, 0, len(policyByID))
+	for _, policy := range policyByID {
+		policies = append(policies, policy)
+	}
+
+	return policies
+}
+
+func (b *NetworkMapBuilder) isPeerInSourcesCached(account *Account, rule *PolicyRule, peerID string, userID string, peerGroupsMap map[string]struct{}) bool {
+	if b.isPeerInGroupscached(rule.Sources, peerGroupsMap) {
+		return true
+	}
+
+	user := account.Users[userID]
+	if user == nil || user.IsBlocked() || user.IsServiceUser {
+		return false
+	}
+	if slices.Contains(rule.SourceUsers, userID) {
+		return true
+	}
+	for _, groupID := range user.AutoGroups {
+		if slices.Contains(rule.SourceUserGroups, groupID) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (b *NetworkMapBuilder) getSourcePeersCached(account *Account, rule *PolicyRule,
+	excludePeerID string, postureChecksIDs []string, validatedPeersMap map[string]struct{},
+) []*nbpeer.Peer {
+	uniquePeers := make(map[string]*nbpeer.Peer)
+	for _, peer := range b.getPeersFromGroupscached(account, rule.Sources, excludePeerID, postureChecksIDs, validatedPeersMap) {
+		uniquePeers[peer.ID] = peer
+	}
+	for _, peer := range b.getPeersFromUsersCached(account, rule.SourceUsers, excludePeerID, postureChecksIDs, validatedPeersMap) {
+		uniquePeers[peer.ID] = peer
+	}
+	for _, peer := range b.getPeersFromUserGroupsCached(account, rule.SourceUserGroups, excludePeerID, postureChecksIDs, validatedPeersMap) {
+		uniquePeers[peer.ID] = peer
+	}
+
+	peers := make([]*nbpeer.Peer, 0, len(uniquePeers))
+	for _, peer := range uniquePeers {
+		peers = append(peers, peer)
+	}
+
+	return peers
+}
+
+func (b *NetworkMapBuilder) getPeersFromUsersCached(account *Account, userIDs []string,
+	excludePeerID string, postureChecksIDs []string, validatedPeersMap map[string]struct{},
+) []*nbpeer.Peer {
+	if len(userIDs) == 0 {
+		return nil
+	}
+
+	sourceUsers := make(map[string]struct{}, len(userIDs))
+	for _, userID := range userIDs {
+		user := account.Users[userID]
+		if user == nil || user.IsBlocked() || user.IsServiceUser {
+			continue
+		}
+		sourceUsers[userID] = struct{}{}
+	}
+
+	return b.getPeersFromUserIDSetCached(account, sourceUsers, excludePeerID, postureChecksIDs, validatedPeersMap)
+}
+
+func (b *NetworkMapBuilder) getPeersFromUserGroupsCached(account *Account, groupIDs []string,
+	excludePeerID string, postureChecksIDs []string, validatedPeersMap map[string]struct{},
+) []*nbpeer.Peer {
+	if len(groupIDs) == 0 {
+		return nil
+	}
+
+	sourceGroups := make(map[string]struct{}, len(groupIDs))
+	for _, groupID := range groupIDs {
+		sourceGroups[groupID] = struct{}{}
+	}
+
+	sourceUsers := make(map[string]struct{})
+	for userID, user := range account.Users {
+		if user == nil || user.IsBlocked() || user.IsServiceUser {
+			continue
+		}
+		for _, groupID := range user.AutoGroups {
+			if _, ok := sourceGroups[groupID]; ok {
+				sourceUsers[userID] = struct{}{}
+				break
+			}
+		}
+	}
+
+	return b.getPeersFromUserIDSetCached(account, sourceUsers, excludePeerID, postureChecksIDs, validatedPeersMap)
+}
+
+func (b *NetworkMapBuilder) getPeersFromUserIDSetCached(account *Account, userIDs map[string]struct{},
+	excludePeerID string, postureChecksIDs []string, validatedPeersMap map[string]struct{},
+) []*nbpeer.Peer {
+	ctx := context.Background()
+	uniquePeers := make(map[string]*nbpeer.Peer)
+
+	for peerID, peer := range b.cache.globalPeers {
+		if peerID == excludePeerID {
+			continue
+		}
+
+		if _, ok := validatedPeersMap[peerID]; !ok {
+			continue
+		}
+		if _, ok := userIDs[peer.UserID]; !ok {
+			continue
+		}
+		if len(postureChecksIDs) > 0 && !account.validatePostureChecksOnPeer(ctx, postureChecksIDs, peerID) {
+			continue
+		}
+		uniquePeers[peerID] = peer
+	}
+
+	peers := make([]*nbpeer.Peer, 0, len(uniquePeers))
+	for _, peer := range uniquePeers {
+		peers = append(peers, peer)
+	}
+
+	return peers
 }
 
 func (b *NetworkMapBuilder) isPeerInGroupscached(groupIDs []string, peerGroupsMap map[string]struct{}) bool {
@@ -563,7 +717,7 @@ func (b *NetworkMapBuilder) getNetworkResourcesForPeer(account *Account, peer *n
 		hasAccessAsClient := false
 		if !isRouterForThisResource {
 			for _, policy := range resourcePolicies {
-				if b.isPeerInGroupscached(policy.SourceGroups(), peerGroupsMap) {
+				if b.isPeerInPolicySourcesCached(account, policy, peerID, peer.UserID, peerGroupsMap) {
 					if account.validatePostureChecksOnPeer(ctx, policy.SourcePostureChecks, peerID) {
 						hasAccessAsClient = true
 						break
@@ -583,6 +737,8 @@ func (b *NetworkMapBuilder) getNetworkResourcesForPeer(account *Account, peer *n
 		if isRouterForThisResource {
 			for _, policy := range resourcePolicies {
 				peersWithAccess := b.getPeersFromGroupscached(account, policy.SourceGroups(), "", policy.SourcePostureChecks, b.validatedPeers)
+				peersWithAccess = append(peersWithAccess, b.getPeersFromUsersCached(account, policy.SourceUsers(), "", policy.SourcePostureChecks, b.validatedPeers)...)
+				peersWithAccess = append(peersWithAccess, b.getPeersFromUserGroupsCached(account, policy.SourceUserGroups(), "", policy.SourcePostureChecks, b.validatedPeers)...)
 				for _, peerID := range policy.SourceResourcePeers() {
 					if sourcePeer := account.GetPeer(peerID); sourcePeer != nil {
 						peersWithAccess = append(peersWithAccess, sourcePeer)
@@ -596,6 +752,25 @@ func (b *NetworkMapBuilder) getNetworkResourcesForPeer(account *Account, peer *n
 	}
 
 	return isRoutingPeer, routes, allSourcePeers
+}
+
+func (b *NetworkMapBuilder) isPeerInPolicySourcesCached(account *Account, policy *Policy, peerID string, userID string, peerGroupsMap map[string]struct{}) bool {
+	for _, rule := range policy.Rules {
+		if !rule.Enabled {
+			continue
+		}
+		if rule.SourceResource.Type == ResourceTypePeer && rule.SourceResource.ID != "" {
+			if rule.SourceResource.ID == peerID {
+				return true
+			}
+			continue
+		}
+		if b.isPeerInSourcesCached(account, rule, peerID, userID, peerGroupsMap) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (b *NetworkMapBuilder) createNetworkResourceRoutes(

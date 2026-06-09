@@ -27,6 +27,7 @@ type NetworkMapComponents struct {
 	CustomZoneDomain string
 
 	Peers               map[string]*nbpeer.Peer
+	Users               map[string]*User
 	Groups              map[string]*Group
 	Policies            []*Policy
 	Routes              []*route.Route
@@ -195,7 +196,7 @@ func (c *NetworkMapComponents) getPeerConnectionResources(targetPeerID string) (
 			if rule.SourceResource.Type == ResourceTypePeer && rule.SourceResource.ID != "" {
 				sourcePeers, peerInSources = c.getPeerFromResource(rule.SourceResource, targetPeerID)
 			} else {
-				sourcePeers, peerInSources = c.getAllPeersFromGroups(rule.Sources, targetPeerID, policy.SourcePostureChecks)
+				sourcePeers, peerInSources = c.getAllSourcePeers(rule, targetPeerID, policy.SourcePostureChecks)
 			}
 
 			if rule.DestinationResource.Type == ResourceTypePeer && rule.DestinationResource.ID != "" {
@@ -363,6 +364,103 @@ func (c *NetworkMapComponents) getAllPeersFromGroups(groups []string, peerID str
 	}
 
 	return filteredPeers, peerInGroups
+}
+
+func (c *NetworkMapComponents) getAllSourcePeers(rule *PolicyRule, peerID string, sourcePostureChecksIDs []string) ([]*nbpeer.Peer, bool) {
+	peersByID := make(map[string]*nbpeer.Peer)
+	peerInSources := false
+
+	groupPeers, peerInGroups := c.getAllPeersFromGroups(rule.Sources, peerID, sourcePostureChecksIDs)
+	peerInSources = peerInSources || peerInGroups
+	for _, peer := range groupPeers {
+		peersByID[peer.ID] = peer
+	}
+
+	userPeers, peerInUsers := c.getAllPeersFromUsers(rule.SourceUsers, peerID, sourcePostureChecksIDs)
+	peerInSources = peerInSources || peerInUsers
+	for _, peer := range userPeers {
+		peersByID[peer.ID] = peer
+	}
+
+	userGroupPeers, peerInUserGroups := c.getAllPeersFromUserGroups(rule.SourceUserGroups, peerID, sourcePostureChecksIDs)
+	peerInSources = peerInSources || peerInUserGroups
+	for _, peer := range userGroupPeers {
+		peersByID[peer.ID] = peer
+	}
+
+	peers := make([]*nbpeer.Peer, 0, len(peersByID))
+	for _, peer := range peersByID {
+		peers = append(peers, peer)
+	}
+
+	return peers, peerInSources
+}
+
+func (c *NetworkMapComponents) getAllPeersFromUsers(userIDs []string, peerID string, sourcePostureChecksIDs []string) ([]*nbpeer.Peer, bool) {
+	if len(userIDs) == 0 {
+		return nil, false
+	}
+
+	sourceUsers := make(map[string]struct{}, len(userIDs))
+	for _, userID := range userIDs {
+		user := c.Users[userID]
+		if user == nil || user.IsBlocked() || user.IsServiceUser {
+			continue
+		}
+		sourceUsers[userID] = struct{}{}
+	}
+
+	return c.getAllPeersFromUserIDSet(sourceUsers, peerID, sourcePostureChecksIDs)
+}
+
+func (c *NetworkMapComponents) getAllPeersFromUserGroups(groupIDs []string, peerID string, sourcePostureChecksIDs []string) ([]*nbpeer.Peer, bool) {
+	if len(groupIDs) == 0 {
+		return nil, false
+	}
+
+	sourceGroups := make(map[string]struct{}, len(groupIDs))
+	for _, groupID := range groupIDs {
+		sourceGroups[groupID] = struct{}{}
+	}
+
+	sourceUsers := make(map[string]struct{})
+	for userID, user := range c.Users {
+		if user == nil || user.IsBlocked() || user.IsServiceUser {
+			continue
+		}
+		for _, groupID := range user.AutoGroups {
+			if _, ok := sourceGroups[groupID]; ok {
+				sourceUsers[userID] = struct{}{}
+				break
+			}
+		}
+	}
+
+	return c.getAllPeersFromUserIDSet(sourceUsers, peerID, sourcePostureChecksIDs)
+}
+
+func (c *NetworkMapComponents) getAllPeersFromUserIDSet(userIDs map[string]struct{}, peerID string, sourcePostureChecksIDs []string) ([]*nbpeer.Peer, bool) {
+	peerInUsers := false
+	filteredPeers := make([]*nbpeer.Peer, 0)
+
+	for id, peerInfo := range c.Peers {
+		if peerInfo == nil {
+			continue
+		}
+		if _, ok := userIDs[peerInfo.UserID]; !ok {
+			continue
+		}
+		if !c.ValidatePostureChecksOnPeer(id, sourcePostureChecksIDs) {
+			continue
+		}
+		if id == peerID {
+			peerInUsers = true
+			continue
+		}
+		filteredPeers = append(filteredPeers, peerInfo)
+	}
+
+	return filteredPeers, peerInUsers
 }
 
 func (c *NetworkMapComponents) getUniquePeerIDsFromGroupsIDs(groups []string) []string {

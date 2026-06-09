@@ -133,7 +133,16 @@ func (p *Policy) Equal(other *Policy) bool {
 
 // EventMeta returns activity event meta related to this policy
 func (p *Policy) EventMeta() map[string]any {
-	return map[string]any{"name": p.Name}
+	meta := map[string]any{"name": p.Name}
+	sourceUsers := p.SourceUsers()
+	if len(sourceUsers) > 0 {
+		meta["source_users"] = sourceUsers
+	}
+	sourceUserGroups := p.SourceUserGroups()
+	if len(sourceUserGroups) > 0 {
+		meta["source_user_groups"] = sourceUserGroups
+	}
+	return meta
 }
 
 // UpgradeAndFix different version of policies to latest version
@@ -168,6 +177,40 @@ func (p *Policy) SourceGroups() []string {
 	for _, rule := range p.Rules {
 		for _, source := range rule.Sources {
 			groups[source] = struct{}{}
+		}
+	}
+
+	groupIDs := make([]string, 0, len(groups))
+	for groupID := range groups {
+		groupIDs = append(groupIDs, groupID)
+	}
+
+	return groupIDs
+}
+
+// SourceUsers returns a slice of all unique source users referenced in the policy's rules.
+func (p *Policy) SourceUsers() []string {
+	users := make(map[string]struct{}, len(p.Rules))
+	for _, rule := range p.Rules {
+		for _, userID := range rule.SourceUsers {
+			users[userID] = struct{}{}
+		}
+	}
+
+	userIDs := make([]string, 0, len(users))
+	for userID := range users {
+		userIDs = append(userIDs, userID)
+	}
+
+	return userIDs
+}
+
+// SourceUserGroups returns a slice of all unique source user groups referenced in the policy's rules.
+func (p *Policy) SourceUserGroups() []string {
+	groups := make(map[string]struct{}, len(p.Rules))
+	for _, rule := range p.Rules {
+		for _, groupID := range rule.SourceUserGroups {
+			groups[groupID] = struct{}{}
 		}
 	}
 

@@ -177,7 +177,7 @@ func (am *DefaultAccountManager) ListPolicies(ctx context.Context, accountID, us
 // arePolicyChangesAffectPeers checks if a policy (being created or deleted) will affect any associated peers.
 func arePolicyChangesAffectPeers(ctx context.Context, transaction store.Store, policy *types.Policy) (bool, error) {
 	for _, rule := range policy.Rules {
-		if rule.SourceResource.Type != "" || rule.DestinationResource.Type != "" {
+		if rule.SourceResource.Type != "" || rule.DestinationResource.Type != "" || len(rule.SourceUsers) != 0 || len(rule.SourceUserGroups) != 0 {
 			return true, nil
 		}
 	}
@@ -191,7 +191,7 @@ func arePolicyChangesAffectPeersWithExisting(ctx context.Context, transaction st
 	}
 
 	for _, rule := range existingPolicy.Rules {
-		if rule.SourceResource.Type != "" || rule.DestinationResource.Type != "" {
+		if rule.SourceResource.Type != "" || rule.DestinationResource.Type != "" || len(rule.SourceUsers) != 0 || len(rule.SourceUserGroups) != 0 {
 			return true, nil
 		}
 	}
@@ -206,7 +206,7 @@ func arePolicyChangesAffectPeersWithExisting(ctx context.Context, transaction st
 	}
 
 	for _, rule := range policy.Rules {
-		if rule.SourceResource.Type != "" || rule.DestinationResource.Type != "" {
+		if rule.SourceResource.Type != "" || rule.DestinationResource.Type != "" || len(rule.SourceUsers) != 0 || len(rule.SourceUserGroups) != 0 {
 			return true, nil
 		}
 	}
@@ -240,9 +240,17 @@ func validatePolicy(ctx context.Context, transaction store.Store, accountID stri
 		policy.AccountID = accountID
 	}
 
-	groups, err := transaction.GetGroupsByIDs(ctx, store.LockingStrengthNone, accountID, policy.RuleGroups())
+	groups, err := transaction.GetGroupsByIDs(ctx, store.LockingStrengthNone, accountID, allPolicyGroupIDs(policy))
 	if err != nil {
 		return nil, err
+	}
+	users, err := transaction.GetAccountUsers(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		return nil, err
+	}
+	usersByID := make(map[string]*types.User, len(users))
+	for _, user := range users {
+		usersByID[user.Id] = user
 	}
 
 	postureChecks, err := transaction.GetPostureChecksByIDs(ctx, store.LockingStrengthNone, accountID, policy.SourcePostureChecks)
@@ -258,6 +266,8 @@ func validatePolicy(ctx context.Context, transaction store.Store, accountID stri
 		}
 
 		ruleCopy.Sources = getValidGroupIDs(groups, ruleCopy.Sources)
+		ruleCopy.SourceUsers = getValidUserIDs(usersByID, ruleCopy.SourceUsers)
+		ruleCopy.SourceUserGroups = getValidGroupIDs(groups, ruleCopy.SourceUserGroups)
 		ruleCopy.Destinations = getValidGroupIDs(groups, ruleCopy.Destinations)
 		policy.Rules[i] = ruleCopy
 	}
@@ -267,6 +277,14 @@ func validatePolicy(ctx context.Context, transaction store.Store, accountID stri
 	}
 
 	return existingPolicy, nil
+}
+
+func allPolicyGroupIDs(policy *types.Policy) []string {
+	ids := policy.RuleGroups()
+	for _, groupID := range policy.SourceUserGroups() {
+		ids = append(ids, groupID)
+	}
+	return ids
 }
 
 // getValidPostureCheckIDs filters and returns only the valid posture check IDs from the provided list.
@@ -298,6 +316,18 @@ func getValidGroupIDs(groups map[string]*types.Group, groupIDs []string) []strin
 	validIDs := make([]string, 0, len(groupIDs))
 	for _, id := range groupIDs {
 		if _, exists := groups[id]; exists {
+			validIDs = append(validIDs, id)
+		}
+	}
+
+	return validIDs
+}
+
+// getValidUserIDs filters and returns only the valid user IDs from the provided list.
+func getValidUserIDs(users map[string]*types.User, userIDs []string) []string {
+	validIDs := make([]string, 0, len(userIDs))
+	for _, id := range userIDs {
+		if user, exists := users[id]; exists && !user.IsServiceUser {
 			validIDs = append(validIDs, id)
 		}
 	}

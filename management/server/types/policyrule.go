@@ -68,6 +68,12 @@ type PolicyRule struct {
 	// Sources policy source groups
 	Sources []string `gorm:"serializer:json"`
 
+	// SourceUsers policy source users whose peers inherit this rule
+	SourceUsers []string `gorm:"serializer:json"`
+
+	// SourceUserGroups policy source user groups whose users' peers inherit this rule
+	SourceUserGroups []string `gorm:"serializer:json"`
+
 	// SourceResource policy source resource that the rule is applied to
 	SourceResource Resource `gorm:"serializer:json"`
 
@@ -102,6 +108,8 @@ func (pm *PolicyRule) Copy() *PolicyRule {
 		Destinations:        make([]string, len(pm.Destinations)),
 		DestinationResource: pm.DestinationResource,
 		Sources:             make([]string, len(pm.Sources)),
+		SourceUsers:         make([]string, len(pm.SourceUsers)),
+		SourceUserGroups:    make([]string, len(pm.SourceUserGroups)),
 		SourceResource:      pm.SourceResource,
 		Bidirectional:       pm.Bidirectional,
 		Protocol:            pm.Protocol,
@@ -112,6 +120,8 @@ func (pm *PolicyRule) Copy() *PolicyRule {
 	}
 	copy(rule.Destinations, pm.Destinations)
 	copy(rule.Sources, pm.Sources)
+	copy(rule.SourceUsers, pm.SourceUsers)
+	copy(rule.SourceUserGroups, pm.SourceUserGroups)
 	copy(rule.Ports, pm.Ports)
 	copy(rule.PortRanges, pm.PortRanges)
 	for k, v := range pm.AuthorizedGroups {
@@ -141,6 +151,12 @@ func (pm *PolicyRule) Equal(other *PolicyRule) bool {
 	}
 
 	if !stringSlicesEqualUnordered(pm.Sources, other.Sources) {
+		return false
+	}
+	if !stringSlicesEqualUnordered(pm.SourceUsers, other.SourceUsers) {
+		return false
+	}
+	if !stringSlicesEqualUnordered(pm.SourceUserGroups, other.SourceUserGroups) {
 		return false
 	}
 	if !stringSlicesEqualUnordered(pm.Destinations, other.Destinations) {
