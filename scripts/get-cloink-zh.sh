@@ -91,16 +91,17 @@ read_reverse_proxy_type() {
   echo "  [3] Nginx Proxy Manager（生成配置和说明）" > /dev/stderr
   echo "  [4] 外部 Caddy（生成 Caddyfile 片段）" > /dev/stderr
   echo "  [5] 其他/手动配置（输出配置说明）" > /dev/stderr
+  echo "  [6] Traefik（自定义 HTTPS 端口，DNS 验证申请证书）" > /dev/stderr
   echo "" > /dev/stderr
-  echo -n "请输入选项 [0-5]（默认：0）： " > /dev/stderr
+  echo -n "请输入选项 [0-6]（默认：0）： " > /dev/stderr
   read -r CHOICE < /dev/tty
 
   if [[ -z "$CHOICE" ]]; then
     CHOICE="0"
   fi
 
-  if [[ ! "$CHOICE" =~ ^[0-5]$ ]]; then
-    echo "选项无效，请输入 0 到 5 之间的数字。" > /dev/stderr
+  if [[ ! "$CHOICE" =~ ^[0-6]$ ]]; then
+    echo "选项无效，请输入 0 到 6 之间的数字。" > /dev/stderr
     read_reverse_proxy_type
     return
   fi
@@ -213,6 +214,75 @@ read_traefik_acme_email() {
   return 0
 }
 
+read_traefik_https_port() {
+  echo "" > /dev/stderr
+  echo "请输入 Traefik 对外 HTTPS 端口。" > /dev/stderr
+  echo "该端口会用于访问 Cloink，例如 https://$NETBIRD_DOMAIN:8443。" > /dev/stderr
+  echo -n "HTTPS 端口（默认：8443）： " > /dev/stderr
+  read -r PORT < /dev/tty
+  if [[ -z "$PORT" ]]; then
+    PORT="8443"
+  fi
+  if [[ ! "$PORT" =~ ^[0-9]+$ ]] || (( PORT < 1 || PORT > 65535 )); then
+    echo "端口无效，请输入 1 到 65535 之间的数字。" > /dev/stderr
+    read_traefik_https_port
+    return
+  fi
+  if [[ "$PORT" == "443" ]]; then
+    echo "该选项用于不使用 443 端口，请输入其他 HTTPS 端口。" > /dev/stderr
+    read_traefik_https_port
+    return
+  fi
+  echo "$PORT"
+  return 0
+}
+
+read_traefik_dns_provider() {
+  echo "" > /dev/stderr
+  echo "请输入 Traefik/lego 使用的 DNS provider 名称。" > /dev/stderr
+  echo "示例：cloudflare、alidns、dnspod、route53。" > /dev/stderr
+  echo -n "DNS provider： " > /dev/stderr
+  read -r PROVIDER < /dev/tty
+  if [[ -z "$PROVIDER" ]]; then
+    echo "DNS provider 不能为空。" > /dev/stderr
+    read_traefik_dns_provider
+    return
+  fi
+  echo "$PROVIDER"
+  return 0
+}
+
+read_traefik_dns_env_name() {
+  echo "" > /dev/stderr
+  echo "请输入 DNS provider 所需的 API token 环境变量名。" > /dev/stderr
+  echo "示例：Cloudflare 使用 CF_DNS_API_TOKEN；阿里云通常使用 ALICLOUD_ACCESS_KEY 和 ALICLOUD_SECRET_KEY。" > /dev/stderr
+  echo "如果你的 provider 需要多个变量，请安装后手动编辑 docker-compose.yml 的 traefik.environment。" > /dev/stderr
+  echo -n "环境变量名： " > /dev/stderr
+  read -r ENV_NAME < /dev/tty
+  if [[ -z "$ENV_NAME" ]]; then
+    echo "环境变量名不能为空。" > /dev/stderr
+    read_traefik_dns_env_name
+    return
+  fi
+  echo "$ENV_NAME"
+  return 0
+}
+
+read_traefik_dns_env_value() {
+  local env_name="$1"
+  echo "" > /dev/stderr
+  echo "请输入 $env_name 的值。该值会写入 docker-compose.yml，请妥善保管文件权限。" > /dev/stderr
+  echo -n "$env_name： " > /dev/stderr
+  read -r ENV_VALUE < /dev/tty
+  if [[ -z "$ENV_VALUE" ]]; then
+    echo "$env_name 不能为空。" > /dev/stderr
+    read_traefik_dns_env_value "$env_name"
+    return
+  fi
+  echo "$ENV_VALUE"
+  return 0
+}
+
 get_bind_address() {
   if [[ "$BIND_LOCALHOST_ONLY" == "true" ]]; then
     echo "127.0.0.1"
@@ -249,7 +319,7 @@ wait_management_proxy() {
   counter=1
   while true; do
     # Check the embedded IdP endpoint through the reverse proxy
-    if curl -sk -f -o /dev/null "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/oauth2/.well-known/openid-configuration" 2>/dev/null; then
+    if curl -sk -f -o /dev/null "$NETBIRD_PUBLIC_URL/oauth2/.well-known/openid-configuration" 2>/dev/null; then
       break
     fi
     if [[ $counter -eq 60 ]]; then
@@ -304,6 +374,7 @@ wait_management_direct() {
 initialize_default_values() {
   NETBIRD_PORT=80
   NETBIRD_HTTP_PROTOCOL="http"
+  NETBIRD_PUBLIC_URL=""
   NETBIRD_RELAY_PROTO="rel"
   NETBIRD_RELAY_AUTH_SECRET=$(openssl rand -base64 32 | sed "$SED_STRIP_PADDING")
   # Note: DataStoreEncryptionKey must keep base64 padding (=) for Go's base64.StdEncoding
@@ -322,6 +393,11 @@ initialize_default_values() {
   TRAEFIK_ENTRYPOINT="websecure"
   TRAEFIK_CERTRESOLVER=""
   TRAEFIK_ACME_EMAIL=""
+  TRAEFIK_HTTPS_PORT="443"
+  TRAEFIK_ACME_CHALLENGE="tls"
+  TRAEFIK_DNS_PROVIDER=""
+  TRAEFIK_DNS_ENV_NAME=""
+  TRAEFIK_DNS_ENV_VALUE=""
   DASHBOARD_HOST_PORT="8080"
   MANAGEMENT_HOST_PORT="8081"  # Combined server port (management + signal + relay)
   BIND_LOCALHOST_ONLY="true"
@@ -348,11 +424,13 @@ configure_domain() {
   if [[ "$NETBIRD_DOMAIN" == "use-ip" ]]; then
     NETBIRD_DOMAIN=$(get_main_ip_address)
     BASE_DOMAIN=$NETBIRD_DOMAIN
+    NETBIRD_PUBLIC_URL="$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN"
   else
     NETBIRD_PORT=443
     NETBIRD_HTTP_PROTOCOL="https"
     NETBIRD_RELAY_PROTO="rels"
     BASE_DOMAIN=$(echo $NETBIRD_DOMAIN | sed -E 's/^[^.]+\.//')
+    NETBIRD_PUBLIC_URL="$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN"
   fi
   return 0
 }
@@ -370,6 +448,28 @@ configure_reverse_proxy() {
     fi
   fi
 
+  # Handle built-in Traefik with custom HTTPS port and DNS-01 challenge (option 6)
+  if [[ "$REVERSE_PROXY_TYPE" == "6" ]]; then
+    if [[ "$NETBIRD_DOMAIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ || "$NETBIRD_DOMAIN" == *:* ]]; then
+      echo "Traefik DNS 验证需要域名，不能使用 IP 地址或 use-ip 模式。" > /dev/stderr
+      exit 1
+    fi
+    TRAEFIK_ACME_EMAIL=$(read_traefik_acme_email)
+    TRAEFIK_HTTPS_PORT=$(read_traefik_https_port)
+    NETBIRD_PORT="$TRAEFIK_HTTPS_PORT"
+    NETBIRD_HTTP_PROTOCOL="https"
+    NETBIRD_RELAY_PROTO="rels"
+    NETBIRD_PUBLIC_URL="$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN:$NETBIRD_PORT"
+    TRAEFIK_ACME_CHALLENGE="dns"
+    TRAEFIK_DNS_PROVIDER=$(read_traefik_dns_provider)
+    TRAEFIK_DNS_ENV_NAME=$(read_traefik_dns_env_name)
+    TRAEFIK_DNS_ENV_VALUE=$(read_traefik_dns_env_value "$TRAEFIK_DNS_ENV_NAME")
+    ENABLE_PROXY=$(read_enable_proxy)
+    if [[ "$ENABLE_PROXY" == "true" ]]; then
+      ENABLE_CROWDSEC=$(read_enable_crowdsec)
+    fi
+  fi
+
   # Handle external Traefik-specific prompts (option 1)
   if [[ "$REVERSE_PROXY_TYPE" == "1" ]]; then
     TRAEFIK_EXTERNAL_NETWORK=$(read_traefik_network)
@@ -378,7 +478,7 @@ configure_reverse_proxy() {
   fi
 
   # Handle port binding for external proxy options (2-5)
-  if [[ "$REVERSE_PROXY_TYPE" -ge 2 ]]; then
+  if [[ "$REVERSE_PROXY_TYPE" -ge 2 && "$REVERSE_PROXY_TYPE" != "6" ]]; then
     BIND_LOCALHOST_ONLY=$(read_port_binding_preference)
   fi
 
@@ -409,7 +509,7 @@ generate_configuration_files() {
 
   # Render docker-compose and proxy config based on selection
   case "$REVERSE_PROXY_TYPE" in
-    0)
+    0|6)
       render_docker_compose_traefik_builtin > docker-compose.yml
       if [[ "$ENABLE_PROXY" == "true" ]]; then
         # Create placeholder proxy.env so docker-compose can validate
@@ -457,7 +557,7 @@ start_services_and_show_instructions() {
   # For built-in Traefik, start containers immediately
   # For NPM, start containers first (NPM needs services running to create proxy)
   # For other external proxies, show instructions first and wait for user confirmation
-  if [[ "$REVERSE_PROXY_TYPE" == "0" ]]; then
+  if [[ "$REVERSE_PROXY_TYPE" == "0" || "$REVERSE_PROXY_TYPE" == "6" ]]; then
     # Built-in Traefik - two-phase startup if proxy is enabled
     echo -e "$MSG_STARTING_SERVICES"
 
@@ -543,7 +643,7 @@ start_services_and_show_instructions() {
     print_post_setup_instructions
     echo ""
     echo "Cloink 容器已运行。Traefik 接入后，可通过以下地址访问控制台："
-    echo "  $NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN"
+    echo "  $NETBIRD_PUBLIC_URL"
   elif [[ "$REVERSE_PROXY_TYPE" == "3" ]]; then
     # NPM - start containers first, then show instructions
     # NPM requires backend services to be running before creating proxy hosts
@@ -557,7 +657,7 @@ start_services_and_show_instructions() {
     print_post_setup_instructions
     echo ""
     echo "Cloink 容器已运行。按上面的说明配置 NPM 后，可通过以下地址访问："
-    echo "  $NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN"
+    echo "  $NETBIRD_PUBLIC_URL"
   else
     # External proxies (nginx, external Caddy, other) - need manual config first
     print_post_setup_instructions
@@ -574,7 +674,7 @@ start_services_and_show_instructions() {
 
     echo -e "$MSG_DONE"
     echo "Cloink 已运行，可通过以下地址访问控制台："
-    echo "  $NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN"
+    echo "  $NETBIRD_PUBLIC_URL"
   fi
   return 0
 }
@@ -605,6 +705,25 @@ render_docker_compose_traefik_builtin() {
   local crowdsec_volumes=""
   local traefik_file_provider=""
   local traefik_dynamic_volume=""
+  local traefik_acme_challenge='      - "--certificatesresolvers.letsencrypt.acme.tlschallenge=true"'
+  local traefik_dns_environment=""
+  local traefik_web_entrypoint='      - "--entrypoints.web.address=:80"'
+  local traefik_redirect="
+      - \"--entrypoints.web.http.redirections.entrypoint.to=$TRAEFIK_ENTRYPOINT\"
+      - \"--entrypoints.web.http.redirections.entrypoint.scheme=https\""
+  local traefik_http_port="      - '80:80'"
+
+  if [[ "$TRAEFIK_ACME_CHALLENGE" == "dns" ]]; then
+    traefik_acme_challenge="      - \"--certificatesresolvers.letsencrypt.acme.dnschallenge=true\"
+      - \"--certificatesresolvers.letsencrypt.acme.dnschallenge.provider=$TRAEFIK_DNS_PROVIDER\""
+    traefik_dns_environment="
+    environment:
+      $TRAEFIK_DNS_ENV_NAME: \"$TRAEFIK_DNS_ENV_VALUE\""
+    traefik_web_entrypoint=""
+    traefik_redirect=""
+    traefik_http_port=""
+  fi
+
   if [[ "$ENABLE_PROXY" == "true" ]]; then
     traefik_file_provider='      - "--providers.file.filename=/etc/traefik/dynamic.yaml"'
     traefik_dynamic_volume="      - ./traefik-dynamic.yaml:/etc/traefik/dynamic.yaml:ro"
@@ -637,7 +756,7 @@ render_docker_compose_traefik_builtin() {
     labels:
       # TCP passthrough for any unmatched domain (proxy handles its own TLS)
       - traefik.enable=true
-      - traefik.tcp.routers.proxy-passthrough.entrypoints=websecure
+      - traefik.tcp.routers.proxy-passthrough.entrypoints=$TRAEFIK_ENTRYPOINT
       - traefik.tcp.routers.proxy-passthrough.rule=HostSNI(\`*\`)
       - traefik.tcp.routers.proxy-passthrough.tls.passthrough=true
       - traefik.tcp.routers.proxy-passthrough.service=proxy-tls
@@ -702,27 +821,27 @@ services:
       - "--providers.docker.exposedbydefault=false"
       - "--providers.docker.network=netbird"
       # Entrypoints
-      - "--entrypoints.web.address=:80"
-      - "--entrypoints.websecure.address=:443"
-      - "--entrypoints.websecure.allowACMEByPass=true"
+${traefik_web_entrypoint}
+      - "--entrypoints.$TRAEFIK_ENTRYPOINT.address=:443"
+      - "--entrypoints.$TRAEFIK_ENTRYPOINT.allowACMEByPass=true"
       # Disable timeouts for long-lived gRPC streams
-      - "--entrypoints.websecure.transport.respondingTimeouts.readTimeout=0"
-      - "--entrypoints.websecure.transport.respondingTimeouts.writeTimeout=0"
-      - "--entrypoints.websecure.transport.respondingTimeouts.idleTimeout=0"
+      - "--entrypoints.$TRAEFIK_ENTRYPOINT.transport.respondingTimeouts.readTimeout=0"
+      - "--entrypoints.$TRAEFIK_ENTRYPOINT.transport.respondingTimeouts.writeTimeout=0"
+      - "--entrypoints.$TRAEFIK_ENTRYPOINT.transport.respondingTimeouts.idleTimeout=0"
       # HTTP to HTTPS redirect
-      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
-      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+${traefik_redirect}
       # Let's Encrypt ACME
       - "--certificatesresolvers.letsencrypt.acme.email=$TRAEFIK_ACME_EMAIL"
       - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
-      - "--certificatesresolvers.letsencrypt.acme.tlschallenge=true"
+${traefik_acme_challenge}
       # gRPC transport settings
       - "--serverstransport.forwardingtimeouts.responseheadertimeout=0s"
       - "--serverstransport.forwardingtimeouts.idleconntimeout=0s"
 $traefik_file_provider
+${traefik_dns_environment}
     ports:
-      - '443:443'
-      - '80:80'
+      - '$TRAEFIK_HTTPS_PORT:443'
+${traefik_http_port}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - netbird_traefik_letsencrypt:/letsencrypt
@@ -744,7 +863,7 @@ $traefik_dynamic_volume
     labels:
       - traefik.enable=true
       - traefik.http.routers.netbird-dashboard.rule=Host(\`$NETBIRD_DOMAIN\`)
-      - traefik.http.routers.netbird-dashboard.entrypoints=websecure
+      - traefik.http.routers.netbird-dashboard.entrypoints=$TRAEFIK_ENTRYPOINT
       - traefik.http.routers.netbird-dashboard.tls=true
       - traefik.http.routers.netbird-dashboard.tls.certresolver=letsencrypt
       - traefik.http.routers.netbird-dashboard.service=dashboard
@@ -772,14 +891,14 @@ $traefik_dynamic_volume
       - traefik.enable=true
       # gRPC router (needs h2c backend for HTTP/2 cleartext)
       - traefik.http.routers.netbird-grpc.rule=Host(\`$NETBIRD_DOMAIN\`) && (PathPrefix(\`/signalexchange.SignalExchange/\`) || PathPrefix(\`/management.ManagementService/\`) || PathPrefix(\`/flow.FlowService/\`))
-      - traefik.http.routers.netbird-grpc.entrypoints=websecure
+      - traefik.http.routers.netbird-grpc.entrypoints=$TRAEFIK_ENTRYPOINT
       - traefik.http.routers.netbird-grpc.tls=true
       - traefik.http.routers.netbird-grpc.tls.certresolver=letsencrypt
       - traefik.http.routers.netbird-grpc.service=netbird-server-h2c
       - traefik.http.routers.netbird-grpc.priority=100
       # Backend router (relay, WebSocket, log APIs, API, OAuth2)
       - traefik.http.routers.netbird-backend.rule=Host(\`$NETBIRD_DOMAIN\`) && (Path(\`/relay\`) || PathPrefix(\`/relay/\`) || PathPrefix(\`/ws-proxy/\`) || PathPrefix(\`/api/events/audit\`) || PathPrefix(\`/api/events/proxy\`) || PathPrefix(\`/api/events/dns\`) || PathPrefix(\`/api/events/network-traffic\`) || PathPrefix(\`/api\`) || PathPrefix(\`/oauth2\`))
-      - traefik.http.routers.netbird-backend.entrypoints=websecure
+      - traefik.http.routers.netbird-backend.entrypoints=$TRAEFIK_ENTRYPOINT
       - traefik.http.routers.netbird-backend.tls=true
       - traefik.http.routers.netbird-backend.tls.certresolver=letsencrypt
       - traefik.http.routers.netbird-backend.service=netbird-server
@@ -816,7 +935,7 @@ render_combined_yaml() {
 
 server:
   listenAddress: ":80"
-  exposedAddress: "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN:$NETBIRD_PORT"
+  exposedAddress: "$NETBIRD_PUBLIC_URL"
   stunPorts:
     - $NETBIRD_STUN_PORT
   metricsPort: 9090
@@ -828,11 +947,11 @@ server:
   dataDir: "/var/lib/netbird"
 
   auth:
-    issuer: "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/oauth2"
+    issuer: "$NETBIRD_PUBLIC_URL/oauth2"
     signKeyRefreshEnabled: true
     dashboardRedirectURIs:
-      - "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/nb-auth"
-      - "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/nb-silent-auth"
+      - "$NETBIRD_PUBLIC_URL/nb-auth"
+      - "$NETBIRD_PUBLIC_URL/nb-silent-auth"
     cliRedirectURIs:
       - "http://localhost:53000/"
 
@@ -849,19 +968,19 @@ EOF
 render_dashboard_env() {
   cat <<EOF
 # Endpoints
-NETBIRD_MGMT_API_ENDPOINT=$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN
-NETBIRD_MGMT_GRPC_API_ENDPOINT=$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN
+NETBIRD_MGMT_API_ENDPOINT=$NETBIRD_PUBLIC_URL
+NETBIRD_MGMT_GRPC_API_ENDPOINT=$NETBIRD_PUBLIC_URL
 # OIDC - using embedded IdP
 AUTH_AUDIENCE=netbird-dashboard
 AUTH_CLIENT_ID=netbird-dashboard
 AUTH_CLIENT_SECRET=
-AUTH_AUTHORITY=$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/oauth2
+AUTH_AUTHORITY=$NETBIRD_PUBLIC_URL/oauth2
 USE_AUTH0=false
 AUTH_SUPPORTED_SCOPES=openid profile email groups
 AUTH_REDIRECT_URI=/nb-auth
 AUTH_SILENT_REDIRECT_URI=/nb-silent-auth
 # SSL
-NGINX_SSL_PORT=443
+NGINX_SSL_PORT=$NETBIRD_PORT
 # Letsencrypt
 LETSENCRYPT_DOMAIN=none
 EOF
@@ -1291,16 +1410,23 @@ print_builtin_traefik_instructions() {
   echo "$MSG_SEPARATOR"
   echo ""
   echo "你现在可以访问 Cloink 控制台："
-  echo "  $NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN"
+  echo "  $NETBIRD_PUBLIC_URL"
   echo ""
   echo "请按照控制台引导完成 Cloink 初始化。"
   echo ""
-  echo "Traefik 会通过 Let's Encrypt 自动处理 TLS 证书。"
+  if [[ "$TRAEFIK_ACME_CHALLENGE" == "dns" ]]; then
+    echo "Traefik 会通过 Let's Encrypt DNS-01 验证自动处理 TLS 证书。"
+    echo "DNS provider: $TRAEFIK_DNS_PROVIDER"
+  else
+    echo "Traefik 会通过 Let's Encrypt 自动处理 TLS 证书。"
+  fi
   echo "如果看到证书警告，请稍等片刻，等待证书签发完成。"
   echo ""
   echo "需要开放的端口："
-  echo "  - 443/tcp   (HTTPS - 所有 Cloink 服务)"
-  echo "  - 80/tcp    (HTTP - 重定向到 HTTPS)"
+  echo "  - $TRAEFIK_HTTPS_PORT/tcp   (HTTPS - 所有 Cloink 服务)"
+  if [[ "$TRAEFIK_ACME_CHALLENGE" != "dns" ]]; then
+    echo "  - 80/tcp    (HTTP - 重定向到 HTTPS)"
+  fi
   echo "  - $NETBIRD_STUN_PORT/udp   (STUN - NAT 穿透必需)"
   if [[ "$ENABLE_PROXY" == "true" ]]; then
     echo "  - 51820/udp (WIREGUARD - 可选，用于 P2P 代理连接)"
@@ -1525,7 +1651,7 @@ print_manual_instructions() {
 
 print_post_setup_instructions() {
   case "$REVERSE_PROXY_TYPE" in
-    0)
+    0|6)
       print_builtin_traefik_instructions
       ;;
     1)
