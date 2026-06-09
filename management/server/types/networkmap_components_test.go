@@ -114,7 +114,8 @@ func TestNetworkMapComponents_UserSourceConnectivity(t *testing.T) {
 
 func TestNetworkMapComponents_UserGroupSourceConnectivity(t *testing.T) {
 	account := createComponentTestAccount()
-	account.Users["user-1"].AutoGroups = []string{"engineering"}
+	account.Groups["engineering"] = &types.Group{ID: "engineering", Name: "Engineering", Type: types.GroupTypeUser}
+	account.Users["user-1"].UserGroups = []string{"engineering"}
 	account.Policies = []*types.Policy{{
 		ID: "policy-user-group-source", Name: "User group source connectivity", Enabled: true, AccountID: account.Id,
 		Rules: []*types.PolicyRule{{
@@ -129,7 +130,7 @@ func TestNetworkMapComponents_UserGroupSourceConnectivity(t *testing.T) {
 	nm := networkMapFromComponents(t, account, "peer-src-1", validated)
 	assert.Contains(t, peerIDs(nm.Peers), "peer-dst-1", "user group member device should inherit user group policy")
 
-	account.Users["user-1"].AutoGroups = []string{"support"}
+	account.Users["user-1"].UserGroups = []string{"support"}
 	nmAfterRemoval := networkMapFromComponents(t, account, "peer-src-1", validated)
 	assert.NotContains(t, peerIDs(nmAfterRemoval.Peers), "peer-dst-1", "removed user group membership should remove inherited access")
 }
@@ -137,7 +138,8 @@ func TestNetworkMapComponents_UserGroupSourceConnectivity(t *testing.T) {
 func TestNetworkMapComponents_BlockedUserSourceHasNoConnectivity(t *testing.T) {
 	account := createComponentTestAccount()
 	account.Users["user-1"].Blocked = true
-	account.Users["user-1"].AutoGroups = []string{"engineering"}
+	account.Groups["engineering"] = &types.Group{ID: "engineering", Name: "Engineering", Type: types.GroupTypeUser}
+	account.Users["user-1"].UserGroups = []string{"engineering"}
 	account.Policies = []*types.Policy{{
 		ID: "policy-blocked-user-source", Name: "Blocked user source connectivity", Enabled: true, AccountID: account.Id,
 		Rules: []*types.PolicyRule{{
@@ -156,7 +158,8 @@ func TestNetworkMapComponents_BlockedUserSourceHasNoConnectivity(t *testing.T) {
 
 func TestNetworkMapBuilder_UserSourceConnectivity(t *testing.T) {
 	account := createComponentTestAccount()
-	account.Users["user-1"].AutoGroups = []string{"engineering"}
+	account.Groups["engineering"] = &types.Group{ID: "engineering", Name: "Engineering", Type: types.GroupTypeUser}
+	account.Users["user-1"].UserGroups = []string{"engineering"}
 	account.Policies = []*types.Policy{{
 		ID: "policy-builder-user-source", Name: "Builder user source connectivity", Enabled: true, AccountID: account.Id,
 		Rules: []*types.PolicyRule{{
@@ -179,6 +182,37 @@ func TestNetworkMapBuilder_UserSourceConnectivity(t *testing.T) {
 	)
 
 	assert.Contains(t, peerIDs(nm.Peers), "peer-dst-1", "cached builder should inherit user and user-group source policy")
+}
+
+func TestNetworkMapComponents_NetworkResourceRoutes_UserGroupSource(t *testing.T) {
+	account := createComponentTestAccount()
+	account.Groups["engineering"] = &types.Group{ID: "engineering", Name: "Engineering", Type: types.GroupTypeUser}
+	account.Users["user-1"].UserGroups = []string{"engineering"}
+	account.Policies = []*types.Policy{{
+		ID: "policy-user-group-resource", Name: "User group resource access", Enabled: true, AccountID: account.Id,
+		Rules: []*types.PolicyRule{{
+			ID: "rule-user-group-resource", Name: "engineering -> resource", Enabled: true,
+			Action: types.PolicyTrafficActionAccept, Protocol: types.PolicyRuleProtocolALL,
+			SourceUserGroups:    []string{"engineering"},
+			DestinationResource: types.Resource{ID: "resource-1"},
+		}},
+	}}
+	validated := allPeersValidated(account)
+
+	nm := networkMapFromComponents(t, account, "peer-src-1", validated)
+
+	var hasResourceRoute bool
+	for _, r := range nm.Routes {
+		if r.Network.String() == "10.200.0.1/32" {
+			hasResourceRoute = true
+			break
+		}
+	}
+	assert.True(t, hasResourceRoute, "user group member device should receive route to network resource")
+	assert.Contains(t, peerIDs(nm.Peers), "peer-router-1", "user group member device should see the resource routing peer")
+
+	routerMap := networkMapFromComponents(t, account, "peer-router-1", validated)
+	assert.NotEmpty(t, routerMap.RoutesFirewallRules, "router peer should allow user group source peers to the resource")
 }
 
 func TestNetworkMapComponents_FirewallRules(t *testing.T) {

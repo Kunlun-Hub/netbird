@@ -786,31 +786,16 @@ func (c *NetworkMapComponents) getRouteFirewallRules(ctx context.Context, peerID
 
 func (c *NetworkMapComponents) getRulePeers(rule *PolicyRule, postureChecks []string, peerID string, distributionPeers map[string]struct{}) []*nbpeer.Peer {
 	distPeersWithPolicy := make(map[string]struct{})
-	for _, id := range rule.Sources {
-		group := c.GetGroupInfo(id)
-		if group == nil {
+	for _, pID := range c.getResourceRuleSourcePeers(rule) {
+		if pID == peerID {
 			continue
 		}
-
-		for _, pID := range group.Peers {
-			if pID == peerID {
-				continue
-			}
-			_, distPeer := distributionPeers[pID]
-			_, valid := c.Peers[pID]
-			if distPeer && valid && c.ValidatePostureChecksOnPeer(pID, postureChecks) {
-				distPeersWithPolicy[pID] = struct{}{}
-			}
+		_, distPeer := distributionPeers[pID]
+		_, valid := c.Peers[pID]
+		if distPeer && valid && c.ValidatePostureChecksOnPeer(pID, postureChecks) {
+			distPeersWithPolicy[pID] = struct{}{}
 		}
 	}
-	if rule.SourceResource.Type == ResourceTypePeer && rule.SourceResource.ID != "" {
-		_, distPeer := distributionPeers[rule.SourceResource.ID]
-		_, valid := c.Peers[rule.SourceResource.ID]
-		if distPeer && valid && c.ValidatePostureChecksOnPeer(rule.SourceResource.ID, postureChecks) {
-			distPeersWithPolicy[rule.SourceResource.ID] = struct{}{}
-		}
-	}
-
 	distributionGroupPeers := make([]*nbpeer.Peer, 0, len(distPeersWithPolicy))
 	for pID := range distPeersWithPolicy {
 		peerInfo := c.GetPeerInfo(pID)
@@ -879,10 +864,42 @@ func (c *NetworkMapComponents) processResourcePolicies(
 }
 
 func (c *NetworkMapComponents) getResourcePolicyPeers(policy *Policy) []string {
-	return append(
-		policy.SourceResourcePeers(),
-		c.getUniquePeerIDsFromGroupsIDs(policy.SourceGroups())...,
-	)
+	peers := make(map[string]struct{})
+	for _, rule := range policy.Rules {
+		for _, peerID := range c.getResourceRuleSourcePeers(rule) {
+			peers[peerID] = struct{}{}
+		}
+	}
+
+	peerIDs := make([]string, 0, len(peers))
+	for peerID := range peers {
+		peerIDs = append(peerIDs, peerID)
+	}
+	return peerIDs
+}
+
+func (c *NetworkMapComponents) getResourceRuleSourcePeers(rule *PolicyRule) []string {
+	sourcePeers := make(map[string]struct{})
+	if rule.SourceResource.Type == ResourceTypePeer && rule.SourceResource.ID != "" {
+		sourcePeers[rule.SourceResource.ID] = struct{}{}
+	}
+	for _, peerID := range c.getUniquePeerIDsFromGroupsIDs(rule.Sources) {
+		sourcePeers[peerID] = struct{}{}
+	}
+	userPeers, _ := c.getAllPeersFromUsers(rule.SourceUsers, "", nil)
+	for _, peer := range userPeers {
+		sourcePeers[peer.ID] = struct{}{}
+	}
+	userGroupPeers, _ := c.getAllPeersFromUserGroups(rule.SourceUserGroups, "", nil)
+	for _, peer := range userGroupPeers {
+		sourcePeers[peer.ID] = struct{}{}
+	}
+
+	peerIDs := make([]string, 0, len(sourcePeers))
+	for peerID := range sourcePeers {
+		peerIDs = append(peerIDs, peerID)
+	}
+	return peerIDs
 }
 
 func (c *NetworkMapComponents) getNetworkResourcesRoutes(resource *resourceTypes.NetworkResource, peerID string, router *routerTypes.NetworkRouter) []*route.Route {
@@ -992,19 +1009,8 @@ func (c *NetworkMapComponents) getPoliciesSourcePeers(policies []*Policy) map[st
 
 	for _, policy := range policies {
 		for _, rule := range policy.Rules {
-			for _, sourceGroup := range rule.Sources {
-				group := c.GetGroupInfo(sourceGroup)
-				if group == nil {
-					continue
-				}
-
-				for _, peer := range group.Peers {
-					sourcePeers[peer] = struct{}{}
-				}
-			}
-
-			if rule.SourceResource.Type == ResourceTypePeer && rule.SourceResource.ID != "" {
-				sourcePeers[rule.SourceResource.ID] = struct{}{}
+			for _, peerID := range c.getResourceRuleSourcePeers(rule) {
+				sourcePeers[peerID] = struct{}{}
 			}
 		}
 	}

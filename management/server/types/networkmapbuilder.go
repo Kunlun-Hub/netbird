@@ -1089,30 +1089,15 @@ func (b *NetworkMapBuilder) getRulePeers(
 ) []*nbpeer.Peer {
 	distPeersWithPolicy := make(map[string]struct{})
 
-	for _, id := range rule.Sources {
-		groupPeers := b.cache.groupToPeers[id]
-		if groupPeers == nil {
+	for _, pID := range b.getResourceRuleSourcePeers(account, rule) {
+		if pID == peerID {
 			continue
 		}
+		_, distPeer := distributionPeers[pID]
+		_, valid := validatedPeersMap[pID]
 
-		for _, pID := range groupPeers {
-			if pID == peerID {
-				continue
-			}
-			_, distPeer := distributionPeers[pID]
-			_, valid := validatedPeersMap[pID]
-
-			if distPeer && valid && account.validatePostureChecksOnPeer(context.Background(), postureChecks, pID) {
-				distPeersWithPolicy[pID] = struct{}{}
-			}
-		}
-	}
-
-	if rule.SourceResource.Type == ResourceTypePeer && rule.SourceResource.ID != "" {
-		_, distPeer := distributionPeers[rule.SourceResource.ID]
-		_, valid := validatedPeersMap[rule.SourceResource.ID]
-		if distPeer && valid && account.validatePostureChecksOnPeer(context.Background(), postureChecks, rule.SourceResource.ID) {
-			distPeersWithPolicy[rule.SourceResource.ID] = struct{}{}
+		if distPeer && valid && account.validatePostureChecksOnPeer(context.Background(), postureChecks, pID) {
+			distPeersWithPolicy[pID] = struct{}{}
 		}
 	}
 
@@ -1125,6 +1110,30 @@ func (b *NetworkMapBuilder) getRulePeers(
 		distributionGroupPeers = append(distributionGroupPeers, peer)
 	}
 	return distributionGroupPeers
+}
+
+func (b *NetworkMapBuilder) getResourceRuleSourcePeers(account *Account, rule *PolicyRule) []string {
+	sourcePeers := make(map[string]struct{})
+	if rule.SourceResource.Type == ResourceTypePeer && rule.SourceResource.ID != "" {
+		sourcePeers[rule.SourceResource.ID] = struct{}{}
+	}
+	for _, groupID := range rule.Sources {
+		for _, peerID := range b.cache.groupToPeers[groupID] {
+			sourcePeers[peerID] = struct{}{}
+		}
+	}
+	for _, peer := range b.getPeersFromUsersCached(account, rule.SourceUsers, "", nil, b.validatedPeers) {
+		sourcePeers[peer.ID] = struct{}{}
+	}
+	for _, peer := range b.getPeersFromUserGroupsCached(account, rule.SourceUserGroups, "", nil, b.validatedPeers) {
+		sourcePeers[peer.ID] = struct{}{}
+	}
+
+	peerIDs := make([]string, 0, len(sourcePeers))
+	for peerID := range sourcePeers {
+		peerIDs = append(peerIDs, peerID)
+	}
+	return peerIDs
 }
 
 func (b *NetworkMapBuilder) buildPeerDNSView(account *Account, peerID string) {
