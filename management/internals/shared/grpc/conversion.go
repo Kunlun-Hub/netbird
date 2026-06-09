@@ -3,6 +3,7 @@ package grpc
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/netip"
 	"net/url"
 	"os"
@@ -35,14 +36,6 @@ import (
 func toNetbirdConfig(config *nbconfig.Config, turnCredentials *Token, relayToken *Token, settings *types.Settings, peerID string, peerGroups []string) *proto.NetbirdConfig {
 	if config == nil {
 		return nil
-	}
-
-	var stuns []*proto.HostConfig
-	for _, stun := range config.Stuns {
-		stuns = append(stuns, &proto.HostConfig{
-			Uri:      stun.URI,
-			Protocol: ToResponseProto(stun.Proto),
-		})
 	}
 
 	var turns []*proto.ProtectedHostConfig
@@ -88,7 +81,7 @@ func toNetbirdConfig(config *nbconfig.Config, turnCredentials *Token, relayToken
 	}
 
 	nbConfig := &proto.NetbirdConfig{
-		Stuns:  stuns,
+		Stuns:  stunConfigs(config.Stuns, relays),
 		Turns:  turns,
 		Signal: signalCfg,
 		Relay:  relayCfg,
@@ -120,6 +113,139 @@ func relayConfigFromDescriptors(relays []relayhandler.RelayServerDescriptor) *pr
 		})
 	}
 	return relayCfg
+}
+
+func stunConfigs(configuredStuns []*nbconfig.Host, relays []relayhandler.RelayServerDescriptor) []*proto.HostConfig {
+	var stuns []*proto.HostConfig
+	seen := make(map[string]struct{}, len(configuredStuns)+len(relays))
+	for _, stun := range configuredStuns {
+		if stun == nil || stun.URI == "" {
+			continue
+		}
+		if _, ok := seen[stun.URI]; ok {
+			continue
+		}
+		seen[stun.URI] = struct{}{}
+		stuns = append(stuns, &proto.HostConfig{
+			Uri:      stun.URI,
+			Protocol: ToResponseProto(stun.Proto),
+		})
+	}
+
+	for _, relay := range relays {
+		for _, stun := range deriveRelayStuns(relay.Address, configuredStuns) {
+			if _, ok := seen[stun.URI]; ok {
+				continue
+			}
+			seen[stun.URI] = struct{}{}
+			stuns = append(stuns, &proto.HostConfig{
+				Uri:      stun.URI,
+				Protocol: ToResponseProto(stun.Proto),
+			})
+		}
+	}
+	return stuns
+}
+
+func deriveRelayStuns(relayAddress string, configuredStuns []*nbconfig.Host) []*nbconfig.Host {
+	relayHost := relayHostname(relayAddress)
+	if relayHost == "" {
+		return nil
+	}
+
+	templates := stunTemplates(configuredStuns)
+	stuns := make([]*nbconfig.Host, 0, len(templates))
+	for _, template := range templates {
+		stuns = append(stuns, &nbconfig.Host{
+			URI:   fmt.Sprintf("%s:%s", template.scheme, net.JoinHostPort(relayHost, template.port)),
+			Proto: template.proto,
+		})
+	}
+	return stuns
+}
+
+func relayHostname(relayAddress string) string {
+	relayURL, err := url.Parse(relayAddress)
+	if err == nil && relayURL.Host != "" {
+		return relayURL.Hostname()
+	}
+
+	host, _, err := net.SplitHostPort(relayAddress)
+	if err == nil {
+		return host
+	}
+
+	return ""
+}
+
+type stunTemplate struct {
+	scheme string
+	port   string
+	proto  nbconfig.Protocol
+}
+
+func stunTemplates(configuredStuns []*nbconfig.Host) []stunTemplate {
+	templates := make([]stunTemplate, 0, len(configuredStuns))
+	seen := make(map[string]struct{}, len(configuredStuns))
+	for _, stun := range configuredStuns {
+		if stun == nil || stun.URI == "" {
+			continue
+		}
+
+		scheme, _, port, ok := parseStunURI(stun.URI)
+		if !ok {
+			continue
+		}
+		key := scheme + ":" + port
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		templates = append(templates, stunTemplate{
+			scheme: scheme,
+			port:   port,
+			proto:  stun.Proto,
+		})
+	}
+
+	if len(templates) == 0 {
+		return []stunTemplate{{
+			scheme: "stun",
+			port:   "3478",
+			proto:  nbconfig.UDP,
+		}}
+	}
+	return templates
+}
+
+func parseStunURI(uri string) (scheme, host, port string, ok bool) {
+	stunURL, err := url.Parse(uri)
+	if err == nil && stunURL.Host != "" {
+		scheme = stunURL.Scheme
+		host = stunURL.Hostname()
+		port = stunURL.Port()
+	} else {
+		var rest string
+		scheme, rest, ok = strings.Cut(uri, ":")
+		if !ok {
+			return "", "", "", false
+		}
+		host, port, err = net.SplitHostPort(rest)
+		if err != nil {
+			return "", "", "", false
+		}
+	}
+
+	if scheme == "" {
+		scheme = "stun"
+	}
+	if host == "" {
+		return "", "", "", false
+	}
+	if port == "" {
+		port = "3478"
+	}
+	return scheme, host, port, true
 }
 
 func buildFlowConfig(config *nbconfig.Config, relayToken *Token, extraSettings *types.ExtraSettings) *proto.FlowConfig {

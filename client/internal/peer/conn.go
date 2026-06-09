@@ -136,6 +136,9 @@ type Conn struct {
 	// Connection stage timestamps for metrics
 	metricsRecorder MetricsRecorder
 	metricsStages   *MetricsStages
+
+	relayRacePolicy relayRacePolicy
+	p2pFailureCache *p2pFailureCache
 }
 
 // NewConn creates a new not opened Conn to the remote peer.
@@ -163,6 +166,8 @@ func NewConn(config ConnConfig, services ServiceDependencies) (*Conn, error) {
 		endpointUpdater:    NewEndpointUpdater(connLog, config.WgConfig, isController(config)),
 		wgWatcher:          NewWGWatcher(connLog, config.WgConfig.WgInterface, config.Key, dumpState),
 		metricsRecorder:    services.MetricsRecorder,
+		relayRacePolicy:    defaultRelayRacePolicy(),
+		p2pFailureCache:    globalP2PFailureCache,
 	}
 
 	return conn, nil
@@ -198,7 +203,7 @@ func (conn *Conn) Open(engineCtx context.Context) error {
 
 	conn.handshaker = NewHandshaker(conn.Log, conn.config, conn.signaler, conn.workerICE, conn.workerRelay, conn.metricsStages)
 
-	conn.handshaker.AddRelayListener(conn.workerRelay.OnNewOffer)
+	conn.handshaker.AddRelayListener(conn.onRelayOffer)
 	if !forceRelay {
 		conn.handshaker.AddICEListener(conn.workerICE.OnNewOffer)
 	}
@@ -425,6 +430,9 @@ func (conn *Conn) onICEConnectionIsReady(priority conntype.ConnPriority, iceConn
 
 	conn.currentConnPriority = priority
 	conn.statusICE.SetConnected()
+	if priority == conntype.ICEP2P {
+		conn.p2pFailureCache.markSuccess(conn.config.Key)
+	}
 	conn.updateIceState(iceConnInfo, updateTime)
 	conn.doOnConnected(iceConnInfo.RosenpassPubKey, iceConnInfo.RosenpassAddr, updateTime)
 }
@@ -473,6 +481,7 @@ func (conn *Conn) onICEStateDisconnected(sessionChanged bool) {
 	changed := conn.statusICE.Get() != worker.StatusDisconnected
 	if changed {
 		conn.guard.SetICEConnDisconnected()
+		conn.p2pFailureCache.markFailure(conn.config.Key, time.Now())
 	}
 	conn.statusICE.SetDisconnected()
 
@@ -506,6 +515,19 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 
 	conn.dumpState.RelayConnected()
 	conn.Log.Debugf("Relay connection has been established, setup the WireGuard")
+
+	if conn.shouldDeferRelayActivation() {
+		conn.Log.Debugf("Relay connection is ready, waiting up to %s for ICE before activating Relay", conn.relayRacePolicy.relayActivationBudget(false))
+		conn.mu.Unlock()
+		activated := conn.waitForRelayActivationBudget()
+		conn.mu.Lock()
+		if !activated {
+			if err := rci.relayedConn.Close(); err != nil {
+				conn.Log.Warnf("failed to close unused relayed connection after ICE won race: %v", err)
+			}
+			return
+		}
+	}
 
 	wgProxy, err := conn.newProxy(rci.relayedConn)
 	if err != nil {
@@ -553,6 +575,72 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 	conn.updateRelayStatus(rci.relayedConn.RemoteAddr().String(), rci.rosenpassPubKey, updateTime)
 	conn.Log.Infof("start to communicate with peer via relay")
 	conn.doOnConnected(rci.rosenpassPubKey, rci.rosenpassAddr, updateTime)
+}
+
+func (conn *Conn) onRelayOffer(remoteOfferAnswer *OfferAnswer) {
+	delay := conn.relayRacePolicy.relayDelay(conn.shouldPreferRelayNow())
+	if delay > 0 {
+		conn.Log.Debugf("delaying Relay open by %s to give ICE a head start", delay)
+		select {
+		case <-time.After(delay):
+		case <-conn.ctx.Done():
+			return
+		}
+	}
+	conn.workerRelay.OnNewOffer(remoteOfferAnswer)
+}
+
+func (conn *Conn) shouldPreferRelayNow() bool {
+	if IsForceRelayed() || conn.workerICE == nil {
+		return true
+	}
+	if !conn.handshaker.RemoteICESupported() {
+		return true
+	}
+	return conn.p2pFailureCache.shouldPreferRelay(conn.config.Key, time.Now())
+}
+
+func (conn *Conn) shouldDeferRelayActivation() bool {
+	if conn.shouldPreferRelayNow() {
+		return false
+	}
+	if conn.workerICE == nil {
+		return false
+	}
+	return conn.workerICE.InProgress() && conn.statusICE.Get() != worker.StatusConnected
+}
+
+func (conn *Conn) waitForRelayActivationBudget() bool {
+	budget := conn.relayRacePolicy.relayActivationBudget(false)
+	if budget <= 0 {
+		return true
+	}
+
+	deadline := time.Now().Add(budget)
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		if conn.ctx.Err() != nil {
+			return false
+		}
+		if conn.statusICE.Get() == worker.StatusConnected {
+			return false
+		}
+		if conn.workerICE == nil || !conn.workerICE.InProgress() {
+			return true
+		}
+		if time.Now().After(deadline) {
+			conn.p2pFailureCache.markFailure(conn.config.Key, time.Now())
+			return true
+		}
+
+		select {
+		case <-ticker.C:
+		case <-conn.ctx.Done():
+			return false
+		}
+	}
 }
 
 func (conn *Conn) onRelayDisconnected() {

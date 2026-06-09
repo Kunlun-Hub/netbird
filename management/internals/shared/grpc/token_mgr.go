@@ -40,6 +40,7 @@ type SecretsManager interface {
 // TimeBasedAuthSecretsManager generates credentials with TTL and using pre-shared secret known to TURN server
 type TimeBasedAuthSecretsManager struct {
 	mux             sync.Mutex
+	stuns           []*nbconfig.Host
 	turnCfg         *nbconfig.TURNConfig
 	relayCfg        *nbconfig.Relay
 	turnHmacToken   *auth.TimedHMAC
@@ -54,14 +55,20 @@ type TimeBasedAuthSecretsManager struct {
 
 type Token auth.Token
 
-func NewTimeBasedAuthSecretsManager(updateManager network_map.PeersUpdateManager, turnCfg *nbconfig.TURNConfig, relayCfg *nbconfig.Relay, settingsManager settings.Manager, groupsManager groups.Manager) (*TimeBasedAuthSecretsManager, error) {
+func NewTimeBasedAuthSecretsManager(updateManager network_map.PeersUpdateManager, turnCfg *nbconfig.TURNConfig, relayCfg *nbconfig.Relay, settingsManager settings.Manager, groupsManager groups.Manager, stuns ...[]*nbconfig.Host) (*TimeBasedAuthSecretsManager, error) {
 	key, err := wgtypes.GeneratePrivateKey()
 	if err != nil {
 		return nil, err
 	}
 
+	var stunCfg []*nbconfig.Host
+	if len(stuns) > 0 {
+		stunCfg = stuns[0]
+	}
+
 	mgr := &TimeBasedAuthSecretsManager{
 		updateManager:   updateManager,
+		stuns:           stunCfg,
 		turnCfg:         turnCfg,
 		relayCfg:        relayCfg,
 		turnCancelMap:   make(map[string]chan struct{}),
@@ -273,7 +280,7 @@ func (m *TimeBasedAuthSecretsManager) pushNewTURNAndRelayTokens(ctx context.Cont
 	if m.relayCfg != nil {
 		token, err := m.GenerateRelayToken()
 		if err == nil {
-			update.NetbirdConfig.Relay = m.relayConfigForPeer(ctx, accountID, peerID, token)
+			update.NetbirdConfig.Relay, update.NetbirdConfig.Stuns = m.peerRelayAndStunConfigs(ctx, accountID, peerID, token)
 		}
 	}
 
@@ -293,9 +300,11 @@ func (m *TimeBasedAuthSecretsManager) pushNewRelayTokens(ctx context.Context, ac
 		return
 	}
 
+	relayCfg, stuns := m.peerRelayAndStunConfigs(ctx, accountID, peerID, relayToken)
 	update := &proto.SyncResponse{
 		NetbirdConfig: &proto.NetbirdConfig{
-			Relay: m.relayConfigForPeer(ctx, accountID, peerID, relayToken),
+			Relay: relayCfg,
+			Stuns: stuns,
 			// omit Turns to avoid updates there
 		},
 	}
@@ -316,12 +325,16 @@ func (m *TimeBasedAuthSecretsManager) pushRelayList(ctx context.Context, account
 		return
 	}
 
+	relayCfg, stuns := m.peerRelayAndStunConfigs(ctx, accountID, peerID, relayToken)
 	update := &proto.SyncResponse{
 		NetbirdConfig: &proto.NetbirdConfig{
-			Relay: m.relayConfigForPeer(ctx, accountID, peerID, relayToken),
+			Relay: relayCfg,
+			Stuns: stuns,
 			// omit Turns to avoid updates there
 		},
 	}
+
+	m.extendNetbirdConfig(ctx, peerID, accountID, update)
 
 	log.WithContext(ctx).Debugf("sending relay list to peer %s", peerID)
 	m.updateManager.SendUpdate(ctx, peerID, &network_map.UpdateMessage{
@@ -338,6 +351,16 @@ func (m *TimeBasedAuthSecretsManager) relayConfigForPeer(ctx context.Context, ac
 		relayCfg.TokenSignature = relayToken.Signature
 	}
 	return relayCfg
+}
+
+func (m *TimeBasedAuthSecretsManager) peerRelayAndStunConfigs(ctx context.Context, accountID, peerID string, relayToken *Token) (*proto.RelayConfig, []*proto.HostConfig) {
+	relays := m.relayServersForPeer(ctx, accountID, peerID)
+	relayCfg := relayConfigFromDescriptors(relays)
+	if relayToken != nil {
+		relayCfg.TokenPayload = relayToken.Payload
+		relayCfg.TokenSignature = relayToken.Signature
+	}
+	return relayCfg, stunConfigs(m.stuns, relays)
 }
 
 func (m *TimeBasedAuthSecretsManager) relayServersForPeer(ctx context.Context, accountID, peerID string) []relayhandler.RelayServerDescriptor {

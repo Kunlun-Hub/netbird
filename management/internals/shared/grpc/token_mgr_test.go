@@ -31,6 +31,11 @@ var TurnTestHost = &config.Host{
 	Password: "",
 }
 
+var StunTestHost = &config.Host{
+	Proto: config.UDP,
+	URI:   "stun:stun.netbird.io:3478",
+}
+
 func TestTimeBasedAuthSecretsManager_GenerateCredentials(t *testing.T) {
 	ttl := util.Duration{Duration: time.Hour}
 	secret := "some_secret"
@@ -52,7 +57,7 @@ func TestTimeBasedAuthSecretsManager_GenerateCredentials(t *testing.T) {
 		Secret:               secret,
 		Turns:                []*config.Host{TurnTestHost},
 		TimeBasedCredentials: true,
-	}, rc, settingsMockManager, groupsManager)
+	}, rc, settingsMockManager, groupsManager, []*config.Host{StunTestHost})
 	require.NoError(t, err)
 
 	turnCredentials, err := tested.GenerateTurnToken()
@@ -112,7 +117,7 @@ func TestTimeBasedAuthSecretsManager_PushRelayList(t *testing.T) {
 		Secret:               secret,
 		Turns:                []*config.Host{TurnTestHost},
 		TimeBasedCredentials: true,
-	}, rc, settingsMockManager, groupsManager)
+	}, rc, settingsMockManager, groupsManager, []*config.Host{StunTestHost})
 	require.NoError(t, err)
 
 	count := tested.PushRelayList(context.Background(), accountID, []string{peerB, peerC, peerA})
@@ -137,6 +142,11 @@ func TestTimeBasedAuthSecretsManager_PushRelayList(t *testing.T) {
 	require.Equal(t, []string{"rels://relay-b.example.com:443", "rels://relay-a.example.com:443"}, relayA.GetUrls())
 	require.NotEmpty(t, relayA.GetTokenPayload())
 	require.NotEmpty(t, relayA.GetTokenSignature())
+	require.ElementsMatch(t, []string{
+		StunTestHost.URI,
+		"stun:relay-b.example.com:3478",
+		"stun:relay-a.example.com:3478",
+	}, stunURIs(updateA.Update.GetNetbirdConfig().GetStuns()))
 
 	updateB := readUpdate(channelB)
 	require.NotNil(t, updateB)
@@ -146,6 +156,11 @@ func TestTimeBasedAuthSecretsManager_PushRelayList(t *testing.T) {
 	require.Equal(t, relayhandler.ActiveRelayAddresses(rc), relayB.GetUrls())
 	require.NotEmpty(t, relayB.GetTokenPayload())
 	require.NotEmpty(t, relayB.GetTokenSignature())
+	require.ElementsMatch(t, []string{
+		StunTestHost.URI,
+		"stun:relay-b.example.com:3478",
+		"stun:relay-a.example.com:3478",
+	}, stunURIs(updateB.Update.GetNetbirdConfig().GetStuns()))
 }
 
 func TestTimeBasedAuthSecretsManager_PushRelayTokens(t *testing.T) {
@@ -171,7 +186,7 @@ func TestTimeBasedAuthSecretsManager_PushRelayTokens(t *testing.T) {
 	settingsMockManager.EXPECT().GetExtraSettings(gomock.Any(), accountID).Return(&types.ExtraSettings{}, nil).AnyTimes()
 	groupsManager := groups.NewManagerMock()
 
-	tested, err := NewTimeBasedAuthSecretsManager(peersManager, nil, rc, settingsMockManager, groupsManager)
+	tested, err := NewTimeBasedAuthSecretsManager(peersManager, nil, rc, settingsMockManager, groupsManager, []*config.Host{StunTestHost})
 	require.NoError(t, err)
 
 	count := tested.PushRelayTokens(context.Background(), accountID, []string{peerB, peerC, peerA})
@@ -194,7 +209,10 @@ func TestTimeBasedAuthSecretsManager_PushRelayTokens(t *testing.T) {
 		require.NotNil(t, update)
 		require.Equal(t, network_map.MessageTypeControlConfig, update.MessageType)
 		config := update.Update.GetNetbirdConfig()
-		require.Empty(t, config.GetStuns())
+		require.ElementsMatch(t, []string{
+			StunTestHost.URI,
+			"stun:localhost:3478",
+		}, stunURIs(config.GetStuns()))
 		require.Empty(t, config.GetTurns())
 		relay := config.GetRelay()
 		require.NotNil(t, relay)
@@ -202,6 +220,41 @@ func TestTimeBasedAuthSecretsManager_PushRelayTokens(t *testing.T) {
 		require.NotEmpty(t, relay.GetTokenPayload())
 		require.NotEmpty(t, relay.GetTokenSignature())
 	}
+}
+
+func stunURIs(stuns []*proto.HostConfig) []string {
+	uris := make([]string, 0, len(stuns))
+	for _, stun := range stuns {
+		uris = append(uris, stun.GetUri())
+	}
+	return uris
+}
+
+func TestStunConfigsDerivesRelayStunsFromConfiguredTemplates(t *testing.T) {
+	stuns := stunConfigs([]*config.Host{
+		{Proto: config.UDP, URI: "stun:stun.example.com:3478"},
+		{Proto: config.UDP, URI: "stun:stun.example.com:3479"},
+	}, []relayhandler.RelayServerDescriptor{
+		{Address: "rels://relay.example.com:12580"},
+		{Address: "rels://[2001:db8::1]:12580"},
+	})
+
+	require.ElementsMatch(t, []string{
+		"stun:stun.example.com:3478",
+		"stun:stun.example.com:3479",
+		"stun:relay.example.com:3478",
+		"stun:relay.example.com:3479",
+		"stun:[2001:db8::1]:3478",
+		"stun:[2001:db8::1]:3479",
+	}, stunURIs(stuns))
+}
+
+func TestStunConfigsFallsBackToDefaultRelayStunPort(t *testing.T) {
+	stuns := stunConfigs(nil, []relayhandler.RelayServerDescriptor{
+		{Address: "rels://relay.example.com:12580"},
+	})
+
+	require.ElementsMatch(t, []string{"stun:relay.example.com:3478"}, stunURIs(stuns))
 }
 
 func TestTimeBasedAuthSecretsManager_SetupRefresh(t *testing.T) {
