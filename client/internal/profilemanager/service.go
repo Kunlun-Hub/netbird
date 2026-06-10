@@ -263,6 +263,29 @@ func (s *ServiceManager) GetProfileState(profileName, username string) (*Profile
 	return &state, nil
 }
 
+func (s *ServiceManager) SetProfileState(state *ProfileState) error {
+	if state == nil {
+		return errors.New("invalid profile state")
+	}
+
+	activeProf, err := s.GetActiveProfileState()
+	if err != nil {
+		return fmt.Errorf("failed to get active profile state: %w", err)
+	}
+
+	configDir, err := s.getConfigDir(activeProf.Username)
+	if err != nil {
+		return fmt.Errorf("failed to get config directory: %w", err)
+	}
+
+	stateFile := filepath.Join(configDir, activeProf.Name+".state.json")
+	if err := util.WriteJsonWithRestrictedPermission(context.Background(), stateFile, state); err != nil {
+		return fmt.Errorf("write profile state: %w", err)
+	}
+
+	return nil
+}
+
 func (s *ServiceManager) DefaultProfilePath() string {
 	return DefaultConfigPath
 }

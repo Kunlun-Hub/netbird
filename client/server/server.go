@@ -683,6 +683,12 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 		return nil, err
 	}
 
+	if tokenInfo.Email != "" {
+		if err := s.profileManager.SetProfileState(&profilemanager.ProfileState{Email: tokenInfo.Email}); err != nil {
+			log.Warnf("failed to set active profile email: %v", err)
+		}
+	}
+
 	return waitSSOLoginResponseWithApproval(ctx, loginResp, s.config, tokenInfo.Email), nil
 }
 
@@ -993,6 +999,27 @@ func (s *Server) Logout(ctx context.Context, msg *proto.LogoutRequest) (*proto.L
 	}
 
 	return s.handleActiveProfileLogout(ctx)
+}
+
+func (s *Server) LocalLogout(ctx context.Context, _ *proto.LocalLogoutRequest) (*proto.LocalLogoutResponse, error) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	s.oauthAuthFlow = oauthAuthFlow{}
+
+	if err := s.cleanupConnection(); err != nil && !errors.Is(err, ErrServiceNotUp) {
+		log.Errorf("failed to cleanup connection: %v", err)
+		return nil, err
+	}
+
+	if err := s.profileManager.SetProfileState(&profilemanager.ProfileState{}); err != nil {
+		log.Warnf("failed to clear active profile account state: %v", err)
+	}
+
+	state := internal.CtxGetState(s.rootCtx)
+	state.Set(internal.StatusNeedsLogin)
+
+	return &proto.LocalLogoutResponse{}, nil
 }
 
 func (s *Server) handleProfileLogout(ctx context.Context, msg *proto.LogoutRequest) (*proto.LogoutResponse, error) {

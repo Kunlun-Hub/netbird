@@ -98,6 +98,9 @@ service DaemonService {
   // Logout disconnects from the network and deletes the peer from the management server
   rpc Logout(LogoutRequest) returns (LogoutResponse) {}
 
+  // LocalLogout disconnects from the network and clears local account state without deleting the peer
+  rpc LocalLogout(LocalLogoutRequest) returns (LocalLogoutResponse) {}
+
   rpc GetFeatures(GetFeaturesRequest) returns (GetFeaturesResponse) {}
 
   // TriggerUpdate initiates installation of the pending enforced version.
@@ -762,6 +765,10 @@ message LogoutRequest {
 }
 
 message LogoutResponse {}
+
+message LocalLogoutRequest {}
+
+message LocalLogoutResponse {}
 
 message GetFeaturesRequest{}
 
