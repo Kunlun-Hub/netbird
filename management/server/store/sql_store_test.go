@@ -297,6 +297,29 @@ func Test_SaveAccount(t *testing.T) {
 	})
 }
 
+func TestSqlStore_GetAccountSettingsIncludesPeerApproval(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("The SQLite store is not properly supported by Windows yet")
+	}
+
+	runTestForAllEngines(t, "", func(t *testing.T, store Store) {
+		account := newAccountWithId(context.Background(), "account_id", "testuser", "")
+		account.Settings.Extra = &types.ExtraSettings{
+			PeerApprovalEnabled:  true,
+			UserApprovalRequired: true,
+		}
+
+		require.NoError(t, store.SaveAccount(context.Background(), account))
+
+		settings, err := store.GetAccountSettings(context.Background(), LockingStrengthNone, account.Id)
+		require.NoError(t, err)
+		require.NotNil(t, settings)
+		require.NotNil(t, settings.Extra)
+		assert.True(t, settings.Extra.PeerApprovalEnabled)
+		assert.True(t, settings.Extra.UserApprovalRequired)
+	})
+}
+
 func TestSqlite_DeleteAccount(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("The SQLite store is not properly supported by Windows yet")

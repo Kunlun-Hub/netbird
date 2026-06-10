@@ -106,13 +106,14 @@ func (s *State) GetRoutes() map[string]struct{} {
 
 // LocalPeerState contains the latest state of the local peer
 type LocalPeerState struct {
-	IP              string
-	IPv6            string
-	PubKey          string
-	KernelInterface bool
-	FQDN            string
-	WgPort          int
-	Routes          map[string]struct{}
+	IP               string
+	IPv6             string
+	PubKey           string
+	KernelInterface  bool
+	FQDN             string
+	WgPort           int
+	RequiresApproval bool
+	Routes           map[string]struct{}
 }
 
 // Clone returns a copy of the LocalPeerState
@@ -1391,6 +1392,7 @@ func (fs FullStatus) ToProto() *proto.FullStatus {
 	pbFullStatus.LocalPeerState.KernelInterface = fs.LocalPeerState.KernelInterface
 	pbFullStatus.LocalPeerState.Fqdn = fs.LocalPeerState.FQDN
 	pbFullStatus.LocalPeerState.WgPort = int32(fs.LocalPeerState.WgPort)
+	pbFullStatus.LocalPeerState.RequiresApproval = fs.LocalPeerState.RequiresApproval
 	pbFullStatus.LocalPeerState.RosenpassPermissive = fs.RosenpassState.Permissive
 	pbFullStatus.LocalPeerState.RosenpassEnabled = fs.RosenpassState.Enabled
 	pbFullStatus.NumberOfForwardingRules = int32(fs.NumOfForwardingRules)

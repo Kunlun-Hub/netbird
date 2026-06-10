@@ -523,7 +523,7 @@ func getMigrationsPreAuto(ctx context.Context) []migrationFunc {
 			if !db.Migrator().HasTable(&types.User{}) {
 				return nil
 			}
-			return db.Exec("UPDATE users SET user_groups = auto_groups WHERE user_groups IS NULL OR user_groups = '' OR user_groups = '[]'").Error
+			return db.Exec("UPDATE users SET user_groups = '[]' WHERE user_groups IS NULL OR user_groups = ''").Error
 		},
 		func(db *gorm.DB) error {
 			return migration.MigrateNewField[types.UserInviteRecord](ctx, db, "user_groups", "[]")
@@ -532,50 +532,10 @@ func getMigrationsPreAuto(ctx context.Context) []migrationFunc {
 			if !db.Migrator().HasTable(&types.UserInviteRecord{}) {
 				return nil
 			}
-			return db.Exec("UPDATE user_invites SET user_groups = auto_groups WHERE user_groups IS NULL OR user_groups = '' OR user_groups = '[]'").Error
+			return db.Exec("UPDATE user_invites SET user_groups = '[]' WHERE user_groups IS NULL OR user_groups = ''").Error
 		},
 		func(db *gorm.DB) error {
 			return migration.MigrateNewField[types.Group](ctx, db, "type", types.GroupTypePeer)
-		},
-		func(db *gorm.DB) error {
-			if !db.Migrator().HasTable(&types.User{}) || !db.Migrator().HasTable(&types.Group{}) {
-				return nil
-			}
-
-			var users []*types.User
-			if err := db.Find(&users).Error; err != nil {
-				return err
-			}
-
-			groupIDs := make(map[string]struct{})
-			for _, user := range users {
-				for _, groupID := range user.UserGroups {
-					groupIDs[groupID] = struct{}{}
-				}
-			}
-
-			if db.Migrator().HasTable(&types.UserInviteRecord{}) {
-				var invites []*types.UserInviteRecord
-				if err := db.Find(&invites).Error; err != nil {
-					return err
-				}
-				for _, invite := range invites {
-					for _, groupID := range invite.UserGroups {
-						groupIDs[groupID] = struct{}{}
-					}
-				}
-			}
-
-			if len(groupIDs) == 0 {
-				return nil
-			}
-
-			ids := make([]string, 0, len(groupIDs))
-			for groupID := range groupIDs {
-				ids = append(ids, groupID)
-			}
-
-			return db.Model(&types.Group{}).Where("id IN ?", ids).Update("type", types.GroupTypeUser).Error
 		},
 		func(db *gorm.DB) error {
 			return migration.MigrateNewField[nbpeer.Peer](ctx, db, "peer_status_session_started_at", int64(0))

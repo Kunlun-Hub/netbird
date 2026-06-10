@@ -1518,6 +1518,37 @@ func TestAccountManager_DeletePeer(t *testing.T) {
 	assert.Equal(t, peer.IP.String(), fmt.Sprint(ev.Meta["ip"]))
 }
 
+func TestAccountManager_DeletePendingApprovalPeerStoresDeleteEvent(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err)
+
+	account := newAccountWithId(context.Background(), "test_account", userID, "netbird.cloud", "", "", false)
+	account.Settings.Extra.PeerApprovalEnabled = true
+	require.NoError(t, manager.Store.SaveAccount(context.Background(), account))
+
+	key, err := wgtypes.GenerateKey()
+	require.NoError(t, err)
+
+	peer, _, _, err := manager.AddPeer(context.Background(), "", "", userID, &nbpeer.Peer{
+		Key:  key.PublicKey().String(),
+		Meta: nbpeer.PeerSystemMeta{Hostname: "pending-delete-device", OS: "linux"},
+	}, false)
+	require.NoError(t, err)
+	require.True(t, peer.Status.RequiresApproval)
+
+	err = manager.DeletePeer(context.Background(), account.Id, peer.ID, userID)
+	require.NoError(t, err)
+
+	ev := getEvent(t, account.Id, manager, activity.PeerRemovedByUser)
+	require.NotNil(t, ev)
+	assert.Equal(t, account.Id, ev.AccountID)
+	assert.Equal(t, userID, ev.InitiatorID)
+	assert.Equal(t, peer.ID, ev.TargetID)
+	assert.Equal(t, peer.Name, ev.Meta["name"])
+	assert.Equal(t, peer.FQDN(account.Domain), ev.Meta["fqdn"])
+	assert.Equal(t, peer.IP.String(), fmt.Sprint(ev.Meta["ip"]))
+}
+
 func getEvent(t *testing.T, accountID string, manager nbAccount.Manager, eventType activity.Activity) *activity.Event {
 	t.Helper()
 	for {
@@ -2399,7 +2430,7 @@ func TestDefaultAccountManager_UpdateAccountSettings_BrandingPreservesUnmanagedE
 }
 
 func TestDefaultAccountManager_UpdateAccountSettings_PeerApproval(t *testing.T) {
-	manager, _, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
+	manager, updateManager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
 
 	accountID := account.Id
 	userID := account.Users[account.CreatedBy].Id
@@ -2411,6 +2442,10 @@ func TestDefaultAccountManager_UpdateAccountSettings_PeerApproval(t *testing.T) 
 	}
 	_, err := manager.UpdateAccountSettings(ctx, accountID, userID, newSettings)
 	require.NoError(t, err)
+	enableEvent := getEvent(t, accountID, manager, activity.AccountPeerApprovalEnabled)
+	assert.Equal(t, userID, enableEvent.InitiatorID)
+	assert.Equal(t, accountID, enableEvent.TargetID)
+	assert.Equal(t, accountID, enableEvent.AccountID)
 
 	peer1.Status.RequiresApproval = true
 	peer2.Status.RequiresApproval = true
@@ -2420,18 +2455,47 @@ func TestDefaultAccountManager_UpdateAccountSettings_PeerApproval(t *testing.T) 
 	require.NoError(t, manager.Store.SavePeer(ctx, accountID, peer2))
 	require.NoError(t, manager.Store.SavePeer(ctx, accountID, peer3))
 
+	peer1Updates := updateManager.CreateChannel(ctx, peer1.ID)
+	peer2Updates := updateManager.CreateChannel(ctx, peer2.ID)
+
 	newSettings = account.Settings.Copy()
 	newSettings.Extra = &types.ExtraSettings{
 		PeerApprovalEnabled: false,
 	}
 	_, err = manager.UpdateAccountSettings(ctx, accountID, userID, newSettings)
 	require.NoError(t, err)
+	disableEvent := getEvent(t, accountID, manager, activity.AccountPeerApprovalDisabled)
+	assert.Equal(t, userID, disableEvent.InitiatorID)
+	assert.Equal(t, accountID, disableEvent.TargetID)
+	assert.Equal(t, accountID, disableEvent.AccountID)
+
+	assertPeerApprovalUpdate(t, peer1Updates, false)
+	assertPeerApprovalUpdate(t, peer2Updates, false)
 
 	accountPeers, err := manager.Store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, "", "")
 	require.NoError(t, err)
 
 	for _, peer := range accountPeers {
 		assert.False(t, peer.Status.RequiresApproval, "peer %s should not require approval after disabling peer approval", peer.ID)
+	}
+
+	validPeers, _, err := manager.GetValidatedPeers(ctx, accountID)
+	require.NoError(t, err)
+	assert.Contains(t, validPeers, peer1.ID, "peer %s should be valid after disabling peer approval", peer1.ID)
+	assert.Contains(t, validPeers, peer2.ID, "peer %s should be valid after disabling peer approval", peer2.ID)
+}
+
+func assertPeerApprovalUpdate(t *testing.T, updateMessage <-chan *network_map.UpdateMessage, expected bool) {
+	t.Helper()
+
+	select {
+	case msg := <-updateMessage:
+		require.NotNil(t, msg)
+		require.NotNil(t, msg.Update)
+		require.NotNil(t, msg.Update.PeerConfig)
+		assert.Equal(t, expected, msg.Update.PeerConfig.RequiresApproval)
+	case <-time.After(peerUpdateTimeout):
+		t.Fatal("Timed out waiting for peer approval update message")
 	}
 }
 

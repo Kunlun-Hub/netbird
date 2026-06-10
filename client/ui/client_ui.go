@@ -758,7 +758,7 @@ func (s *serviceClient) hasSSHChanges() bool {
 		s.sshJWTCacheTTL != currentSSHJWTCacheTTL
 }
 
-func (s *serviceClient) login(ctx context.Context, openURL bool) (*proto.LoginResponse, error) {
+func (s *serviceClient) login(ctx context.Context, shouldOpenURL bool) (*proto.LoginResponse, error) {
 	conn, err := s.getSrvClient(defaultFailTimeout)
 	if err != nil {
 		return nil, fmt.Errorf("get daemon client: %w", err)
@@ -792,23 +792,33 @@ func (s *serviceClient) login(ctx context.Context, openURL bool) (*proto.LoginRe
 		return nil, fmt.Errorf("login to management: %w", err)
 	}
 
-	if loginResp.NeedsSSOLogin && openURL {
-		if err = s.handleSSOLogin(ctx, loginResp, conn); err != nil {
+	if loginResp.NeedsSSOLogin && shouldOpenURL {
+		waitResp, err := s.handleSSOLogin(ctx, loginResp, conn)
+		if err != nil {
 			return nil, fmt.Errorf("SSO login: %w", err)
+		}
+		if waitResp.GetRequiresApproval() && waitResp.GetDeviceApprovalURL() != "" {
+			if err := openURL(waitResp.GetDeviceApprovalURL()); err != nil {
+				log.Debugf("failed to open device approval page: %v", err)
+			}
+		}
+	} else if loginResp.GetRequiresApproval() && loginResp.GetDeviceApprovalURL() != "" {
+		if err := openURL(loginResp.GetDeviceApprovalURL()); err != nil {
+			log.Debugf("failed to open device approval page: %v", err)
 		}
 	}
 
 	return loginResp, nil
 }
 
-func (s *serviceClient) handleSSOLogin(ctx context.Context, loginResp *proto.LoginResponse, conn proto.DaemonServiceClient) error {
+func (s *serviceClient) handleSSOLogin(ctx context.Context, loginResp *proto.LoginResponse, conn proto.DaemonServiceClient) (*proto.WaitSSOLoginResponse, error) {
 	if err := openURL(loginResp.VerificationURIComplete); err != nil {
-		return fmt.Errorf("open browser: %w", err)
+		return nil, fmt.Errorf("open browser: %w", err)
 	}
 
 	resp, err := conn.WaitSSOLogin(ctx, &proto.WaitSSOLoginRequest{UserCode: loginResp.UserCode})
 	if err != nil {
-		return fmt.Errorf("wait for SSO login: %w", err)
+		return nil, fmt.Errorf("wait for SSO login: %w", err)
 	}
 
 	if resp.Email != "" {
@@ -821,7 +831,7 @@ func (s *serviceClient) handleSSOLogin(ctx context.Context, loginResp *proto.Log
 		}
 	}
 
-	return nil
+	return resp, nil
 }
 
 func (s *serviceClient) menuUpClick(ctx context.Context) error {
@@ -1509,16 +1519,16 @@ func (s *serviceClient) showLoginURL() context.CancelFunc {
 	resIcon := fyne.NewStaticResource("netbird.png", iconAbout)
 
 	if s.wLoginURL == nil {
-		s.wLoginURL = s.app.NewWindow("Cloink Session Expired")
+		s.wLoginURL = s.app.NewWindow("Cloink 会话已过期")
 		s.wLoginURL.Resize(fyne.NewSize(400, 200))
 		s.wLoginURL.SetIcon(resIcon)
 	}
 	// ensure goroutine is cancelled when the window is closed
 	s.wLoginURL.SetOnClosed(func() { cancel() })
 	// add a description label
-	label := widget.NewLabel("Your Cloink session has expired.\nPlease re-authenticate to continue using Cloink.")
+	label := widget.NewLabel("您的 Cloink 会话已过期。\n请重新认证后继续使用 Cloink。")
 
-	btn := widget.NewButtonWithIcon("Re-authenticate", theme.ViewRefreshIcon(), func() {
+	btn := widget.NewButtonWithIcon("重新认证", theme.ViewRefreshIcon(), func() {
 
 		conn, err := s.getSrvClient(defaultFailTimeout)
 		if err != nil {
@@ -1549,11 +1559,11 @@ func (s *serviceClient) showLoginURL() context.CancelFunc {
 		_, err = conn.WaitSSOLogin(ctx, &proto.WaitSSOLoginRequest{UserCode: resp.UserCode})
 		if err != nil {
 			log.Errorf("Waiting sso login failed with: %v", err)
-			label.SetText("Waiting login failed, please create \na debug bundle in the settings and contact support.")
+			label.SetText("等待登录失败，请在设置中创建\n调试包并联系技术支持。")
 			return
 		}
 
-		label.SetText("Re-authentication successful.\nReconnecting")
+		label.SetText("重新认证成功。\n正在重新连接。")
 		status, err := conn.Status(ctx, &proto.StatusRequest{})
 		if err != nil {
 			log.Errorf("get service status: %v", err)
@@ -1561,7 +1571,7 @@ func (s *serviceClient) showLoginURL() context.CancelFunc {
 		}
 
 		if status.Status == string(internal.StatusConnected) {
-			label.SetText("Already connected.\nClosing this window.")
+			label.SetText("已连接。\n正在关闭此窗口。")
 			time.Sleep(2 * time.Second)
 			s.wLoginURL.Close()
 			return
@@ -1569,7 +1579,7 @@ func (s *serviceClient) showLoginURL() context.CancelFunc {
 
 		_, err = conn.Up(ctx, &proto.UpRequest{})
 		if err != nil {
-			label.SetText("Reconnecting failed, please create \na debug bundle in the settings and contact support.")
+			label.SetText("重新连接失败，请在设置中创建\n调试包并联系技术支持。")
 			log.Errorf("Reconnecting failed with: %v", err)
 			return
 		}

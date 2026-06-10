@@ -28,7 +28,7 @@ func TestPKCEAuthMsgTemplate(t *testing.T) {
 				"登录失败",
 			},
 			notExpectedInContent: []string{
-				"登录成功",
+				"身份认证完成",
 				"您的设备现已完成注册并登录至Cloink",
 			},
 		},
@@ -40,11 +40,12 @@ func TestPKCEAuthMsgTemplate(t *testing.T) {
 			outputFile:    "pkce-auth-success.html",
 			expectedTitle: "Cloink Login",
 			expectedInContent: []string{
-				"登录成功",
-				"您的设备现已完成注册并登录至Cloink。您现在可以关闭此窗口。",
+				"身份认证完成",
+				"您的身份认证已完成。请返回 Cloink 客户端查看设备接入状态；如果开启了设备审批，需要管理员审批后才能接入网络。",
 			},
 			notExpectedInContent: []string{
 				"登录失败",
+				"您的设备现已完成注册并登录至Cloink",
 			},
 		},
 		{
@@ -59,7 +60,7 @@ func TestPKCEAuthMsgTemplate(t *testing.T) {
 				"登录失败",
 			},
 			notExpectedInContent: []string{
-				"登录成功",
+				"身份认证完成",
 				"您的设备现已完成注册并登录至Cloink",
 			},
 		},
@@ -225,7 +226,7 @@ func TestPKCEAuthMsgTemplateContent(t *testing.T) {
 			"<html",
 			"<head>",
 			"<body>",
-			"登录成功",
+			"身份认证完成",
 			"Cloink",
 		}
 

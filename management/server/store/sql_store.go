@@ -1342,9 +1342,6 @@ func (s *SqlStore) getAccountGorm(ctx context.Context, accountID string) (*types
 			pat.UserID = ""
 			user.PATs[pat.ID] = &pat
 		}
-		if user.AutoGroups == nil {
-			user.AutoGroups = []string{}
-		}
 		if err := user.DecryptSensitiveData(s.fieldEncrypt); err != nil {
 			return nil, fmt.Errorf("decrypt user: %w", err)
 		}
@@ -2181,13 +2178,9 @@ func (s *SqlStore) getUsers(ctx context.Context, accountID string) ([]types.User
 			}
 			if autoGroups != nil {
 				_ = json.Unmarshal(autoGroups, &u.AutoGroups)
-			} else {
-				u.AutoGroups = []string{}
 			}
 			if userGroups != nil {
 				_ = json.Unmarshal(userGroups, &u.UserGroups)
-			} else {
-				u.UserGroups = []string{}
 			}
 		}
 		return u, err

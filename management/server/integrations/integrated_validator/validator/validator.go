@@ -31,20 +31,23 @@ func (v *IntegratedValidatorImpl) PreparePeer(_ context.Context, _ string, peer 
 	return peer.Copy()
 }
 
-func (v *IntegratedValidatorImpl) IsNotValidPeer(_ context.Context, _ string, _ *nbpeer.Peer, _ []string, _ *types.ExtraSettings) (bool, bool, error) {
-	return false, false, nil
+func (v *IntegratedValidatorImpl) IsNotValidPeer(_ context.Context, _ string, peer *nbpeer.Peer, _ []string, _ *types.ExtraSettings) (bool, bool, error) {
+	return peerRequiresApproval(peer), false, nil
 }
 
 func (v *IntegratedValidatorImpl) GetValidatedPeers(_ context.Context, _ string, _ []*types.Group, peers []*nbpeer.Peer, _ *types.ExtraSettings) (map[string]struct{}, error) {
 	validatedPeers := make(map[string]struct{})
 	for _, p := range peers {
+		if peerRequiresApproval(p) {
+			continue
+		}
 		validatedPeers[p.ID] = struct{}{}
 	}
 	return validatedPeers, nil
 }
 
 func (v *IntegratedValidatorImpl) GetInvalidPeers(_ context.Context, _ string, _ *types.ExtraSettings) (map[string]string, error) {
-	return make(map[string]string), nil
+	return map[string]string{}, nil
 }
 
 func (v *IntegratedValidatorImpl) PeerDeleted(_ context.Context, _, _ string, _ *types.ExtraSettings) error {
@@ -59,4 +62,8 @@ func (v *IntegratedValidatorImpl) Stop(_ context.Context) {
 
 func (v *IntegratedValidatorImpl) ValidateFlowResponse(_ context.Context, _ string, flowResponse *proto.PKCEAuthorizationFlow) *proto.PKCEAuthorizationFlow {
 	return flowResponse
+}
+
+func peerRequiresApproval(peer *nbpeer.Peer) bool {
+	return peer != nil && peer.Status != nil && peer.Status.RequiresApproval
 }

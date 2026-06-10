@@ -155,7 +155,7 @@ func (a *Auth) IsLoginRequired(ctx context.Context) (bool, error) {
 	var needsLogin bool
 
 	err = a.withRetry(ctx, func(client *mgm.GrpcClient) error {
-		err := a.doMgmLogin(client, ctx, pubSSHKey)
+		_, err := a.doMgmLogin(client, ctx, pubSSHKey)
 		if isLoginNeeded(err) {
 			needsLogin = true
 			return nil
@@ -171,18 +171,25 @@ func (a *Auth) IsLoginRequired(ctx context.Context) (bool, error) {
 // Returns error and a boolean indicating if it's an authentication error (permission denied) that should stop retries.
 // Automatically retries with backoff and reconnection on connection errors.
 func (a *Auth) Login(ctx context.Context, setupKey string, jwtToken string) (error, bool) {
+	_, err, isAuthError := a.LoginWithResponse(ctx, setupKey, jwtToken)
+	return err, isAuthError
+}
+
+// LoginWithResponse attempts to log in or register the client and returns the management login response.
+func (a *Auth) LoginWithResponse(ctx context.Context, setupKey string, jwtToken string) (*mgmProto.LoginResponse, error, bool) {
 	pubSSHKey, err := ssh.GeneratePublicKey([]byte(a.config.SSHKey))
 	if err != nil {
-		return err, false
+		return nil, err, false
 	}
 
 	var isAuthError bool
+	var loginResp *mgmProto.LoginResponse
 
 	err = a.withRetry(ctx, func(client *mgm.GrpcClient) error {
-		err := a.doMgmLogin(client, ctx, pubSSHKey)
+		loginResp, err = a.doMgmLogin(client, ctx, pubSSHKey)
 		if isRegistrationNeeded(err) {
 			log.Debugf("peer registration required")
-			_, err = a.registerPeer(client, ctx, setupKey, jwtToken, pubSSHKey)
+			loginResp, err = a.registerPeer(client, ctx, setupKey, jwtToken, pubSSHKey)
 			if err != nil {
 				isAuthError = isPermissionDenied(err)
 				return err
@@ -196,7 +203,7 @@ func (a *Auth) Login(ctx context.Context, setupKey string, jwtToken string) (err
 		return nil
 	})
 
-	return err, isAuthError
+	return loginResp, err, isAuthError
 }
 
 // getPKCEFlow retrieves PKCE authorization flow configuration and creates a flow instance
@@ -280,11 +287,10 @@ func (a *Auth) getDeviceFlow(client *mgm.GrpcClient) (*DeviceAuthorizationFlow, 
 }
 
 // doMgmLogin performs the actual login operation with the management service
-func (a *Auth) doMgmLogin(client *mgm.GrpcClient, ctx context.Context, pubSSHKey []byte) error {
+func (a *Auth) doMgmLogin(client *mgm.GrpcClient, ctx context.Context, pubSSHKey []byte) (*mgmProto.LoginResponse, error) {
 	sysInfo := system.GetInfo(ctx)
 	a.setSystemInfoFlags(sysInfo)
-	_, err := client.Login(sysInfo, pubSSHKey, a.config.DNSLabels)
-	return err
+	return client.Login(sysInfo, pubSSHKey, a.config.DNSLabels)
 }
 
 // registerPeer checks whether setupKey was provided via cmd line and if not then it prompts user to enter a key.

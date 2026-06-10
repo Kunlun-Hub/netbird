@@ -50,6 +50,7 @@ import (
 	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
+	cProto "github.com/netbirdio/netbird/client/proto"
 	nbssh "github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
 	nbdns "github.com/netbirdio/netbird/dns"
@@ -897,6 +898,35 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 			assert.Equal(t, testCase.expectedClientRoutes, input.clientRoutes, "clientRoutes should match")
 		})
 	}
+}
+
+func TestEngine_NotifyPeerApprovalStateChange(t *testing.T) {
+	statusRecorder := peer.NewRecorder("")
+	engine := &Engine{statusRecorder: statusRecorder}
+
+	engine.notifyPeerApprovalStateChange(false, true)
+	events := statusRecorder.GetEventHistory()
+	require.Len(t, events, 1)
+	require.Equal(t, cProto.SystemEvent_WARNING, events[0].Severity)
+	require.Equal(t, cProto.SystemEvent_AUTHENTICATION, events[0].Category)
+	require.Equal(t, "提醒", events[0].Message)
+	require.Equal(t, "您的设备需要管理员审批", events[0].UserMessage)
+	require.Equal(t, "pending_approval", events[0].Metadata["state"])
+
+	engine.notifyPeerApprovalStateChange(true, true)
+	require.Len(t, statusRecorder.GetEventHistory(), 1)
+
+	engine.notifyPeerApprovalStateChange(true, false)
+	events = statusRecorder.GetEventHistory()
+	require.Len(t, events, 2)
+	require.Equal(t, cProto.SystemEvent_INFO, events[1].Severity)
+	require.Equal(t, cProto.SystemEvent_AUTHENTICATION, events[1].Category)
+	require.Equal(t, "提醒", events[1].Message)
+	require.Equal(t, "您的设备已审批通过，正在接入网络", events[1].UserMessage)
+	require.Equal(t, "approved", events[1].Metadata["state"])
+
+	engine.notifyPeerApprovalStateChange(false, false)
+	require.Len(t, statusRecorder.GetEventHistory(), 2)
 }
 
 func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {

@@ -149,13 +149,7 @@ func (u *User) IsRestrictable() bool {
 // ToUserInfo converts a User object to a UserInfo object.
 func (u *User) ToUserInfo(userData *idp.UserData) (*UserInfo, error) {
 	autoGroups := u.AutoGroups
-	if autoGroups == nil {
-		autoGroups = []string{}
-	}
 	userGroups := u.UserGroups
-	if userGroups == nil {
-		userGroups = []string{}
-	}
 
 	if userData == nil {
 
@@ -207,10 +201,16 @@ func (u *User) ToUserInfo(userData *idp.UserData) (*UserInfo, error) {
 
 // Copy the user
 func (u *User) Copy() *User {
-	autoGroups := make([]string, len(u.AutoGroups))
-	copy(autoGroups, u.AutoGroups)
-	userGroups := make([]string, len(u.UserGroups))
-	copy(userGroups, u.UserGroups)
+	var autoGroups []string
+	if u.AutoGroups != nil {
+		autoGroups = make([]string, len(u.AutoGroups))
+		copy(autoGroups, u.AutoGroups)
+	}
+	var userGroups []string
+	if u.UserGroups != nil {
+		userGroups = make([]string, len(u.UserGroups))
+		copy(userGroups, u.UserGroups)
+	}
 	pats := make(map[string]*PersonalAccessToken, len(u.PATs))
 	for k, v := range u.PATs {
 		pats[k] = v.Copy()
@@ -255,7 +255,6 @@ func NewUser(id string, role UserRole, isServiceUser bool, nonDeletable bool, se
 		NonDeletable:    nonDeletable,
 		ServiceUserName: serviceUserName,
 		AutoGroups:      autoGroups,
-		UserGroups:      []string{},
 		Issued:          issued,
 		CreatedAt:       time.Now().UTC(),
 		Name:            name,

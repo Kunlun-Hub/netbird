@@ -34,6 +34,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	daemonProto "github.com/netbirdio/netbird/client/proto"
+	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
@@ -118,6 +119,100 @@ func TestConnectWithRetryRunsStopsOnPermanentLoginError(t *testing.T) {
 	if counter != 1 {
 		t.Fatalf("expected one login attempt for permanent error, got %d", counter)
 	}
+}
+
+func TestLoginResponseWithApproval(t *testing.T) {
+	adminURL, err := url.Parse("https://saas.example.com:12580/admin")
+	require.NoError(t, err)
+	ctx := context.WithValue(context.Background(), system.DeviceNameCtxKey, "custom-device")
+
+	resp, err := loginResponseWithApproval(ctx, &mgmtProto.LoginResponse{
+		PeerConfig: &mgmtProto.PeerConfig{
+			RequiresApproval: true,
+		},
+	}, &profilemanager.Config{AdminURL: adminURL}, "user@example.com")
+	require.NoError(t, err)
+
+	require.True(t, resp.GetRequiresApproval())
+	require.NotEmpty(t, resp.GetDeviceApprovalURL())
+
+	approvalURL, err := url.Parse(resp.GetDeviceApprovalURL())
+	require.NoError(t, err)
+	require.Equal(t, "https", approvalURL.Scheme)
+	require.Equal(t, "saas.example.com:12580", approvalURL.Host)
+	require.Equal(t, "/device-approval", approvalURL.Path)
+	require.Equal(t, "user@example.com", approvalURL.Query().Get("user"))
+	require.Equal(t, "custom-device", approvalURL.Query().Get("device"))
+}
+
+func TestLoginResponseWithoutApprovalOmitsApprovalURL(t *testing.T) {
+	adminURL, err := url.Parse("https://saas.example.com:12580")
+	require.NoError(t, err)
+
+	resp, err := loginResponseWithApproval(context.Background(), &mgmtProto.LoginResponse{
+		PeerConfig: &mgmtProto.PeerConfig{
+			RequiresApproval: false,
+		},
+	}, &profilemanager.Config{AdminURL: adminURL}, "user@example.com")
+	require.NoError(t, err)
+
+	require.False(t, resp.GetRequiresApproval())
+	require.Empty(t, resp.GetDeviceApprovalURL())
+}
+
+func TestDeviceApprovalURLClearsAdminURLPathQueryAndFragment(t *testing.T) {
+	adminURL, err := url.Parse("https://saas.example.com:12580/admin?old=true#section")
+	require.NoError(t, err)
+	ctx := context.WithValue(context.Background(), system.DeviceNameCtxKey, "approval-device")
+
+	actual := deviceApprovalURL(ctx, &profilemanager.Config{AdminURL: adminURL}, "user@example.com")
+	approvalURL, err := url.Parse(actual)
+	require.NoError(t, err)
+
+	require.Equal(t, "https", approvalURL.Scheme)
+	require.Equal(t, "saas.example.com:12580", approvalURL.Host)
+	require.Equal(t, "/device-approval", approvalURL.Path)
+	require.Empty(t, approvalURL.Fragment)
+	require.Equal(t, "user@example.com", approvalURL.Query().Get("user"))
+	require.Equal(t, "approval-device", approvalURL.Query().Get("device"))
+	require.Empty(t, approvalURL.Query().Get("old"))
+}
+
+func TestWaitSSOLoginResponseWithApproval(t *testing.T) {
+	adminURL, err := url.Parse("https://saas.example.com:12580")
+	require.NoError(t, err)
+	ctx := context.WithValue(context.Background(), system.DeviceNameCtxKey, "sso-device")
+
+	resp := waitSSOLoginResponseWithApproval(ctx, &mgmtProto.LoginResponse{
+		PeerConfig: &mgmtProto.PeerConfig{
+			RequiresApproval: true,
+		},
+	}, &profilemanager.Config{AdminURL: adminURL}, "user@example.com")
+
+	require.Equal(t, "user@example.com", resp.GetEmail())
+	require.True(t, resp.GetRequiresApproval())
+	require.NotEmpty(t, resp.GetDeviceApprovalURL())
+
+	approvalURL, err := url.Parse(resp.GetDeviceApprovalURL())
+	require.NoError(t, err)
+	require.Equal(t, "/device-approval", approvalURL.Path)
+	require.Equal(t, "user@example.com", approvalURL.Query().Get("user"))
+	require.Equal(t, "sso-device", approvalURL.Query().Get("device"))
+}
+
+func TestWaitSSOLoginResponseWithoutApprovalOmitsApprovalURL(t *testing.T) {
+	adminURL, err := url.Parse("https://saas.example.com:12580")
+	require.NoError(t, err)
+
+	resp := waitSSOLoginResponseWithApproval(context.Background(), &mgmtProto.LoginResponse{
+		PeerConfig: &mgmtProto.PeerConfig{
+			RequiresApproval: false,
+		},
+	}, &profilemanager.Config{AdminURL: adminURL}, "user@example.com")
+
+	require.Equal(t, "user@example.com", resp.GetEmail())
+	require.False(t, resp.GetRequiresApproval())
+	require.Empty(t, resp.GetDeviceApprovalURL())
 }
 
 func TestServer_Up(t *testing.T) {

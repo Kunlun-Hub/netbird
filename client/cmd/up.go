@@ -323,9 +323,13 @@ func doDaemonUp(ctx context.Context, cmd *cobra.Command, client proto.DaemonServ
 	}
 
 	if loginResp.NeedsSSOLogin {
-		if err := handleSSOLogin(ctx, cmd, loginResp, client, pm); err != nil {
+		waitResp, err := handleSSOLogin(ctx, cmd, loginResp, client, pm)
+		if err != nil {
 			return fmt.Errorf("sso login failed: %v", err)
 		}
+		printDeviceApprovalHint(cmd, waitResp.GetRequiresApproval(), waitResp.GetDeviceApprovalURL())
+	} else {
+		printDeviceApprovalHint(cmd, loginResp.GetRequiresApproval(), loginResp.GetDeviceApprovalURL())
 	}
 
 	if _, err := client.Up(ctx, &proto.UpRequest{

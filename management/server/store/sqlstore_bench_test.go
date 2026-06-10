@@ -177,9 +177,6 @@ func (s *SqlStore) GetAccountGormOpt(ctx context.Context, accountID string) (*ty
 			pat.UserID = ""
 			user.PATs[pat.ID] = &pat
 		}
-		if user.AutoGroups == nil {
-			user.AutoGroups = []string{}
-		}
 		account.Users[user.Id] = &user
 		user.PATsG = nil
 	}

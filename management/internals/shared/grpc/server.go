@@ -697,6 +697,22 @@ func capabilitiesToInt32(caps []proto.PeerCapability) []int32 {
 	return result
 }
 
+func hasPeerCapability(caps []proto.PeerCapability, capability proto.PeerCapability) bool {
+	for _, cap := range caps {
+		if cap == capability {
+			return true
+		}
+	}
+	return false
+}
+
+func peerApprovalUnsupportedByClient(peer *nbpeer.Peer, caps []proto.PeerCapability) bool {
+	return peer != nil &&
+		peer.Status != nil &&
+		peer.Status.RequiresApproval &&
+		!hasPeerCapability(caps, proto.PeerCapability_PeerCapabilityDeviceApproval)
+}
+
 func (s *Server) parseRequest(ctx context.Context, req *proto.EncryptedMessage, parsed pb.Message) (wgtypes.Key, error) {
 	peerKey, err := wgtypes.ParseKey(req.GetWgPubKey())
 	if err != nil {
@@ -791,6 +807,9 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 	if err != nil {
 		log.WithContext(ctx).Warnf("failed logging in peer %s: %s", peerKey, err)
 		return nil, mapError(ctx, err)
+	}
+	if peerApprovalUnsupportedByClient(peer, loginReq.GetMeta().GetCapabilities()) {
+		return nil, status.Error(codes.PermissionDenied, "peer requires administrator approval")
 	}
 
 	loginResp, err := s.prepareLoginResponse(ctx, peer, netMap, postureChecks)

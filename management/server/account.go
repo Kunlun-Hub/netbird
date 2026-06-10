@@ -459,6 +459,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 	am.handleGroupsPropagationSettings(ctx, oldSettings, newSettings, userID, accountID)
 	am.handleAutoUpdateVersionSettings(ctx, oldSettings, newSettings, userID, accountID)
 	am.handleAutoUpdateAlwaysSettings(ctx, oldSettings, newSettings, userID, accountID)
+	am.handlePeerApprovalSettings(ctx, oldSettings, newSettings, userID, accountID)
 	am.handlePeerExposeSettings(ctx, oldSettings, newSettings, userID, accountID)
 	if err = am.handleInactivityExpirationSettings(ctx, oldSettings, newSettings, userID, accountID); err != nil {
 		return nil, err
@@ -1206,6 +1207,21 @@ func (am *DefaultAccountManager) handleAutoUpdateAlwaysSettings(ctx context.Cont
 			am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountAutoUpdateAlwaysDisabled, nil)
 		}
 	}
+}
+
+func (am *DefaultAccountManager) handlePeerApprovalSettings(ctx context.Context, oldSettings, newSettings *types.Settings, userID, accountID string) {
+	if oldSettings.Extra == nil || newSettings.Extra == nil {
+		return
+	}
+	if oldSettings.Extra.PeerApprovalEnabled == newSettings.Extra.PeerApprovalEnabled {
+		return
+	}
+
+	event := activity.AccountPeerApprovalEnabled
+	if !newSettings.Extra.PeerApprovalEnabled {
+		event = activity.AccountPeerApprovalDisabled
+	}
+	am.StoreEvent(ctx, userID, accountID, accountID, event, nil)
 }
 
 func (am *DefaultAccountManager) handlePeerExposeSettings(ctx context.Context, oldSettings, newSettings *types.Settings, userID, accountID string) {

@@ -229,6 +229,8 @@ enum PeerCapability {
   PeerCapabilitySourcePrefixes = 1;
   // Client handles IPv6 overlay addresses and firewall rules.
   PeerCapabilityIPv6Overlay = 2;
+  // Client understands device approval state in login/sync responses.
+  PeerCapabilityDeviceApproval = 3;
 }
 
 // PeerSystemMeta is machine meta data like OS and version.
@@ -420,6 +422,9 @@ message PeerConfig {
 
   // IPv6 overlay address as compact bytes: 16 bytes IP + 1 byte prefix length.
   bytes address_v6 = 9;
+
+  // Indicates whether this peer must wait for administrator approval before receiving network access.
+  bool requiresApproval = 10;
 }
 
 message AutoUpdateSettings {

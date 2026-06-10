@@ -26,7 +26,7 @@ func TestGetAccountEntitlementsReturnsBasicSnapshot(t *testing.T) {
 	permissionsManager := permissions.NewMockManager(ctrl)
 	permissionsManager.EXPECT().
 		ValidateUserPermissions(gomock.Any(), "account-a", "user-a", modules.Accounts, operations.Read).
-		Return(true, nil)
+		Return(true, context.Background(), nil)
 
 	manager := &DefaultAccountManager{
 		permissionsManager:  permissionsManager,
@@ -51,7 +51,7 @@ func TestGetAccountEntitlementsRequiresAccountReadPermission(t *testing.T) {
 	permissionsManager := permissions.NewMockManager(ctrl)
 	permissionsManager.EXPECT().
 		ValidateUserPermissions(gomock.Any(), "account-a", "user-a", modules.Accounts, operations.Read).
-		Return(false, nil)
+		Return(false, context.Background(), nil)
 
 	manager := &DefaultAccountManager{
 		permissionsManager:  permissionsManager,

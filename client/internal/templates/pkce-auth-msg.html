@@ -35,7 +35,7 @@
                 {{ else }}
                 <!-- Success Icon -->
                 <div class="flex justify-center mb-6">
-                    <svg height="48" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" aria-label="登录成功">
+                    <svg height="48" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" aria-label="身份认证完成">
                         <circle cx="50" cy="50" fill="none" r="45" stroke="#5cb85c" stroke-width="3"/>
                         <path d="M30 50 L45 65 L70 35" fill="none" stroke="#5cb85c" stroke-width="5"/>
                     </svg>
@@ -47,7 +47,7 @@
                     {{ if .Error }}
                     <h1 class="text-2xl text-white text-center font-medium mb-3 relative max-w-[180px] sm:max-w-none">登录失败</h1>
                     {{ else }}
-                    <h1 class="text-2xl text-white text-center font-medium mb-3 relative max-w-[180px] sm:max-w-none">登录成功</h1>
+                    <h1 class="text-2xl text-white text-center font-medium mb-3 relative max-w-[180px] sm:max-w-none">身份认证完成</h1>
                     {{ end }}
                 </div>
 
@@ -59,7 +59,7 @@
                 {{ else }}
                 <!-- Success Message -->
                 <div class="text-center text-base text-nb-gray-300/80 tracking-wide font-light">
-                    您的设备现已完成注册并登录至Cloink。您现在可以关闭此窗口。
+                    您的身份认证已完成。请返回 Cloink 客户端查看设备接入状态；如果开启了设备审批，需要管理员审批后才能接入网络。
                 </div>
                 {{ end }}
 

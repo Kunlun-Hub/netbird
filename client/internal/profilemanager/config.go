@@ -567,9 +567,9 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 	}
 
 	if config.DisableNotifications == nil {
-		disabled := true
+		disabled := false
 		config.DisableNotifications = &disabled
-		log.Infof("setting notifications to disabled by default")
+		log.Infof("setting notifications to enabled by default")
 		updated = true
 	}
 

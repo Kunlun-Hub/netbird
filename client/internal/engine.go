@@ -240,7 +240,7 @@ type Engine struct {
 	syncStore    syncstore.Store
 	syncStoreDir string
 
-	flowManager         nftypes.FlowManager
+	flowManager nftypes.FlowManager
 
 	// auto-update
 	updateManager *updater.Manager
@@ -1122,10 +1122,38 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 	state.KernelInterface = !e.wgInterface.IsUserspaceBind()
 	state.FQDN = conf.GetFqdn()
 	state.WgPort = e.config.WgPort
+	wasPendingApproval := state.RequiresApproval
+	state.RequiresApproval = conf.GetRequiresApproval()
 
 	e.statusRecorder.UpdateLocalPeerState(state)
+	e.notifyPeerApprovalStateChange(wasPendingApproval, state.RequiresApproval)
 
 	return nil
+}
+
+func (e *Engine) notifyPeerApprovalStateChange(wasPendingApproval, pendingApproval bool) {
+	if wasPendingApproval == pendingApproval {
+		return
+	}
+
+	if pendingApproval {
+		e.statusRecorder.PublishEvent(
+			cProto.SystemEvent_WARNING,
+			cProto.SystemEvent_AUTHENTICATION,
+			"提醒",
+			"您的设备需要管理员审批",
+			map[string]string{"state": "pending_approval"},
+		)
+		return
+	}
+
+	e.statusRecorder.PublishEvent(
+		cProto.SystemEvent_INFO,
+		cProto.SystemEvent_AUTHENTICATION,
+		"提醒",
+		"您的设备已审批通过，正在接入网络",
+		map[string]string{"state": "approved"},
+	)
 }
 
 // hasIPv6Changed reports whether the IPv6 overlay address in the peer config

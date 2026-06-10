@@ -532,6 +532,69 @@ func TestUpdateAccountBrandingPayload(t *testing.T) {
 	}
 }
 
+func TestUpdateAccountPeerApprovalPayload(t *testing.T) {
+	accountID := "test_account"
+	adminUser := types.NewAdminUser("test_user")
+
+	var capturedSettings *types.Settings
+	handler := initAccountsTestData(t, &types.Account{
+		Id:      accountID,
+		Domain:  "hotmail.com",
+		Network: types.NewNetwork(),
+		Users: map[string]*types.User{
+			adminUser.Id: adminUser,
+		},
+		Settings: &types.Settings{
+			PeerLoginExpirationEnabled: false,
+			PeerLoginExpiration:        time.Hour,
+			RegularUsersViewBlocked:    true,
+			Extra: &types.ExtraSettings{
+				PeerApprovalEnabled: false,
+			},
+		},
+	})
+	handler.accountManager.(*mock_server.MockAccountManager).UpdateAccountSettingsFunc = func(ctx context.Context, accountID, userID string, newSettings *types.Settings) (*types.Settings, error) {
+		capturedSettings = newSettings
+		return newSettings, nil
+	}
+
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(
+		http.MethodPut,
+		"/api/accounts/"+accountID,
+		bytes.NewBufferString(`{
+			"settings": {
+				"peer_login_expiration": 7200,
+				"peer_login_expiration_enabled": true,
+				"extra": {
+					"peer_approval_enabled": true
+				}
+			}
+		}`),
+	)
+
+	req = mux.SetURLVars(req, map[string]string{"accountId": accountID})
+	req = req.WithContext(nbcontext.SetUserAuthInContext(req.Context(), auth.UserAuth{
+		UserId:    adminUser.Id,
+		AccountId: accountID,
+		Domain:    "hotmail.com",
+	}))
+
+	handler.updateAccount(recorder, req)
+	assert.Equal(t, http.StatusOK, recorder.Code)
+
+	if assert.NotNil(t, capturedSettings) && assert.NotNil(t, capturedSettings.Extra) {
+		assert.True(t, capturedSettings.Extra.PeerApprovalEnabled)
+	}
+
+	var response api.Account
+	err := json.Unmarshal(recorder.Body.Bytes(), &response)
+	assert.NoError(t, err)
+	if assert.NotNil(t, response.Settings.Extra) {
+		assert.True(t, response.Settings.Extra.PeerApprovalEnabled)
+	}
+}
+
 func boolValue(value *bool) bool {
 	if value == nil {
 		return false

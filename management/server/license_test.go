@@ -22,7 +22,7 @@ func TestGetAccountLicenseReturnsMachineAndBasicStatus(t *testing.T) {
 	permissionsManager := permissions.NewMockManager(ctrl)
 	permissionsManager.EXPECT().
 		ValidateUserPermissions(gomock.Any(), "account-a", "user-a", modules.Accounts, operations.Read).
-		Return(true, nil)
+		Return(true, context.Background(), nil)
 
 	manager := &DefaultAccountManager{
 		permissionsManager: permissionsManager,
@@ -44,7 +44,7 @@ func TestUpdateAccountLicenseActivatesPro(t *testing.T) {
 	permissionsManager := permissions.NewMockManager(ctrl)
 	permissionsManager.EXPECT().
 		ValidateUserPermissions(gomock.Any(), "account-a", "user-a", modules.Settings, operations.Update).
-		Return(true, nil)
+		Return(true, context.Background(), nil)
 
 	licenseManager := licensing.NewManager(t.TempDir(), licensing.WithSecret("test-secret"))
 	payload := licensing.BuildLicensePayload(
@@ -76,7 +76,7 @@ func TestUpdateAccountLicenseRequiresAccountUpdatePermission(t *testing.T) {
 	permissionsManager := permissions.NewMockManager(ctrl)
 	permissionsManager.EXPECT().
 		ValidateUserPermissions(gomock.Any(), "account-a", "user-a", modules.Settings, operations.Update).
-		Return(false, nil)
+		Return(false, context.Background(), nil)
 
 	manager := &DefaultAccountManager{
 		permissionsManager: permissionsManager,

@@ -21,6 +21,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	ubergomock "go.uber.org/mock/gomock"
 	"golang.org/x/exp/maps"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
@@ -2403,6 +2404,453 @@ func TestAddPeer_ApprovedUserCanAddPeers(t *testing.T) {
 
 	_, _, _, err = manager.AddPeer(context.Background(), "", "", regularUser.Id, peer, false)
 	require.NoError(t, err, "Regular user should be able to add peers")
+}
+
+func TestShouldRequirePeerApproval(t *testing.T) {
+	enabled := &types.ExtraSettings{PeerApprovalEnabled: true}
+	disabled := &types.ExtraSettings{PeerApprovalEnabled: false}
+	userDevice := &nbpeer.Peer{}
+	embeddedProxyPeer := &nbpeer.Peer{ProxyMeta: nbpeer.ProxyMeta{Embedded: true}}
+
+	tests := []struct {
+		name            string
+		extra           *types.ExtraSettings
+		addedByUser     bool
+		addedBySetupKey bool
+		temporary       bool
+		peer            *nbpeer.Peer
+		expected        bool
+	}{
+		{
+			name:        "user added device requires approval when enabled",
+			extra:       enabled,
+			addedByUser: true,
+			peer:        userDevice,
+			expected:    true,
+		},
+		{
+			name:        "nil extra settings skips approval",
+			addedByUser: true,
+			peer:        userDevice,
+		},
+		{
+			name:        "disabled setting skips approval",
+			extra:       disabled,
+			addedByUser: true,
+			peer:        userDevice,
+		},
+		{
+			name:        "non user added device skips approval",
+			extra:       enabled,
+			addedByUser: false,
+			peer:        userDevice,
+		},
+		{
+			name:            "setup key device skips approval",
+			extra:           enabled,
+			addedByUser:     false,
+			addedBySetupKey: true,
+			peer:            userDevice,
+		},
+		{
+			name:            "setup key wins over user flag and skips approval",
+			extra:           enabled,
+			addedByUser:     true,
+			addedBySetupKey: true,
+			peer:            userDevice,
+		},
+		{
+			name:        "web ssh or rdp temporary device skips approval",
+			extra:       enabled,
+			addedByUser: true,
+			temporary:   true,
+			peer:        userDevice,
+		},
+		{
+			name:        "embedded proxy peer skips approval",
+			extra:       enabled,
+			addedByUser: true,
+			peer:        embeddedProxyPeer,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			actual := shouldRequirePeerApproval(tt.extra, tt.addedByUser, tt.addedBySetupKey, tt.temporary, tt.peer)
+			assert.Equal(t, tt.expected, actual)
+		})
+	}
+}
+
+func TestAddPeer_UserDeviceRequiresApprovalWhenEnabled(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err)
+
+	account := newAccountWithId(context.Background(), "test-account", "owner", "", "domain.com", "", false)
+	account.Settings.Extra.PeerApprovalEnabled = true
+	require.NoError(t, manager.Store.SaveAccount(context.Background(), account))
+
+	regularUser := types.NewRegularUser("regular-user", "regular@example.com", "Regular User")
+	regularUser.AccountID = account.Id
+	require.NoError(t, manager.Store.SaveUser(context.Background(), regularUser))
+
+	key, err := wgtypes.GenerateKey()
+	require.NoError(t, err)
+
+	peer, networkMap, _, err := manager.AddPeer(context.Background(), "", "", regularUser.Id, &nbpeer.Peer{
+		Key:  key.PublicKey().String(),
+		Meta: nbpeer.PeerSystemMeta{Hostname: "approval-device", OS: "linux"},
+	}, false)
+	require.NoError(t, err)
+	require.NotNil(t, peer.Status)
+	assert.True(t, peer.Status.RequiresApproval)
+	require.NotNil(t, networkMap)
+	assert.Empty(t, networkMap.Peers)
+
+	validPeers, _, err := manager.GetValidatedPeers(context.Background(), account.Id)
+	require.NoError(t, err)
+	_, ok := validPeers[peer.ID]
+	assert.False(t, ok)
+}
+
+func TestAddPeer_UserDeviceRequiresApprovalWhenSetupKeyAlsoPresent(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err)
+
+	account := newAccountWithId(context.Background(), "test-account", userID, "", "domain.com", "", false)
+	account.Settings.Extra.PeerApprovalEnabled = true
+	require.NoError(t, manager.Store.SaveAccount(context.Background(), account))
+
+	adminUser := types.NewAdminUser(userID)
+	adminUser.AccountID = account.Id
+	require.NoError(t, manager.Store.SaveUser(context.Background(), adminUser))
+
+	regularUser := types.NewRegularUser("regular-user", "regular@example.com", "Regular User")
+	regularUser.AccountID = account.Id
+	require.NoError(t, manager.Store.SaveUser(context.Background(), regularUser))
+
+	setupKey, err := manager.CreateSetupKey(context.Background(), account.Id, "fallback-key", types.SetupKeyReusable, time.Hour, nil, 999, userID, false, false)
+	require.NoError(t, err)
+
+	key, err := wgtypes.GenerateKey()
+	require.NoError(t, err)
+
+	peer, networkMap, _, err := manager.AddPeer(context.Background(), "", setupKey.Key, regularUser.Id, &nbpeer.Peer{
+		Key:  key.PublicKey().String(),
+		Meta: nbpeer.PeerSystemMeta{Hostname: "approval-device-with-key", OS: "linux"},
+	}, false)
+	require.NoError(t, err)
+	require.NotNil(t, peer.Status)
+	assert.True(t, peer.Status.RequiresApproval)
+	require.NotNil(t, networkMap)
+	assert.Empty(t, networkMap.Peers)
+
+	storedSetupKey, err := manager.Store.GetSetupKeyByID(context.Background(), store.LockingStrengthNone, account.Id, setupKey.Id)
+	require.NoError(t, err)
+	assert.Equal(t, 0, storedSetupKey.UsedTimes)
+}
+
+func TestAddPeer_SetupKeyDeviceSkipsApprovalWhenEnabled(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err)
+
+	account, err := createAccount(manager, "test-account", userID, "domain.com")
+	require.NoError(t, err)
+	settings := account.Settings.Copy()
+	settings.Extra.PeerApprovalEnabled = true
+	_, err = manager.UpdateAccountSettings(context.Background(), account.Id, userID, settings)
+	require.NoError(t, err)
+
+	setupKey, err := manager.CreateSetupKey(context.Background(), account.Id, "test-key", types.SetupKeyReusable, time.Hour, nil, 999, userID, false, false)
+	require.NoError(t, err)
+
+	key, err := wgtypes.GenerateKey()
+	require.NoError(t, err)
+
+	peer, _, _, err := manager.AddPeer(context.Background(), "", setupKey.Key, "", &nbpeer.Peer{
+		Key:  key.PublicKey().String(),
+		Meta: nbpeer.PeerSystemMeta{Hostname: "setup-key-device", OS: "linux"},
+	}, false)
+	require.NoError(t, err)
+	require.NotNil(t, peer.Status)
+	assert.False(t, peer.Status.RequiresApproval)
+
+	validPeers, _, err := manager.GetValidatedPeers(context.Background(), account.Id)
+	require.NoError(t, err)
+	_, ok := validPeers[peer.ID]
+	assert.True(t, ok)
+}
+
+func TestAddPeer_TemporaryDeviceSkipsApprovalWhenEnabled(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err)
+
+	account, err := createAccount(manager, "test-account", userID, "domain.com")
+	require.NoError(t, err)
+	settings := account.Settings.Copy()
+	settings.Extra.PeerApprovalEnabled = true
+	_, err = manager.UpdateAccountSettings(context.Background(), account.Id, userID, settings)
+	require.NoError(t, err)
+
+	key, err := wgtypes.GenerateKey()
+	require.NoError(t, err)
+
+	peer, _, _, err := manager.AddPeer(context.Background(), account.Id, "", userID, &nbpeer.Peer{
+		Key:  key.PublicKey().String(),
+		Meta: nbpeer.PeerSystemMeta{Hostname: "temporary-device", OS: "linux"},
+	}, true)
+	require.NoError(t, err)
+	require.NotNil(t, peer.Status)
+	assert.False(t, peer.Status.RequiresApproval)
+	assert.True(t, peer.Ephemeral)
+
+	validPeers, _, err := manager.GetValidatedPeers(context.Background(), account.Id)
+	require.NoError(t, err)
+	_, ok := validPeers[peer.ID]
+	assert.True(t, ok)
+}
+
+func TestAddPeer_EachNewUserDeviceRequiresApprovalWhenEnabled(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err)
+
+	account := newAccountWithId(context.Background(), "test-account", "owner", "", "domain.com", "", false)
+	account.Settings.Extra.PeerApprovalEnabled = true
+	require.NoError(t, manager.Store.SaveAccount(context.Background(), account))
+
+	regularUser := types.NewRegularUser("regular-user", "regular@example.com", "Regular User")
+	regularUser.AccountID = account.Id
+	require.NoError(t, manager.Store.SaveUser(context.Background(), regularUser))
+
+	firstKey, err := wgtypes.GenerateKey()
+	require.NoError(t, err)
+	firstPeer, _, _, err := manager.AddPeer(context.Background(), "", "", regularUser.Id, &nbpeer.Peer{
+		Key:  firstKey.PublicKey().String(),
+		Meta: nbpeer.PeerSystemMeta{Hostname: "first-device", OS: "linux"},
+	}, false)
+	require.NoError(t, err)
+	require.NotNil(t, firstPeer.Status)
+	assert.True(t, firstPeer.Status.RequiresApproval)
+
+	firstPeer.Status.RequiresApproval = false
+	require.NoError(t, manager.Store.SavePeer(context.Background(), account.Id, firstPeer))
+
+	secondKey, err := wgtypes.GenerateKey()
+	require.NoError(t, err)
+	secondPeer, _, _, err := manager.AddPeer(context.Background(), "", "", regularUser.Id, &nbpeer.Peer{
+		Key:  secondKey.PublicKey().String(),
+		Meta: nbpeer.PeerSystemMeta{Hostname: "second-device", OS: "linux"},
+	}, false)
+	require.NoError(t, err)
+	require.NotNil(t, secondPeer.Status)
+	assert.True(t, secondPeer.Status.RequiresApproval)
+}
+
+func TestLoginPeer_ExistingUserDeviceDoesNotReenterApprovalWhenEnabled(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err)
+
+	account := newAccountWithId(context.Background(), "test-account", "owner", "", "domain.com", "", false)
+	account.Settings.Extra.PeerApprovalEnabled = true
+	require.NoError(t, manager.Store.SaveAccount(context.Background(), account))
+
+	regularUser := types.NewRegularUser("regular-user", "regular@example.com", "Regular User")
+	regularUser.AccountID = account.Id
+	require.NoError(t, manager.Store.SaveUser(context.Background(), regularUser))
+
+	key, err := wgtypes.GenerateKey()
+	require.NoError(t, err)
+	peer, _, _, err := manager.AddPeer(context.Background(), "", "", regularUser.Id, &nbpeer.Peer{
+		Key:  key.PublicKey().String(),
+		Meta: nbpeer.PeerSystemMeta{Hostname: "stable-device", OS: "linux"},
+	}, false)
+	require.NoError(t, err)
+	require.NotNil(t, peer.Status)
+	require.True(t, peer.Status.RequiresApproval)
+
+	peer.Status.RequiresApproval = false
+	require.NoError(t, manager.Store.SavePeer(context.Background(), account.Id, peer))
+
+	loggedInPeer, networkMap, _, err := manager.LoginPeer(context.Background(), types.PeerLogin{
+		WireGuardPubKey: key.PublicKey().String(),
+		SSHKey:          "ssh-key",
+		Meta:            nbpeer.PeerSystemMeta{Hostname: "stable-device", OS: "linux"},
+		UserID:          regularUser.Id,
+		ConnectionIP:    net.ParseIP("192.0.2.10"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, loggedInPeer.Status)
+	assert.False(t, loggedInPeer.Status.RequiresApproval)
+	require.NotNil(t, networkMap)
+
+	storedPeer, err := manager.Store.GetPeerByID(context.Background(), store.LockingStrengthNone, account.Id, peer.ID)
+	require.NoError(t, err)
+	require.NotNil(t, storedPeer.Status)
+	assert.False(t, storedPeer.Status.RequiresApproval)
+}
+
+func TestUpdatePeer_ApprovalStatusAndActivity(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err)
+
+	account := newAccountWithId(context.Background(), "test-account", userID, "domain.com", "admin@example.com", "Admin User", false)
+	account.Settings.Extra.PeerApprovalEnabled = true
+	require.NoError(t, manager.Store.SaveAccount(context.Background(), account))
+
+	deviceUser := types.NewRegularUser("device-user", "device@example.com", "Device User")
+	deviceUser.AccountID = account.Id
+	require.NoError(t, manager.Store.SaveUser(context.Background(), deviceUser))
+
+	key, err := wgtypes.GenerateKey()
+	require.NoError(t, err)
+	peer := &nbpeer.Peer{
+		ID:        "peer-pending",
+		AccountID: account.Id,
+		Key:       key.PublicKey().String(),
+		Name:      "pending-device",
+		DNSLabel:  "pending-device",
+		UserID:    deviceUser.Id,
+		IP:        netip.MustParseAddr("100.64.0.10"),
+		Status: &nbpeer.PeerStatus{
+			LastSeen:         time.Now().UTC(),
+			RequiresApproval: true,
+		},
+		CreatedAt: time.Now().UTC(),
+	}
+	require.NoError(t, manager.Store.AddPeerToAccount(context.Background(), peer))
+
+	ctrl := ubergomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+	networkMapController := network_map.NewMockController(ctrl)
+	networkMapController.EXPECT().
+		GetDNSDomain(ubergomock.Any()).
+		Return(account.Domain).
+		AnyTimes()
+	networkMapController.EXPECT().
+		OnPeersUpdated(ubergomock.Any(), account.Id, []string{peer.ID}).
+		Return(nil).
+		Times(1)
+	manager.networkMapController = networkMapController
+
+	updatedPeer, err := manager.UpdatePeer(context.Background(), account.Id, userID, &nbpeer.Peer{
+		ID:                          peer.ID,
+		Name:                        peer.Name,
+		SSHEnabled:                  peer.SSHEnabled,
+		LoginExpirationEnabled:      peer.LoginExpirationEnabled,
+		InactivityExpirationEnabled: peer.InactivityExpirationEnabled,
+		Status:                      &nbpeer.PeerStatus{RequiresApproval: false},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, updatedPeer.Status)
+	assert.False(t, updatedPeer.Status.RequiresApproval)
+
+	storedPeer, err := manager.Store.GetPeerByID(context.Background(), store.LockingStrengthNone, account.Id, peer.ID)
+	require.NoError(t, err)
+	assert.False(t, storedPeer.Status.RequiresApproval)
+
+	ev := getEvent(t, account.Id, manager, activity.PeerApproved)
+	require.NotNil(t, ev)
+	assert.Equal(t, userID, ev.InitiatorID)
+	assert.Equal(t, peer.ID, ev.TargetID)
+	assert.Equal(t, account.Id, ev.Meta["account_id"])
+	assert.Equal(t, account.Domain, ev.Meta["account_name"])
+	assert.Equal(t, peer.ID, ev.Meta["peer_id"])
+	assert.Equal(t, peer.Name, ev.Meta["peer_name"])
+	assert.Equal(t, deviceUser.Id, ev.Meta["peer_user_id"])
+	assert.Equal(t, deviceUser.Name, ev.Meta["peer_user_name"])
+	assert.Equal(t, deviceUser.Email, ev.Meta["peer_user_email"])
+	assert.Equal(t, userID, ev.Meta["approved_by"])
+	assert.Equal(t, account.Users[userID].Name, ev.Meta["approver_name"])
+	assert.Equal(t, account.Users[userID].Email, ev.Meta["approver_email"])
+	assert.NotEmpty(t, ev.Meta["approved_at"])
+	assert.Equal(t, false, ev.Meta["requires_approval"])
+}
+
+func TestUpdatePeer_ApprovalRequiresPeerUpdatePermission(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err)
+
+	account := newAccountWithId(context.Background(), "test-account", userID, "", "domain.com", "", false)
+	account.Settings.Extra.PeerApprovalEnabled = true
+	require.NoError(t, manager.Store.SaveAccount(context.Background(), account))
+
+	regularUser := types.NewRegularUser("regular-user", "regular@example.com", "Regular User")
+	regularUser.AccountID = account.Id
+	require.NoError(t, manager.Store.SaveUser(context.Background(), regularUser))
+
+	key, err := wgtypes.GenerateKey()
+	require.NoError(t, err)
+	peer := &nbpeer.Peer{
+		ID:        "peer-pending-permission",
+		AccountID: account.Id,
+		Key:       key.PublicKey().String(),
+		Name:      "pending-device",
+		DNSLabel:  "pending-device",
+		UserID:    regularUser.Id,
+		IP:        netip.MustParseAddr("100.64.0.11"),
+		Status: &nbpeer.PeerStatus{
+			LastSeen:         time.Now().UTC(),
+			RequiresApproval: true,
+		},
+		CreatedAt: time.Now().UTC(),
+	}
+	require.NoError(t, manager.Store.AddPeerToAccount(context.Background(), peer))
+
+	_, err = manager.UpdatePeer(context.Background(), account.Id, regularUser.Id, &nbpeer.Peer{
+		ID:                          peer.ID,
+		Name:                        peer.Name,
+		SSHEnabled:                  peer.SSHEnabled,
+		LoginExpirationEnabled:      peer.LoginExpirationEnabled,
+		InactivityExpirationEnabled: peer.InactivityExpirationEnabled,
+		Status:                      &nbpeer.PeerStatus{RequiresApproval: false},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "permission denied")
+}
+
+func TestLoginPeer_ApprovedDeviceGetsNetworkMapWhenApprovalEnabled(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err)
+
+	account := newAccountWithId(context.Background(), "test-account", "owner", "", "domain.com", "", false)
+	account.Settings.Extra.PeerApprovalEnabled = true
+	require.NoError(t, manager.Store.SaveAccount(context.Background(), account))
+
+	regularUser := types.NewRegularUser("regular-user", "regular@example.com", "Regular User")
+	regularUser.AccountID = account.Id
+	require.NoError(t, manager.Store.SaveUser(context.Background(), regularUser))
+
+	key, err := wgtypes.GenerateKey()
+	require.NoError(t, err)
+	peer, networkMap, _, err := manager.AddPeer(context.Background(), "", "", regularUser.Id, &nbpeer.Peer{
+		Key:  key.PublicKey().String(),
+		Meta: nbpeer.PeerSystemMeta{Hostname: "approval-device", OS: "linux"},
+	}, false)
+	require.NoError(t, err)
+	require.NotNil(t, peer.Status)
+	require.True(t, peer.Status.RequiresApproval)
+	require.NotNil(t, networkMap)
+	assert.Empty(t, networkMap.Peers)
+
+	peer.Status.RequiresApproval = false
+	require.NoError(t, manager.Store.SavePeer(context.Background(), account.Id, peer))
+
+	loggedInPeer, networkMap, _, err := manager.LoginPeer(context.Background(), types.PeerLogin{
+		WireGuardPubKey: key.PublicKey().String(),
+		SSHKey:          "ssh-key",
+		Meta:            nbpeer.PeerSystemMeta{Hostname: "approval-device", OS: "linux"},
+		UserID:          regularUser.Id,
+		ConnectionIP:    net.ParseIP("192.0.2.20"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, loggedInPeer.Status)
+	assert.False(t, loggedInPeer.Status.RequiresApproval)
+	require.NotNil(t, networkMap)
+
+	validPeers, _, err := manager.GetValidatedPeers(context.Background(), account.Id)
+	require.NoError(t, err)
+	_, ok := validPeers[peer.ID]
+	assert.True(t, ok)
 }
 
 func TestLoginPeer_UserPendingApprovalBlocked(t *testing.T) {

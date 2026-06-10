@@ -90,12 +90,13 @@ var resp = &proto.StatusResponse{
 			},
 		},
 		LocalPeerState: &proto.LocalPeerState{
-			IP:              "192.168.178.100/16",
-			Ipv6:            "fd00::100",
-			PubKey:          "Some-Pub-Key",
-			KernelInterface: true,
-			WgPort:          51820,
-			Fqdn:            "some-localhost.awesome-domain.com",
+			IP:               "192.168.178.100/16",
+			Ipv6:             "fd00::100",
+			PubKey:           "Some-Pub-Key",
+			KernelInterface:  true,
+			WgPort:           51820,
+			Fqdn:             "some-localhost.awesome-domain.com",
+			RequiresApproval: true,
 			Networks: []string{
 				"10.10.0.0/24",
 			},
@@ -207,12 +208,13 @@ var overview = OutputOverview{
 			},
 		},
 	},
-	IP:              "192.168.178.100/16",
-	IPv6:            "fd00::100",
-	PubKey:          "Some-Pub-Key",
-	KernelInterface: true,
-	WgPort:          51820,
-	FQDN:            "some-localhost.awesome-domain.com",
+	IP:               "192.168.178.100/16",
+	IPv6:             "fd00::100",
+	PubKey:           "Some-Pub-Key",
+	KernelInterface:  true,
+	WgPort:           51820,
+	FQDN:             "some-localhost.awesome-domain.com",
+	RequiresApproval: true,
 	NSServerGroups: []NsServerGroupStateOutput{
 		{
 			Servers: []string{
@@ -377,6 +379,7 @@ func TestParsingToJSON(t *testing.T) {
           "usesKernelInterface": true,
           "wireguardPort": 51820,
           "fqdn": "some-localhost.awesome-domain.com",
+          "requiresApproval": true,
           "quantumResistance": false,
           "quantumResistancePermissive": false,
           "networks": [
@@ -500,6 +503,7 @@ publicKey: Some-Pub-Key
 usesKernelInterface: true
 wireguardPort: 51820
 fqdn: some-localhost.awesome-domain.com
+requiresApproval: true
 quantumResistance: false
 quantumResistancePermissive: false
 networks:
@@ -595,6 +599,7 @@ Cloink IP: 192.168.178.100/16
 Cloink IPv6: fd00::100
 Interface type: Kernel
 Wireguard port: %d
+Device approval: Pending administrator approval
 Quantum resistance: false
 Lazy connection: false
 Flow logging: false
@@ -623,6 +628,7 @@ Cloink IP: 192.168.178.100/16
 Cloink IPv6: fd00::100
 Interface type: Kernel
 Wireguard port: 51820
+Device approval: Pending administrator approval
 Quantum resistance: false
 Lazy connection: false
 Flow logging: false

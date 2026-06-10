@@ -150,6 +150,7 @@ type OutputOverview struct {
 	KernelInterface         bool                       `json:"usesKernelInterface" yaml:"usesKernelInterface"`
 	WgPort                  int                        `json:"wireguardPort" yaml:"wireguardPort"`
 	FQDN                    string                     `json:"fqdn" yaml:"fqdn"`
+	RequiresApproval        bool                       `json:"requiresApproval" yaml:"requiresApproval"`
 	RosenpassEnabled        bool                       `json:"quantumResistance" yaml:"quantumResistance"`
 	RosenpassPermissive     bool                       `json:"quantumResistancePermissive" yaml:"quantumResistancePermissive"`
 	Networks                []string                   `json:"networks" yaml:"networks"`
@@ -196,6 +197,7 @@ func ConvertToStatusOutputOverview(pbFullStatus *proto.FullStatus, opts ConvertO
 		KernelInterface:         pbFullStatus.GetLocalPeerState().GetKernelInterface(),
 		WgPort:                  int(pbFullStatus.GetLocalPeerState().GetWgPort()),
 		FQDN:                    pbFullStatus.GetLocalPeerState().GetFqdn(),
+		RequiresApproval:        pbFullStatus.GetLocalPeerState().GetRequiresApproval(),
 		RosenpassEnabled:        pbFullStatus.GetLocalPeerState().GetRosenpassEnabled(),
 		RosenpassPermissive:     pbFullStatus.GetLocalPeerState().GetRosenpassPermissive(),
 		Networks:                pbFullStatus.GetLocalPeerState().GetNetworks(),
@@ -584,6 +586,11 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 		wgPortString = fmt.Sprintf("%d", o.WgPort)
 	}
 
+	deviceApprovalString := "Approved"
+	if o.RequiresApproval {
+		deviceApprovalString = "Pending administrator approval"
+	}
+
 	summary := fmt.Sprintf(
 		"OS: %s\n"+
 			"Daemon version: %s\n"+
@@ -598,6 +605,7 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 			"%s"+
 			"Interface type: %s\n"+
 			"Wireguard port: %s\n"+
+			"Device approval: %s\n"+
 			"Quantum resistance: %s\n"+
 			"Lazy connection: %s\n"+
 			"Flow logging: %s\n"+
@@ -619,6 +627,7 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 		ipv6Line,
 		interfaceTypeString,
 		wgPortString,
+		deviceApprovalString,
 		rosenpassEnabledStatus,
 		lazyConnectionEnabledStatus,
 		flowEnabledStatus,

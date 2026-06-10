@@ -216,6 +216,8 @@ message LoginResponse {
   string userCode = 2;
   string verificationURI = 3;
   string verificationURIComplete = 4;
+  bool requiresApproval = 5;
+  string deviceApprovalURL = 6;
 }
 
 message WaitSSOLoginRequest {
@@ -225,6 +227,8 @@ message WaitSSOLoginRequest {
 
 message WaitSSOLoginResponse {
   string email = 1;
+  bool requiresApproval = 2;
+  string deviceApprovalURL = 3;
 }
 
 message UpRequest {
@@ -354,6 +358,7 @@ message LocalPeerState {
   repeated string networks = 7;
   string ipv6 = 8;
   int32 wgPort = 9;
+  bool requiresApproval = 10;
 }
 
 message FlowState {

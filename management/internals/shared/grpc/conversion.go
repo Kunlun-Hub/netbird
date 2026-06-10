@@ -322,6 +322,7 @@ func toPeerConfig(peer *nbpeer.Peer, network *types.Network, dnsName string, set
 		Fqdn:                            fqdn,
 		RoutingPeerDnsResolutionEnabled: settings.RoutingPeerDNSResolutionEnabled,
 		LazyConnectionEnabled:           settings.LazyConnectionEnabled,
+		RequiresApproval:                peer.Status != nil && peer.Status.RequiresApproval,
 		AutoUpdate: &proto.AutoUpdateSettings{
 			Version:      settings.AutoUpdateVersion,
 			AlwaysUpdate: settings.AutoUpdateAlways,

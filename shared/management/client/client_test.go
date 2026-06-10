@@ -52,6 +52,14 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
+func TestPeerCapabilitiesIncludesDeviceApproval(t *testing.T) {
+	caps := peerCapabilities(system.Info{DisableIPv6: true})
+
+	require.Contains(t, caps, mgmtProto.PeerCapability_PeerCapabilitySourcePrefixes)
+	require.Contains(t, caps, mgmtProto.PeerCapability_PeerCapabilityDeviceApproval)
+	require.NotContains(t, caps, mgmtProto.PeerCapability_PeerCapabilityIPv6Overlay)
+}
+
 func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 	t.Helper()
 	level, _ := log.ParseLevel("debug")

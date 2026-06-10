@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"runtime"
@@ -27,6 +28,7 @@ import (
 	"github.com/netbirdio/netbird/client/system"
 	mgm "github.com/netbirdio/netbird/shared/management/client"
 	"github.com/netbirdio/netbird/shared/management/domain"
+	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/peer"
@@ -310,16 +312,16 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, profileConfig *profil
 }
 
 // loginAttempt attempts to login using the provided information. it returns a status in case something fails
-func (s *Server) loginAttempt(ctx context.Context, setupKey, jwtToken string) (internal.StatusType, error) {
+func (s *Server) loginAttempt(ctx context.Context, setupKey, jwtToken string) (*mgmProto.LoginResponse, internal.StatusType, error) {
 	authClient, err := auth.NewAuth(ctx, s.config.PrivateKey, s.config.ManagementURL, s.config)
 	if err != nil {
 		log.Errorf("failed to create auth client: %v", err)
-		return internal.StatusLoginFailed, err
+		return nil, internal.StatusLoginFailed, err
 	}
 	defer authClient.Close()
 
 	var status internal.StatusType
-	err, isAuthError := authClient.Login(ctx, setupKey, jwtToken)
+	loginResp, err, isAuthError := authClient.LoginWithResponse(ctx, setupKey, jwtToken)
 	if err != nil {
 		if isAuthError {
 			log.Warnf("failed login: %v", err)
@@ -328,9 +330,9 @@ func (s *Server) loginAttempt(ctx context.Context, setupKey, jwtToken string) (i
 			log.Errorf("failed login: %v", err)
 			status = internal.StatusLoginFailed
 		}
-		return status, err
+		return loginResp, status, err
 	}
-	return "", nil
+	return loginResp, "", nil
 }
 
 // Login uses setup key to prepare configuration for the daemon.
@@ -538,9 +540,9 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 	s.config = config
 	s.mutex.Unlock()
 
-	if _, err := s.loginAttempt(ctx, "", ""); err == nil {
+	if loginResp, _, err := s.loginAttempt(ctx, "", ""); err == nil {
 		state.Set(internal.StatusIdle)
-		return &proto.LoginResponse{}, nil
+		return loginResponseWithApproval(ctx, loginResp, s.config, "")
 	}
 
 	state.Set(internal.StatusConnecting)
@@ -595,9 +597,11 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		}, nil
 	}
 
-	if loginStatus, err := s.loginAttempt(ctx, msg.SetupKey, ""); err != nil {
+	if loginResp, loginStatus, err := s.loginAttempt(ctx, msg.SetupKey, ""); err != nil {
 		state.Set(loginStatus)
 		return nil, err
+	} else if loginResp != nil && loginResp.GetPeerConfig().GetRequiresApproval() {
+		return loginResponseWithApproval(ctx, loginResp, s.config, "")
 	}
 
 	return &proto.LoginResponse{}, nil
@@ -673,14 +677,56 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 	s.oauthAuthFlow.expiresAt = time.Now()
 	s.mutex.Unlock()
 
-	if loginStatus, err := s.loginAttempt(ctx, "", tokenInfo.GetTokenToUse()); err != nil {
+	loginResp, loginStatus, err := s.loginAttempt(ctx, "", tokenInfo.GetTokenToUse())
+	if err != nil {
 		state.Set(loginStatus)
 		return nil, err
 	}
 
-	return &proto.WaitSSOLoginResponse{
-		Email: tokenInfo.Email,
+	return waitSSOLoginResponseWithApproval(ctx, loginResp, s.config, tokenInfo.Email), nil
+}
+
+func loginResponseWithApproval(ctx context.Context, loginResp *mgmProto.LoginResponse, config *profilemanager.Config, email string) (*proto.LoginResponse, error) {
+	requiresApproval := loginResp.GetPeerConfig().GetRequiresApproval()
+	var approvalURL string
+	if requiresApproval {
+		approvalURL = deviceApprovalURL(ctx, config, email)
+	}
+	return &proto.LoginResponse{
+		RequiresApproval:  requiresApproval,
+		DeviceApprovalURL: approvalURL,
 	}, nil
+}
+
+func waitSSOLoginResponseWithApproval(ctx context.Context, loginResp *mgmProto.LoginResponse, config *profilemanager.Config, email string) *proto.WaitSSOLoginResponse {
+	requiresApproval := loginResp.GetPeerConfig().GetRequiresApproval()
+	var approvalURL string
+	if requiresApproval {
+		approvalURL = deviceApprovalURL(ctx, config, email)
+	}
+	return &proto.WaitSSOLoginResponse{
+		Email:             email,
+		RequiresApproval:  requiresApproval,
+		DeviceApprovalURL: approvalURL,
+	}
+}
+
+func deviceApprovalURL(ctx context.Context, config *profilemanager.Config, user string) string {
+	if config == nil || config.AdminURL == nil {
+		return ""
+	}
+	approvalURL := *config.AdminURL
+	approvalURL.Path = "/device-approval"
+	approvalURL.Fragment = ""
+	query := url.Values{}
+	if user != "" {
+		query.Set("user", user)
+	}
+	if hostname := system.GetInfo(ctx).Hostname; hostname != "" {
+		query.Set("device", hostname)
+	}
+	approvalURL.RawQuery = query.Encode()
+	return approvalURL.String()
 }
 
 // Up starts engine work in the daemon.
@@ -1514,7 +1560,7 @@ func (s *Server) GetConfig(ctx context.Context, req *proto.GetConfigRequest) (*p
 		preSharedKey = "**********"
 	}
 
-	disableNotifications := true
+	disableNotifications := false
 	if cfg.DisableNotifications != nil {
 		disableNotifications = *cfg.DisableNotifications
 	}
@@ -1785,7 +1831,7 @@ func parseEnvDuration(envVar string, defaultDuration time.Duration) time.Duratio
 // sendTerminalNotification sends a terminal notification message
 // to inform the user that the Cloink connection session has expired.
 func sendTerminalNotification() error {
-	message := "Cloink connection session expired\n\nPlease re-authenticate to connect to the network."
+	message := "Cloink 连接会话已过期\n\n请重新认证后接入网络。"
 	echoCmd := exec.Command("echo", message)
 	wallCmd := exec.Command("sudo", "wall")
 

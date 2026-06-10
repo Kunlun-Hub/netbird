@@ -1725,7 +1725,7 @@ type AccountExtraSettings struct {
 	// NetworkTrafficPacketCounterEnabled Enables or disables network traffic packet counter. If enabled, network packets and their size will be counted and reported. (This can have an slight impact on performance)
 	NetworkTrafficPacketCounterEnabled bool `json:"network_traffic_packet_counter_enabled"`
 
-	// PeerApprovalEnabled (Cloud only) Enables or disables peer approval globally. If enabled, all peers added will be in pending state until approved by an admin.
+	// PeerApprovalEnabled Enables device approval for newly added user devices. When enabled, new user devices remain pending until approved by an admin. Setup Key devices, temporary Web SSH/RDP devices, and embedded proxy devices are not affected.
 	PeerApprovalEnabled bool `json:"peer_approval_enabled"`
 
 	// UserApprovalRequired Enables manual approval for new users joining via domain matching. When enabled, users are blocked with pending approval status until explicitly approved by an admin.
@@ -3622,7 +3622,7 @@ type PasswordChangeRequest struct {
 
 // Peer defines model for Peer.
 type Peer struct {
-	// ApprovalRequired (Cloud only) Indicates whether peer needs approval
+	// ApprovalRequired Indicates whether this peer needs administrator approval before it can access the network.
 	ApprovalRequired bool `json:"approval_required"`
 
 	// CityName Commonly used English name of the city
@@ -3640,7 +3640,7 @@ type Peer struct {
 	// CreatedAt Peer creation date (UTC)
 	CreatedAt time.Time `json:"created_at"`
 
-	// DisapprovalReason (Cloud only) Reason why the peer requires approval
+	// DisapprovalReason Reason why the peer requires approval.
 	DisapprovalReason *string `json:"disapproval_reason,omitempty"`
 
 	// DnsLabel Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
@@ -3716,7 +3716,7 @@ type PeerBatch struct {
 	// AccessiblePeersCount Number of accessible peers
 	AccessiblePeersCount int `json:"accessible_peers_count"`
 
-	// ApprovalRequired (Cloud only) Indicates whether peer needs approval
+	// ApprovalRequired Indicates whether this peer needs administrator approval before it can access the network.
 	ApprovalRequired bool `json:"approval_required"`
 
 	// CityName Commonly used English name of the city
@@ -3734,7 +3734,7 @@ type PeerBatch struct {
 	// CreatedAt Peer creation date (UTC)
 	CreatedAt time.Time `json:"created_at"`
 
-	// DisapprovalReason (Cloud only) Reason why the peer requires approval
+	// DisapprovalReason Reason why the peer requires approval.
 	DisapprovalReason *string `json:"disapproval_reason,omitempty"`
 
 	// DnsLabel Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
@@ -3863,7 +3863,7 @@ type PeerNetworkRangeCheckAction string
 
 // PeerRequest defines model for PeerRequest.
 type PeerRequest struct {
-	// ApprovalRequired (Cloud only) Indicates whether peer needs approval
+	// ApprovalRequired Indicates whether this peer needs administrator approval before it can access the network.
 	ApprovalRequired            *bool `json:"approval_required,omitempty"`
 	InactivityExpirationEnabled bool  `json:"inactivity_expiration_enabled"`
 

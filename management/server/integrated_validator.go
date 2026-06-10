@@ -141,6 +141,9 @@ func (a MockIntegratedValidator) ValidatePeer(_ context.Context, update *nbpeer.
 func (a MockIntegratedValidator) GetValidatedPeers(_ context.Context, accountID string, groups []*types.Group, peers []*nbpeer.Peer, extraSettings *types.ExtraSettings) (map[string]struct{}, error) {
 	validatedPeers := make(map[string]struct{})
 	for _, peer := range peers {
+		if peer != nil && peer.Status != nil && peer.Status.RequiresApproval {
+			continue
+		}
 		validatedPeers[peer.ID] = struct{}{}
 	}
 	return validatedPeers, nil
@@ -155,7 +158,7 @@ func (MockIntegratedValidator) PreparePeer(_ context.Context, accountID string, 
 }
 
 func (MockIntegratedValidator) IsNotValidPeer(_ context.Context, accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *types.ExtraSettings) (bool, bool, error) {
-	return false, false, nil
+	return peer != nil && peer.Status != nil && peer.Status.RequiresApproval, false, nil
 }
 
 func (MockIntegratedValidator) PeerDeleted(_ context.Context, _, _ string, extraSettings *types.ExtraSettings) error {

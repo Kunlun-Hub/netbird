@@ -9,6 +9,7 @@ import (
 
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/management/internals/server/config"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	mgmtProto "github.com/netbirdio/netbird/shared/management/proto"
 )
 
@@ -103,6 +104,54 @@ func TestServer_GetDeviceAuthorizationFlow(t *testing.T) {
 				testCase.expectedComparisonFunc(t, testCase.expectedFlow.Provider, flowInfoResp.Provider, testCase.expectedComparisonMSG)
 				testCase.expectedComparisonFunc(t, testCase.expectedFlow.ProviderConfig.ClientID, flowInfoResp.ProviderConfig.ClientID, testCase.expectedComparisonMSG)
 			}
+		})
+	}
+}
+
+func TestPeerApprovalUnsupportedByClient(t *testing.T) {
+	tests := []struct {
+		name string
+		peer *nbpeer.Peer
+		caps []mgmtProto.PeerCapability
+		want bool
+	}{
+		{
+			name: "nil peer",
+			want: false,
+		},
+		{
+			name: "approved peer with legacy client",
+			peer: &nbpeer.Peer{Status: &nbpeer.PeerStatus{}},
+			want: false,
+		},
+		{
+			name: "pending peer with legacy client",
+			peer: &nbpeer.Peer{Status: &nbpeer.PeerStatus{RequiresApproval: true}},
+			want: true,
+		},
+		{
+			name: "pending peer without device approval capability",
+			peer: &nbpeer.Peer{Status: &nbpeer.PeerStatus{RequiresApproval: true}},
+			caps: []mgmtProto.PeerCapability{
+				mgmtProto.PeerCapability_PeerCapabilitySourcePrefixes,
+				mgmtProto.PeerCapability_PeerCapabilityIPv6Overlay,
+			},
+			want: true,
+		},
+		{
+			name: "pending peer with device approval capability",
+			peer: &nbpeer.Peer{Status: &nbpeer.PeerStatus{RequiresApproval: true}},
+			caps: []mgmtProto.PeerCapability{
+				mgmtProto.PeerCapability_PeerCapabilitySourcePrefixes,
+				mgmtProto.PeerCapability_PeerCapabilityDeviceApproval,
+			},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, peerApprovalUnsupportedByClient(tt.peer, tt.caps))
 		})
 	}
 }

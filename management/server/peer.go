@@ -227,6 +227,8 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 	var sshChanged bool
 	var loginExpirationChanged bool
 	var inactivityExpirationChanged bool
+	var approvalChanged bool
+	var requiresApproval bool
 	var dnsDomain string
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
@@ -306,6 +308,17 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 			inactivityExpirationChanged = true
 		}
 
+		if update.Status != nil {
+			if peer.Status == nil {
+				peer.Status = &nbpeer.PeerStatus{}
+			}
+			if peer.Status.RequiresApproval != update.Status.RequiresApproval {
+				peer.Status.RequiresApproval = update.Status.RequiresApproval
+				approvalChanged = true
+				requiresApproval = update.Status.RequiresApproval
+			}
+		}
+
 		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
 			return fmt.Errorf("failed to increment network serial: %w", err)
 		}
@@ -353,12 +366,50 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 		}
 	}
 
+	if approvalChanged {
+		event := activity.PeerApproved
+		if requiresApproval {
+			event = activity.PeerApprovalRevoked
+		}
+		am.StoreEvent(ctx, userID, peer.ID, accountID, event, am.peerApprovalEventMeta(ctx, accountID, userID, peer, dnsDomain))
+	}
+
 	err = am.networkMapController.OnPeersUpdated(ctx, accountID, []string{peer.ID})
 	if err != nil {
 		return nil, fmt.Errorf("notify network map controller of peer update: %w", err)
 	}
 
 	return peer, nil
+}
+
+func (am *DefaultAccountManager) peerApprovalEventMeta(ctx context.Context, accountID, approverID string, peer *nbpeer.Peer, dnsDomain string) map[string]any {
+	meta := peer.EventMeta(dnsDomain)
+	meta["account_id"] = accountID
+	meta["account_name"] = accountID
+	meta["peer_id"] = peer.ID
+	meta["peer_name"] = peer.Name
+	meta["peer_user_id"] = peer.UserID
+	meta["approved_by"] = approverID
+	meta["approved_at"] = time.Now().UTC()
+	meta["requires_approval"] = peer.Status != nil && peer.Status.RequiresApproval
+
+	if account, err := am.Store.GetAccount(ctx, accountID); err == nil && account.Domain != "" {
+		meta["account_name"] = account.Domain
+	}
+	if peer.UserID != "" {
+		if user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, peer.UserID); err == nil {
+			meta["peer_user_name"] = user.Name
+			meta["peer_user_email"] = user.Email
+		}
+	}
+	if approverID != "" {
+		if approver, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, approverID); err == nil {
+			meta["approver_name"] = approver.Name
+			meta["approver_email"] = approver.Email
+		}
+	}
+
+	return meta
 }
 
 func (am *DefaultAccountManager) CreatePeerJob(ctx context.Context, accountID, peerID, userID string, job *types.Job) error {
@@ -607,6 +658,8 @@ type peerAddAuthConfig struct {
 	GroupsToAdd         []string
 	AllowExtraDNSLabels bool
 	Ephemeral           bool
+	AddedByUser         bool
+	AddedBySetupKey     bool
 }
 
 func (am *DefaultAccountManager) processPeerAddAuth(ctx context.Context, accountID, userID, encodedHashedKey string, peer *nbpeer.Peer, temporary, addedByUser, addedBySetupKey bool, opEvent *activity.Event) (*peerAddAuthConfig, error) {
@@ -620,10 +673,12 @@ func (am *DefaultAccountManager) processPeerAddAuth(ctx context.Context, account
 		if err := am.handleUserAddedPeer(ctx, accountID, userID, temporary, opEvent, config); err != nil {
 			return nil, err
 		}
+		config.AddedByUser = true
 	case addedBySetupKey:
 		if err := am.handleSetupKeyAddedPeer(ctx, encodedHashedKey, peer, opEvent, config); err != nil {
 			return nil, err
 		}
+		config.AddedBySetupKey = true
 	default:
 		if peer.ProxyMeta.Embedded {
 			log.WithContext(ctx).Debugf("adding peer for proxy embedded, accountID: %s", accountID)
@@ -665,7 +720,8 @@ func (am *DefaultAccountManager) handleUserAddedPeer(ctx context.Context, accoun
 		}
 		config.GroupsToAdd = make([]string, 0, len(user.AutoGroups))
 		for _, groupID := range user.AutoGroups {
-			if group, ok := groups[groupID]; ok && (group.Type == types.GroupTypePeer || group.Type == "") {
+			group, ok := groups[groupID]
+			if !ok || group.Type == types.GroupTypePeer || group.Type == "" {
 				config.GroupsToAdd = append(config.GroupsToAdd, groupID)
 			}
 		}
@@ -743,6 +799,8 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 	}
 	accountID = peerAddConfig.AccountID
 	ephemeral := peerAddConfig.Ephemeral
+	addedByUser = peerAddConfig.AddedByUser
+	addedBySetupKey = peerAddConfig.AddedBySetupKey
 
 	if (strings.ToLower(peer.Meta.Hostname) == "iphone" || strings.ToLower(peer.Meta.Hostname) == "ipad") && userID != "" {
 		if am.idpManager != nil {
@@ -782,6 +840,9 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to get account settings: %w", err)
 	}
+	if shouldRequirePeerApproval(settings.Extra, addedByUser, addedBySetupKey, temporary, peer) {
+		newPeer.Status.RequiresApproval = true
+	}
 
 	if am.geo != nil && newPeer.Location.ConnectionIP != nil {
 		location, err := am.geo.Lookup(newPeer.Location.ConnectionIP)
@@ -795,6 +856,12 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 	}
 
 	newPeer = am.integratedPeerValidator.PreparePeer(ctx, accountID, newPeer, peerAddConfig.GroupsToAdd, settings.Extra, temporary)
+	if shouldRequirePeerApproval(settings.Extra, addedByUser, addedBySetupKey, temporary, peer) {
+		if newPeer.Status == nil {
+			newPeer.Status = &nbpeer.PeerStatus{}
+		}
+		newPeer.Status.RequiresApproval = true
+	}
 
 	network, err := am.Store.GetAccountNetwork(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
@@ -947,8 +1014,21 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 		log.WithContext(ctx).Errorf("failed to update network map cache for peer %s: %v", newPeer.ID, err)
 	}
 
-	p, nmap, pc, _, err := am.networkMapController.GetValidatedPeerWithMap(ctx, false, accountID, newPeer)
+	p, nmap, pc, _, err := am.networkMapController.GetValidatedPeerWithMap(ctx, newPeer.Status != nil && newPeer.Status.RequiresApproval, accountID, newPeer)
 	return p, nmap, pc, err
+}
+
+func shouldRequirePeerApproval(extra *types.ExtraSettings, addedByUser, addedBySetupKey, temporary bool, peer *nbpeer.Peer) bool {
+	if extra == nil || !extra.PeerApprovalEnabled {
+		return false
+	}
+	if !addedByUser || addedBySetupKey || temporary {
+		return false
+	}
+	if peer != nil && peer.ProxyMeta.Embedded {
+		return false
+	}
+	return true
 }
 
 func getPeerIPDNSLabel(ip netip.Addr, peerHostName string) (string, error) {

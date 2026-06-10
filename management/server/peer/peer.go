@@ -15,6 +15,7 @@ import (
 const (
 	PeerCapabilitySourcePrefixes int32 = 1
 	PeerCapabilityIPv6Overlay    int32 = 2
+	PeerCapabilityDeviceApproval int32 = 3
 )
 
 // Peer represents a machine connected to the network.

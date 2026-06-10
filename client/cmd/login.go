@@ -142,9 +142,13 @@ func doDaemonLogin(ctx context.Context, cmd *cobra.Command, providedSetupKey str
 	}
 
 	if loginResp.NeedsSSOLogin {
-		if err := handleSSOLogin(ctx, cmd, loginResp, client, pm); err != nil {
+		waitResp, err := handleSSOLogin(ctx, cmd, loginResp, client, pm)
+		if err != nil {
 			return fmt.Errorf("sso login failed: %v", err)
 		}
+		printDeviceApprovalHint(cmd, waitResp.GetRequiresApproval(), waitResp.GetDeviceApprovalURL())
+	} else {
+		printDeviceApprovalHint(cmd, loginResp.GetRequiresApproval(), loginResp.GetDeviceApprovalURL())
 	}
 
 	return nil
@@ -257,12 +261,12 @@ func doForegroundLogin(ctx context.Context, cmd *cobra.Command, setupKey string,
 	return nil
 }
 
-func handleSSOLogin(ctx context.Context, cmd *cobra.Command, loginResp *proto.LoginResponse, client proto.DaemonServiceClient, pm *profilemanager.ProfileManager) error {
+func handleSSOLogin(ctx context.Context, cmd *cobra.Command, loginResp *proto.LoginResponse, client proto.DaemonServiceClient, pm *profilemanager.ProfileManager) (*proto.WaitSSOLoginResponse, error) {
 	openURL(cmd, loginResp.VerificationURIComplete, loginResp.UserCode, noBrowser, showQR)
 
 	resp, err := client.WaitSSOLogin(ctx, &proto.WaitSSOLoginRequest{UserCode: loginResp.UserCode, Hostname: hostName})
 	if err != nil {
-		return fmt.Errorf("waiting sso login failed with: %v", err)
+		return nil, fmt.Errorf("waiting sso login failed with: %v", err)
 	}
 
 	if resp.Email != "" {
@@ -274,7 +278,17 @@ func handleSSOLogin(ctx context.Context, cmd *cobra.Command, loginResp *proto.Lo
 		}
 	}
 
-	return nil
+	return resp, nil
+}
+
+func printDeviceApprovalHint(cmd *cobra.Command, requiresApproval bool, approvalURL string) {
+	if !requiresApproval {
+		return
+	}
+	cmd.Println("您的设备需要管理员审批。")
+	if approvalURL != "" {
+		cmd.Println("待审批提示页: " + approvalURL)
+	}
 }
 
 func foregroundLogin(ctx context.Context, cmd *cobra.Command, config *profilemanager.Config, setupKey, profileName string) error {

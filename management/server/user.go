@@ -944,8 +944,7 @@ func validateUserUpdate(groupsMap map[string]*types.Group, initiatorUser, oldUse
 	for _, newGroupID := range update.AutoGroups {
 		group, ok := groupsMap[newGroupID]
 		if !ok {
-			return status.Errorf(status.InvalidArgument, "provided group ID %s in the user %s update doesn't exist",
-				newGroupID, update.Id)
+			continue
 		}
 		if group.IsGroupAll() {
 			return status.Errorf(status.InvalidArgument, "can't add All group to the user's device groups")
@@ -1426,7 +1425,7 @@ func (am *DefaultAccountManager) validateUserInfoGroups(ctx context.Context, acc
 	for _, groupID := range userInfo.AutoGroups {
 		group, ok := groups[groupID]
 		if !ok {
-			return status.Errorf(status.InvalidArgument, "provided group ID %s doesn't exist", groupID)
+			continue
 		}
 		if group.IsGroupAll() {
 			return status.Errorf(status.InvalidArgument, "can't add All group to the user's device groups")

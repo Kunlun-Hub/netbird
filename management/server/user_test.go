@@ -443,6 +443,7 @@ func TestUser_Copy(t *testing.T) {
 		IsServiceUser:   true,
 		ServiceUserName: "servicename",
 		AutoGroups:      []string{"group1", "group2"},
+		UserGroups:      []string{"user-group1", "user-group2"},
 		PATs: map[string]*types.PersonalAccessToken{
 			"pat1": {
 				ID:             "pat1",

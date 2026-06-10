@@ -172,6 +172,7 @@ func TestNewProfileDefaults(t *testing.T) {
 	assert.Equal(t, dynamic.DefaultInterval, config.DNSRouteInterval, "DNSRouteInterval should have default")
 	assert.NotNil(t, config.ServerSSHAllowed, "ServerSSHAllowed should be set")
 	assert.NotNil(t, config.DisableNotifications, "DisableNotifications should be set")
+	assert.False(t, *config.DisableNotifications, "notifications should be enabled by default")
 	assert.NotEmpty(t, config.IFaceBlackList, "IFaceBlackList should have defaults")
 
 	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
