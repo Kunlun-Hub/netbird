@@ -292,6 +292,30 @@ func (m *mockSubscribeEventsServer) Context() context.Context {
 	return m.ctx
 }
 
+func TestServer_GetEvents(t *testing.T) {
+	ctx := internal.CtxInitState(context.Background())
+	s := New(ctx, "console", "", false, false, false, false)
+
+	s.statusRecorder.PublishEvent(
+		daemonProto.SystemEvent_INFO,
+		daemonProto.SystemEvent_AUTHENTICATION,
+		"authentication completed",
+		"身份认证完成",
+		map[string]string{"source": "test"},
+	)
+
+	resp, err := s.GetEvents(ctx, &daemonProto.GetEventsRequest{})
+	require.NoError(t, err)
+	require.Len(t, resp.GetEvents(), 1)
+
+	event := resp.GetEvents()[0]
+	assert.Equal(t, daemonProto.SystemEvent_INFO, event.GetSeverity())
+	assert.Equal(t, daemonProto.SystemEvent_AUTHENTICATION, event.GetCategory())
+	assert.Equal(t, "authentication completed", event.GetMessage())
+	assert.Equal(t, "身份认证完成", event.GetUserMessage())
+	assert.Equal(t, "test", event.GetMetadata()["source"])
+}
+
 func TestServer_SubcribeEvents(t *testing.T) {
 	tempDir := t.TempDir()
 	origDefaultProfileDir := profilemanager.DefaultConfigPathDir

@@ -7,7 +7,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"runtime/pprof"
+	"strings"
 
 	log "github.com/sirupsen/logrus"
 
@@ -47,6 +50,11 @@ func (s *Server) DebugBundle(_ context.Context, req *proto.DebugBundleRequest) (
 	capturePath := s.bundleCapturePath()
 	defer s.cleanupBundleCapture()
 
+	bundleTempDir, err := s.debugBundleTempDir()
+	if err != nil {
+		return nil, fmt.Errorf("prepare debug bundle directory: %w", err)
+	}
+
 	var refreshStatus func()
 	if s.connectClient != nil {
 		engine := s.connectClient.Engine()
@@ -64,6 +72,7 @@ func (s *Server) DebugBundle(_ context.Context, req *proto.DebugBundleRequest) (
 			StatusRecorder: s.statusRecorder,
 			SyncResponse:   syncResponse,
 			LogPath:        s.logFile,
+			TempDir:        bundleTempDir,
 			CPUProfile:     cpuProfileData,
 			CapturePath:    capturePath,
 			RefreshStatus:  refreshStatus,
@@ -95,6 +104,26 @@ func (s *Server) DebugBundle(_ context.Context, req *proto.DebugBundleRequest) (
 	log.Infof("debug bundle uploaded to %s with key %s", req.GetUploadURL(), key)
 
 	return &proto.DebugBundleResponse{Path: path, UploadedKey: key}, nil
+}
+
+func (s *Server) debugBundleTempDir() (string, error) {
+	baseDir := ""
+	if logFile := strings.TrimSpace(s.logFile); logFile != "" && logFile != "console" && logFile != "syslog" {
+		baseDir = filepath.Dir(logFile)
+	}
+	if baseDir == "." || baseDir == "" {
+		baseDir = filepath.Join(os.Getenv("ProgramData"), "Cloink")
+	}
+	if baseDir == "." || baseDir == "" {
+		baseDir = filepath.Join(os.TempDir(), "Cloink")
+	}
+
+	dir := filepath.Join(baseDir, "debug-bundles")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+
+	return dir, nil
 }
 
 // GetLogLevel gets the current logging level for the server.
