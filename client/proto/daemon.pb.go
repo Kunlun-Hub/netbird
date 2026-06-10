@@ -5053,6 +5053,7 @@ type GetActiveProfileResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ProfileName   string                 `protobuf:"bytes,1,opt,name=profileName,proto3" json:"profileName,omitempty"`
 	Username      string                 `protobuf:"bytes,2,opt,name=username,proto3" json:"username,omitempty"`
+	Email         string                 `protobuf:"bytes,3,opt,name=email,proto3" json:"email,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -5097,6 +5098,13 @@ func (x *GetActiveProfileResponse) GetProfileName() string {
 func (x *GetActiveProfileResponse) GetUsername() string {
 	if x != nil {
 		return x.Username
+	}
+	return ""
+}
+
+func (x *GetActiveProfileResponse) GetEmail() string {
+	if x != nil {
+		return x.Email
 	}
 	return ""
 }
@@ -7029,10 +7037,11 @@ const file_daemon_proto_rawDesc = "" +
 	"\aProfile\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1b\n" +
 	"\tis_active\x18\x02 \x01(\bR\bisActive\"\x19\n" +
-	"\x17GetActiveProfileRequest\"X\n" +
+	"\x17GetActiveProfileRequest\"n\n" +
 	"\x18GetActiveProfileResponse\x12 \n" +
 	"\vprofileName\x18\x01 \x01(\tR\vprofileName\x12\x1a\n" +
-	"\busername\x18\x02 \x01(\tR\busername\"t\n" +
+	"\busername\x18\x02 \x01(\tR\busername\x12\x14\n" +
+	"\x05email\x18\x03 \x01(\tR\x05email\"t\n" +
 	"\rLogoutRequest\x12%\n" +
 	"\vprofileName\x18\x01 \x01(\tH\x00R\vprofileName\x88\x01\x01\x12\x1f\n" +
 	"\busername\x18\x02 \x01(\tH\x01R\busername\x88\x01\x01B\x0e\n" +

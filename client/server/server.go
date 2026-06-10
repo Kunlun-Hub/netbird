@@ -1716,9 +1716,16 @@ func (s *Server) GetActiveProfile(ctx context.Context, msg *proto.GetActiveProfi
 		return nil, fmt.Errorf("failed to get active profile state: %w", err)
 	}
 
+	profileState, _ := s.profileManager.GetProfileState(activeProfile.Name, activeProfile.Username)
+	email := ""
+	if profileState != nil {
+		email = profileState.Email
+	}
+
 	return &proto.GetActiveProfileResponse{
 		ProfileName: activeProfile.Name,
 		Username:    activeProfile.Username,
+		Email:       email,
 	}, nil
 }
 
