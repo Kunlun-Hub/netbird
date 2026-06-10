@@ -176,11 +176,13 @@ func NewAPIHandler(ctx context.Context, rootRouter *mux.Router, accountManager a
 	// Mount embedded IdP handler at /oauth2 path if configured
 	if embeddedIdpEnabled {
 		connectorGuardHandler := corsMiddleware.Handler(idp.NewConnectorGuardHandler(accountManager, embeddedIdP))
-		rootRouter.Handle("/oauth2/auth/{connector}", connectorGuardHandler)
-		rootRouter.Handle("/oauth2/auth/{connector}/login", connectorGuardHandler)
-		rootRouter.Handle("/oauth2/callback/{connector}", idp.NewWeChatWorkCallbackHandler(embeddedIdP))
+		oauth2Router := mux.NewRouter()
+		oauth2Router.Handle("/oauth2/auth/{connector}", connectorGuardHandler)
+		oauth2Router.Handle("/oauth2/auth/{connector}/login", connectorGuardHandler)
+		oauth2Router.Handle("/oauth2/callback/{connector}", idp.NewWeChatWorkCallbackHandler(embeddedIdP))
+		oauth2Router.PathPrefix("/oauth2").Handler(corsMiddleware.Handler(embeddedIdP.Handler()))
 		log.Infof("Registering embedded IdP routes with Dex handler")
-		rootRouter.PathPrefix("/oauth2").Handler(corsMiddleware.Handler(embeddedIdP.Handler()))
+		rootRouter.PathPrefix("/oauth2").Handler(oauth2Router)
 	} else {
 		log.Infof("Embedded IdP is not enabled, skipping IdP routes")
 	}

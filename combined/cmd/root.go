@@ -569,9 +569,12 @@ func createCombinedHandler(grpcServer *grpc.Server, httpHandler http.Handler, id
 				http.Error(w, "Relay service not enabled", http.StatusNotFound)
 			}
 
-		// Embedded IdP (Dex)
+		// Embedded IdP and custom /oauth2 routes are registered on the management
+		// HTTP handler. In combined mode we must forward /oauth2 traffic there first,
+		// otherwise requests bypass management's WeChat Work callback wrapper and hit
+		// raw Dex directly.
 		case idpHandler != nil && strings.HasPrefix(r.URL.Path, "/oauth2"):
-			idpHandler.ServeHTTP(w, r)
+			httpHandler.ServeHTTP(w, r)
 
 		// Management HTTP API (default)
 		default:

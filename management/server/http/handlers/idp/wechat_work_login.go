@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/idp/dex"
 	idpmanager "github.com/netbirdio/netbird/management/server/idp"
@@ -167,8 +168,29 @@ func (h *weChatWorkCallbackHandler) ServeHTTP(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	log.WithContext(r.Context()).Infof(
+		"wechat work callback received connector=%s has_code=%t has_state=%t path=%s",
+		connectorID,
+		r.URL.Query().Get("code") != "",
+		r.URL.Query().Get("state") != "",
+		r.URL.Path,
+	)
+
 	connector, err := h.embeddedIDP.GetConnector(r.Context(), connectorID)
-	if err != nil || connector.Type != "wechatwork" {
+	if err != nil {
+		if looksLikeWeChatWorkConnectorID(connectorID) {
+			log.WithContext(r.Context()).WithError(err).Errorf("failed to load WeChat Work connector %s", connectorID)
+		}
+		h.dexHandler.ServeHTTP(w, r)
+		return
+	}
+
+	if !isWeChatWorkConnector(connectorID, connector) {
+		log.WithContext(r.Context()).Warnf(
+			"connector %s is not treated as WeChat Work type=%s",
+			connectorID,
+			connector.Type,
+		)
 		h.dexHandler.ServeHTTP(w, r)
 		return
 	}
@@ -195,6 +217,15 @@ func (h *weChatWorkCallbackHandler) ServeHTTP(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	log.WithContext(r.Context()).Infof(
+		"resolved WeChat Work identity connector=%s has_user_id=%t has_username=%t has_name=%t has_email=%t",
+		connectorID,
+		identity.UserID != "",
+		identity.Username != "",
+		identity.Name != "",
+		identity.Email != "",
+	)
+
 	proxiedReq := r.Clone(r.Context())
 	proxiedReq.URL = cloneURL(r.URL)
 	proxiedReq.URL.RawQuery = url.Values{"state": []string{state}}.Encode()
@@ -204,7 +235,38 @@ func (h *weChatWorkCallbackHandler) ServeHTTP(w http.ResponseWriter, r *http.Req
 	proxiedReq.Header.Set("X-NetBird-WeChatWork-User-Name", identity.Name)
 	proxiedReq.Header.Set("X-NetBird-WeChatWork-User-Email", identity.Email)
 
+	log.WithContext(r.Context()).Infof(
+		"forwarding WeChat Work callback to Dex connector=%s user_header=%t user_id_header=%t email_header=%t",
+		connectorID,
+		proxiedReq.Header.Get("X-NetBird-WeChatWork-User") != "",
+		proxiedReq.Header.Get("X-NetBird-WeChatWork-User-Id") != "",
+		proxiedReq.Header.Get("X-NetBird-WeChatWork-User-Email") != "",
+	)
+
 	h.dexHandler.ServeHTTP(w, proxiedReq)
+}
+
+func isWeChatWorkConnector(connectorID string, connector *dex.ConnectorConfig) bool {
+	if connector == nil {
+		return false
+	}
+
+	if connector.Type == "wechatwork" {
+		return true
+	}
+
+	if !looksLikeWeChatWorkConnectorID(connectorID) {
+		return false
+	}
+
+	// Some older or partially migrated connector rows can still be stored as
+	// Dex authproxy connectors while keeping the WeChat Work app fields.
+	return connector.ClientID != "" && connector.ClientSecret != ""
+}
+
+func looksLikeWeChatWorkConnectorID(connectorID string) bool {
+	idLower := strings.ToLower(connectorID)
+	return strings.Contains(idLower, "wechatwork") || strings.Contains(idLower, "wecom")
 }
 
 func (h *weChatWorkCallbackHandler) renderLoginPage(w http.ResponseWriter, r *http.Request, connector *dex.ConnectorConfig, state string) {

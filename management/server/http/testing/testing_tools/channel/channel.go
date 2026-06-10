@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 
 	"go.opentelemetry.io/otel/metric/noop"
