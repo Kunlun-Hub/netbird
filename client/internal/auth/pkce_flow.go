@@ -21,6 +21,7 @@ import (
 	"golang.org/x/oauth2"
 
 	"github.com/netbirdio/netbird/client/internal/templates"
+	"github.com/netbirdio/netbird/client/debuglog"
 	"github.com/netbirdio/netbird/shared/management/client/common"
 )
 
@@ -183,6 +184,7 @@ func (p *PKCEAuthorizationFlow) SetLoginHint(hint string) {
 // Once the token is received, it is converted to TokenInfo and validated before returning.
 // The method creates a timeout context internally based on info.ExpiresIn.
 func (p *PKCEAuthorizationFlow) WaitToken(ctx context.Context, info AuthFlowInfo) (TokenInfo, error) {
+	debuglog.Authf("pkce-flow", "WaitToken start redirectURL=%q expiresIn=%d userCode=%q", p.oAuthConfig.RedirectURL, info.ExpiresIn, info.UserCode)
 	// Create timeout context based on flow expiration
 	timeout := time.Duration(info.ExpiresIn) * time.Second
 	waitCtx, cancel := context.WithTimeout(ctx, timeout)
@@ -193,10 +195,12 @@ func (p *PKCEAuthorizationFlow) WaitToken(ctx context.Context, info AuthFlowInfo
 
 	parsedURL, err := url.Parse(p.oAuthConfig.RedirectURL)
 	if err != nil {
+		debuglog.Authf("pkce-flow", "WaitToken parse redirect URL failed redirectURL=%q err=%v", p.oAuthConfig.RedirectURL, err)
 		return TokenInfo{}, fmt.Errorf("failed to parse redirect URL: %v", err)
 	}
 
 	server := &http.Server{Addr: fmt.Sprintf(":%s", parsedURL.Port())}
+	debuglog.Authf("pkce-flow", "WaitToken prepared localhost callback server addr=%q", server.Addr)
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -204,23 +208,29 @@ func (p *PKCEAuthorizationFlow) WaitToken(ctx context.Context, info AuthFlowInfo
 		if err := server.Shutdown(shutdownCtx); err != nil {
 			log.Errorf("failed to close the server: %v", err)
 		}
+		debuglog.Authf("pkce-flow", "WaitToken server shutdown addr=%q", server.Addr)
 	}()
 
 	go p.startServer(server, tokenChan, errChan)
 
 	select {
 	case <-waitCtx.Done():
+		debuglog.Authf("pkce-flow", "WaitToken waitCtx done addr=%q err=%v", server.Addr, waitCtx.Err())
 		return TokenInfo{}, waitCtx.Err()
 	case token := <-tokenChan:
+		debuglog.Authf("pkce-flow", "WaitToken token received addr=%q", server.Addr)
 		return p.parseOAuthToken(token)
 	case err := <-errChan:
+		debuglog.Authf("pkce-flow", "WaitToken errChan received addr=%q err=%v", server.Addr, err)
 		return TokenInfo{}, err
 	}
 }
 
 func (p *PKCEAuthorizationFlow) startServer(server *http.Server, tokenChan chan<- *oauth2.Token, errChan chan<- error) {
+	debuglog.Authf("pkce-flow", "startServer begin listen addr=%q", server.Addr)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
+		debuglog.Authf("pkce-flow", "callback request received method=%s host=%q path=%q rawQuery=%q remote=%q", req.Method, req.Host, req.URL.Path, req.URL.RawQuery, req.RemoteAddr)
 		cert := p.providerConfig.ClientCertPair
 		if cert != nil {
 			tr := &http.Transport{
@@ -235,19 +245,24 @@ func (p *PKCEAuthorizationFlow) startServer(server *http.Server, tokenChan chan<
 
 		token, err := p.handleRequest(req)
 		if err != nil {
+			debuglog.Authf("pkce-flow", "callback handleRequest failed err=%v", err)
 			renderPKCEFlowTmpl(w, err)
 			errChan <- fmt.Errorf("PKCE authorization flow failed: %v", err)
 			return
 		}
 
+		debuglog.Authf("pkce-flow", "callback handleRequest succeeded; returning success page")
 		renderPKCEFlowTmpl(w, nil)
 		tokenChan <- token
 	})
 
 	server.Handler = mux
+	debuglog.Authf("pkce-flow", "server ListenAndServe entering addr=%q", server.Addr)
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		debuglog.Authf("pkce-flow", "server ListenAndServe failed addr=%q err=%v", server.Addr, err)
 		errChan <- err
 	}
+	debuglog.Authf("pkce-flow", "server ListenAndServe exited addr=%q", server.Addr)
 }
 
 func (p *PKCEAuthorizationFlow) handleRequest(req *http.Request) (*oauth2.Token, error) {

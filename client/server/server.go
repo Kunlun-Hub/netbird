@@ -22,6 +22,7 @@ import (
 	gstatus "google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/client/internal/auth"
+	"github.com/netbirdio/netbird/client/debuglog"
 	"github.com/netbirdio/netbird/client/internal/expose"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	sleephandler "github.com/netbirdio/netbird/client/internal/sleep/handler"
@@ -610,6 +611,7 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 // WaitSSOLogin uses the userCode to validate the TokenInfo and
 // waits for the user to continue with the login on a browser
 func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLoginRequest) (*proto.WaitSSOLoginResponse, error) {
+	debuglog.Authf("daemon-server", "WaitSSOLogin entered userCode=%q hostname=%q flowInitialized=%t", msg.GetUserCode(), msg.GetHostname(), s.oauthAuthFlow.flow != nil)
 	s.mutex.Lock()
 	if s.actCancel != nil {
 		s.actCancel()
@@ -630,6 +632,7 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 	s.mutex.Unlock()
 
 	if s.oauthAuthFlow.flow == nil {
+		debuglog.Authf("daemon-server", "WaitSSOLogin abort: oauth flow is not initialized")
 		return nil, gstatus.Errorf(codes.Internal, "oauth flow is not initialized")
 	}
 
@@ -648,6 +651,7 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 	s.mutex.Unlock()
 
 	if flowInfo.UserCode != msg.UserCode {
+		debuglog.Authf("daemon-server", "WaitSSOLogin abort: userCode mismatch expected=%q got=%q", flowInfo.UserCode, msg.UserCode)
 		state.Set(internal.StatusLoginFailed)
 		return nil, gstatus.Errorf(codes.InvalidArgument, "sso user code is invalid")
 	}
@@ -662,6 +666,7 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 	s.mutex.Lock()
 	s.oauthAuthFlow.waitCancel = cancel
 	s.mutex.Unlock()
+	debuglog.Authf("daemon-server", "WaitSSOLogin invoking flow.WaitToken redirectURL=%q userCode=%q", flowInfo.VerificationURIComplete, flowInfo.UserCode)
 
 	tokenInfo, err := s.oauthAuthFlow.flow.WaitToken(waitCTX, flowInfo)
 	if err != nil {
@@ -669,9 +674,11 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 		s.oauthAuthFlow.expiresAt = time.Now()
 		s.mutex.Unlock()
 		state.Set(internal.StatusLoginFailed)
+		debuglog.Authf("daemon-server", "WaitSSOLogin flow.WaitToken failed userCode=%q err=%v", msg.UserCode, err)
 		log.Errorf("waiting for browser login failed: %v", err)
 		return nil, err
 	}
+	debuglog.Authf("daemon-server", "WaitSSOLogin flow.WaitToken success userCode=%q email=%q", msg.UserCode, tokenInfo.Email)
 
 	s.mutex.Lock()
 	s.oauthAuthFlow.expiresAt = time.Now()
@@ -680,6 +687,7 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 	loginResp, loginStatus, err := s.loginAttempt(ctx, "", tokenInfo.GetTokenToUse())
 	if err != nil {
 		state.Set(loginStatus)
+		debuglog.Authf("daemon-server", "WaitSSOLogin loginAttempt failed userCode=%q status=%v err=%v", msg.UserCode, loginStatus, err)
 		return nil, err
 	}
 
@@ -688,6 +696,7 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 			log.Warnf("failed to set active profile email: %v", err)
 		}
 	}
+	debuglog.Authf("daemon-server", "WaitSSOLogin completed userCode=%q requiresApproval=%t", msg.UserCode, loginResp.GetPeerConfig().GetRequiresApproval())
 
 	return waitSSOLoginResponseWithApproval(ctx, loginResp, s.config, tokenInfo.Email), nil
 }
