@@ -7,6 +7,7 @@ import (
 	"os/user"
 	"runtime"
 	"strings"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -270,15 +271,29 @@ func handleSSOLogin(ctx context.Context, cmd *cobra.Command, loginResp *proto.Lo
 	}
 
 	if resp.Email != "" {
-		err = pm.SetActiveProfileState(&profilemanager.ProfileState{
-			Email: resp.Email,
-		})
+		err = setActiveProfileEmail(pm, resp.Email)
 		if err != nil {
 			log.Warnf("failed to set active profile email: %v", err)
 		}
 	}
 
 	return resp, nil
+}
+
+func setActiveProfileEmail(pm *profilemanager.ProfileManager, email string) error {
+	if pm == nil {
+		return fmt.Errorf("profile manager is nil")
+	}
+	activeProf, err := pm.GetActiveProfile()
+	if err != nil {
+		return err
+	}
+	state, err := pm.GetProfileState(activeProf.Name)
+	if err != nil {
+		state = &profilemanager.ProfileState{}
+	}
+	state.Email = email
+	return pm.SetActiveProfileState(state)
 }
 
 func printDeviceApprovalHint(cmd *cobra.Command, requiresApproval bool, approvalURL string) {
@@ -310,6 +325,9 @@ func foregroundLogin(ctx context.Context, cmd *cobra.Command, config *profileman
 			return fmt.Errorf("interactive sso login failed: %v", err)
 		}
 		jwtToken = tokenInfo.GetTokenToUse()
+		if err := profilemanager.NewProfileManager().SetActiveProfileState(profileStateFromTokenInfo(tokenInfo)); err != nil {
+			log.Warnf("failed to set active profile state: %v", err)
+		}
 	}
 
 	err, _ = authClient.Login(ctx, setupKey, jwtToken)
@@ -318,6 +336,22 @@ func foregroundLogin(ctx context.Context, cmd *cobra.Command, config *profileman
 	}
 
 	return nil
+}
+
+func profileStateFromTokenInfo(tokenInfo *auth.TokenInfo) *profilemanager.ProfileState {
+	if tokenInfo == nil {
+		return &profilemanager.ProfileState{}
+	}
+	expiresAt := int64(0)
+	if tokenInfo.ExpiresIn > 0 {
+		expiresAt = time.Now().Add(time.Duration(tokenInfo.ExpiresIn) * time.Second).Unix()
+	}
+	return &profilemanager.ProfileState{
+		Email:              tokenInfo.Email,
+		ManagementAPIToken: tokenInfo.GetTokenToUse(),
+		TokenType:          tokenInfo.TokenType,
+		TokenExpiresAt:     expiresAt,
+	}
 }
 
 func foregroundGetTokenInfo(ctx context.Context, cmd *cobra.Command, config *profilemanager.Config, profileName string) (*auth.TokenInfo, error) {

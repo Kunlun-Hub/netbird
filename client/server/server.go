@@ -21,8 +21,8 @@ import (
 	"google.golang.org/grpc/metadata"
 	gstatus "google.golang.org/grpc/status"
 
-	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/debuglog"
+	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/expose"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	sleephandler "github.com/netbirdio/netbird/client/internal/sleep/handler"
@@ -691,14 +691,27 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 		return nil, err
 	}
 
-	if tokenInfo.Email != "" {
-		if err := s.profileManager.SetProfileState(&profilemanager.ProfileState{Email: tokenInfo.Email}); err != nil {
-			log.Warnf("failed to set active profile email: %v", err)
+	if tokenInfo.Email != "" || tokenInfo.GetTokenToUse() != "" {
+		if err := s.profileManager.SetProfileState(profileStateFromToken(tokenInfo)); err != nil {
+			log.Warnf("failed to set active profile state: %v", err)
 		}
 	}
 	debuglog.Authf("daemon-server", "WaitSSOLogin completed userCode=%q requiresApproval=%t", msg.UserCode, loginResp.GetPeerConfig().GetRequiresApproval())
 
 	return waitSSOLoginResponseWithApproval(ctx, loginResp, s.config, tokenInfo.Email), nil
+}
+
+func profileStateFromToken(tokenInfo auth.TokenInfo) *profilemanager.ProfileState {
+	expiresAt := int64(0)
+	if tokenInfo.ExpiresIn > 0 {
+		expiresAt = time.Now().Add(time.Duration(tokenInfo.ExpiresIn) * time.Second).Unix()
+	}
+	return &profilemanager.ProfileState{
+		Email:              tokenInfo.Email,
+		ManagementAPIToken: tokenInfo.GetTokenToUse(),
+		TokenType:          tokenInfo.TokenType,
+		TokenExpiresAt:     expiresAt,
+	}
 }
 
 func loginResponseWithApproval(ctx context.Context, loginResp *mgmProto.LoginResponse, config *profilemanager.Config, email string) (*proto.LoginResponse, error) {

@@ -3,7 +3,9 @@ package cmd
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"os/user"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -104,5 +106,53 @@ func TestPrintDeviceApprovalHint(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestSetActiveProfileEmailPreservesWorkbenchTokenState(t *testing.T) {
+	tempDir := t.TempDir()
+	origDefaultProfileDir := profilemanager.DefaultConfigPathDir
+	origDefaultConfigPath := profilemanager.DefaultConfigPath
+	origActiveProfileStatePath := profilemanager.ActiveProfileStatePath
+	origConfigDirOverride := profilemanager.ConfigDirOverride
+	profilemanager.DefaultConfigPathDir = tempDir
+	profilemanager.DefaultConfigPath = filepath.Join(tempDir, "default.json")
+	profilemanager.ActiveProfileStatePath = filepath.Join(tempDir, "active_profile.json")
+	profilemanager.ConfigDirOverride = tempDir
+	t.Cleanup(func() {
+		profilemanager.DefaultConfigPathDir = origDefaultProfileDir
+		profilemanager.DefaultConfigPath = origDefaultConfigPath
+		profilemanager.ActiveProfileStatePath = origActiveProfileStatePath
+		profilemanager.ConfigDirOverride = origConfigDirOverride
+	})
+
+	activePath := filepath.Join(tempDir, "active_profile.txt")
+	if err := os.WriteFile(activePath, []byte("default"), 0o600); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", activePath, err)
+	}
+	statePath := filepath.Join(tempDir, "default.state.json")
+	if err := os.WriteFile(statePath, []byte(`{
+		"email":"old@example.com",
+		"management_api_token":"token-123",
+		"token_type":"Bearer",
+		"token_expires_at":4102444800
+	}`), 0o600); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", statePath, err)
+	}
+
+	pm := profilemanager.NewProfileManager()
+	if err := setActiveProfileEmail(pm, "new@example.com"); err != nil {
+		t.Fatalf("setActiveProfileEmail() error = %v", err)
+	}
+
+	state, err := pm.GetProfileState("default")
+	if err != nil {
+		t.Fatalf("GetProfileState() error = %v", err)
+	}
+	if state.Email != "new@example.com" {
+		t.Fatalf("Email = %q, want new@example.com", state.Email)
+	}
+	if state.ManagementAPIToken != "token-123" || state.TokenType != "Bearer" || state.TokenExpiresAt != 4102444800 {
+		t.Fatalf("workbench token state was not preserved: %+v", state)
 	}
 }

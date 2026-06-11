@@ -10,7 +10,10 @@ import (
 )
 
 type ProfileState struct {
-	Email string `json:"email"`
+	Email              string `json:"email"`
+	ManagementAPIToken string `json:"management_api_token,omitempty"`
+	TokenType          string `json:"token_type,omitempty"`
+	TokenExpiresAt     int64  `json:"token_expires_at,omitempty"`
 }
 
 func (pm *ProfileManager) GetProfileState(profileName string) (*ProfileState, error) {

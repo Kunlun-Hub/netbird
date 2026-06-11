@@ -47,6 +47,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/util"
+	workbenchTypes "github.com/netbirdio/netbird/management/server/workbench/types"
 	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/status"
 	"github.com/netbirdio/netbird/util/crypt"
@@ -141,6 +142,7 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 		&networkTypes.Network{}, &routerTypes.NetworkRouter{}, &resourceTypes.NetworkResource{}, &types.AccountOnboarding{},
 		&types.Job{}, &zones.Zone{}, &records.Record{}, &types.UserInviteRecord{}, &rpservice.Service{}, &rpservice.Target{}, &domain.Domain{},
 		&accesslogs.AccessLogEntry{}, &networktraffic.Event{}, &networktraffic.FlowSummary{}, &proxy.Proxy{},
+		&workbenchTypes.Resource{}, &workbenchTypes.ResourceVisibleGroup{}, &workbenchTypes.ResourceVisibleUser{}, &workbenchTypes.UserResources{}, &workbenchTypes.Asset{},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("auto migratePreAuto: %w", err)

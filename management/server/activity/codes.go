@@ -245,6 +245,9 @@ const (
 	// tunnel. Distinct from UserLoggedInPeer (full interactive login).
 	UserExtendedPeerSession Activity = 125
 
+	// WorkbenchResourceLaunched indicates that a user launched a workbench resource.
+	WorkbenchResourceLaunched Activity = 126
+
 	AccountDeleted Activity = 99999
 )
 
@@ -399,6 +402,8 @@ var activityMap = map[Activity]Code{
 	AccountLocalMfaDisabled: {"Account local MFA disabled", "account.setting.local.mfa.disable"},
 
 	UserExtendedPeerSession: {"User extended peer session", "user.peer.session.extend"},
+
+	WorkbenchResourceLaunched: {"Workbench resource launched", "workbench.resource.launch"},
 
 	DomainAdded:     {"Domain added", "domain.add"},
 	DomainDeleted:   {"Domain deleted", "domain.delete"},
