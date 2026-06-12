@@ -328,14 +328,14 @@ func TestRecordLaunchStoresEventForPersonalResource(t *testing.T) {
 	store := &workbenchMemoryStore{
 		user: &nbtypes.User{Id: userID, AccountID: accountID},
 		userResources: []types.Resource{{
-			ID:       "personal-1",
+			ID:        "personal-1",
 			AccountID: accountID,
-			UserID:   userID,
-			Scope:    types.ResourceScopePersonal,
-			Source:   types.ResourceSourceUser,
-			Name:     "Docs",
-			URL:      "https://docs.example.com",
-			Enabled:  true,
+			UserID:    userID,
+			Scope:     types.ResourceScopePersonal,
+			Source:    types.ResourceSourceUser,
+			Name:      "Docs",
+			URL:       "https://docs.example.com",
+			Enabled:   true,
 		}},
 	}
 	manager := NewManagerWithEvents(store, nil, eventStore)
@@ -387,14 +387,14 @@ func TestListResourcesMarksRecentVisibleResources(t *testing.T) {
 			},
 		},
 		userResources: []types.Resource{{
-			ID:       "personal-1",
+			ID:        "personal-1",
 			AccountID: accountID,
-			UserID:   userID,
-			Scope:    types.ResourceScopePersonal,
-			Source:   types.ResourceSourceUser,
-			Name:     "Docs",
-			URL:      "https://docs.example.com",
-			Enabled:  true,
+			UserID:    userID,
+			Scope:     types.ResourceScopePersonal,
+			Source:    types.ResourceSourceUser,
+			Name:      "Docs",
+			URL:       "https://docs.example.com",
+			Enabled:   true,
 		}},
 		recentVisits: []types.RecentVisit{
 			{ResourceID: "server-1", Scope: types.ResourceScopeServer, VisitedAt: visitedAt},
@@ -596,6 +596,121 @@ func TestListResourcesBuildsCategoriesFromVisibleServerResources(t *testing.T) {
 		if hasCategory(resources.Categories, name) {
 			t.Fatalf("categories contains %q from hidden, disabled, or untrimmed server resource: %+v", name, resources.Categories)
 		}
+	}
+}
+
+func TestListResourcesIncludesStoredWorkbenchCategories(t *testing.T) {
+	ctx := context.Background()
+	accountID := "account-1"
+	userID := "user-1"
+	store := &workbenchMemoryStore{
+		user: &nbtypes.User{Id: userID, AccountID: accountID},
+		categories: []*types.Category{
+			{ID: "stored-2", AccountID: accountID, Name: " 研发系统 ", Sort: 20},
+			{ID: "stored-1", AccountID: accountID, Name: "内部系统", Sort: 10},
+		},
+		userResources: []types.Resource{{
+			ID:       "personal-1",
+			Name:     "Personal",
+			Category: "个人自建",
+			URL:      "https://personal.example.com",
+			Enabled:  true,
+		}},
+	}
+	manager := NewManager(store, nil)
+
+	resources, err := manager.ListResources(ctx, accountID, userID)
+	if err != nil {
+		t.Fatalf("ListResources() error = %v", err)
+	}
+	if !hasCategory(resources.Categories, "内部系统") || !hasCategory(resources.Categories, "研发系统") || !hasCategory(resources.Categories, "个人自建") {
+		t.Fatalf("categories missing stored or dynamic category: %+v", resources.Categories)
+	}
+	if resources.Categories[3].Name != "内部系统" || resources.Categories[4].Name != "研发系统" {
+		t.Fatalf("stored categories order = %+v, want sort order after built-ins", resources.Categories)
+	}
+}
+
+func TestAdminCategoryCRUDUsesSettingsPermissions(t *testing.T) {
+	ctx := context.Background()
+	accountID := "account-1"
+	userID := "admin-1"
+	permissions := &fakePermissionsManager{allowed: true}
+	store := &workbenchMemoryStore{
+		user: &nbtypes.User{Id: userID, AccountID: accountID},
+		categories: []*types.Category{{
+			ID:        "category-1",
+			AccountID: accountID,
+			Name:      "内部系统",
+			Sort:      10,
+			CreatedBy: "creator-1",
+		}},
+	}
+	manager := NewManager(store, permissions)
+
+	categories, err := manager.ListAdminCategories(ctx, accountID, userID)
+	if err != nil {
+		t.Fatalf("ListAdminCategories() error = %v", err)
+	}
+	if len(categories) != 1 || categories[0].Name != "内部系统" {
+		t.Fatalf("ListAdminCategories() = %+v, want stored category", categories)
+	}
+	if permissions.operation != operations.Read {
+		t.Fatalf("permission operation = %v, want read", permissions.operation)
+	}
+
+	created, err := manager.CreateAdminCategory(ctx, accountID, userID, &types.Category{Name: " 新分类 ", Sort: 30})
+	if err != nil {
+		t.Fatalf("CreateAdminCategory() error = %v", err)
+	}
+	if created.ID == "" || created.Name != "新分类" || created.AccountID != accountID || created.CreatedBy != userID {
+		t.Fatalf("created category mismatch: %+v", created)
+	}
+
+	updated, err := manager.UpdateAdminCategory(ctx, accountID, userID, "category-1", &types.Category{Name: " 更新分类 ", Sort: 40})
+	if err != nil {
+		t.Fatalf("UpdateAdminCategory() error = %v", err)
+	}
+	if updated.ID != "category-1" || updated.Name != "更新分类" || updated.CreatedBy != "creator-1" {
+		t.Fatalf("updated category mismatch: %+v", updated)
+	}
+
+	if err := manager.DeleteAdminCategory(ctx, accountID, userID, "category-1"); err != nil {
+		t.Fatalf("DeleteAdminCategory() error = %v", err)
+	}
+	if store.deleteCategoryCalls != 1 {
+		t.Fatalf("delete category calls = %d, want 1", store.deleteCategoryCalls)
+	}
+}
+
+func TestAdminCategoryRejectsInvalidPayloadsBeforeStoreWrite(t *testing.T) {
+	ctx := context.Background()
+	accountID := "account-1"
+	userID := "admin-1"
+	store := &workbenchMemoryStore{
+		user: &nbtypes.User{Id: userID, AccountID: accountID},
+		categories: []*types.Category{{
+			ID:        "category-1",
+			AccountID: accountID,
+			Name:      "内部系统",
+		}},
+	}
+	manager := NewManager(store, &fakePermissionsManager{allowed: true})
+
+	if _, err := manager.CreateAdminCategory(ctx, accountID, userID, nil); err == nil {
+		t.Fatal("CreateAdminCategory(nil) error = nil, want invalid argument")
+	}
+	if _, err := manager.CreateAdminCategory(ctx, accountID, userID, &types.Category{Name: " "}); err == nil {
+		t.Fatal("CreateAdminCategory(empty name) error = nil, want invalid argument")
+	}
+	if _, err := manager.UpdateAdminCategory(ctx, accountID, userID, " ", &types.Category{Name: "分类"}); err == nil {
+		t.Fatal("UpdateAdminCategory(empty id) error = nil, want invalid argument")
+	}
+	if err := manager.DeleteAdminCategory(ctx, accountID, userID, " "); err == nil {
+		t.Fatal("DeleteAdminCategory(empty id) error = nil, want invalid argument")
+	}
+	if store.saveCategoryCalls != 0 || store.deleteCategoryCalls != 0 {
+		t.Fatalf("store was written for invalid payloads: save=%d delete=%d", store.saveCategoryCalls, store.deleteCategoryCalls)
 	}
 }
 
@@ -1692,8 +1807,10 @@ type workbenchMemoryStore struct {
 	users                      map[string]*nbtypes.User
 	groups                     map[string]*nbtypes.Group
 	resources                  []*types.Resource
+	categories                 []*types.Category
 	userResources              []types.Resource
 	savedUserResources         []types.Resource
+	savedCategory              *types.Category
 	recentVisits               []types.RecentVisit
 	savedRecentVisits          []types.RecentVisit
 	asset                      *types.Asset
@@ -1702,6 +1819,9 @@ type workbenchMemoryStore struct {
 	getServerResourceCalls     int
 	saveServerResourceCalls    int
 	deleteServerResourceCalls  int
+	getCategoryCalls           int
+	saveCategoryCalls          int
+	deleteCategoryCalls        int
 	getAssetCalls              int
 }
 
@@ -1774,6 +1894,42 @@ func (s *workbenchMemoryStore) SaveWorkbenchServerResource(ctx context.Context, 
 
 func (s *workbenchMemoryStore) DeleteWorkbenchServerResource(ctx context.Context, accountID, resourceID string) error {
 	s.deleteServerResourceCalls++
+	return nil
+}
+
+func (s *workbenchMemoryStore) GetWorkbenchCategories(ctx context.Context, accountID string) ([]*types.Category, error) {
+	return s.categories, nil
+}
+
+func (s *workbenchMemoryStore) GetWorkbenchCategory(ctx context.Context, accountID, categoryID string) (*types.Category, error) {
+	s.getCategoryCalls++
+	for _, category := range s.categories {
+		if category.ID == categoryID {
+			return category, nil
+		}
+	}
+	if s.savedCategory != nil && s.savedCategory.ID == categoryID {
+		return s.savedCategory, nil
+	}
+	return nil, nil
+}
+
+func (s *workbenchMemoryStore) SaveWorkbenchCategory(ctx context.Context, category *types.Category) error {
+	s.saveCategoryCalls++
+	copyCategory := *category
+	s.savedCategory = &copyCategory
+	for i := range s.categories {
+		if s.categories[i].ID == category.ID {
+			s.categories[i] = &copyCategory
+			return nil
+		}
+	}
+	s.categories = append(s.categories, &copyCategory)
+	return nil
+}
+
+func (s *workbenchMemoryStore) DeleteWorkbenchCategory(ctx context.Context, accountID, categoryID string) error {
+	s.deleteCategoryCalls++
 	return nil
 }
 

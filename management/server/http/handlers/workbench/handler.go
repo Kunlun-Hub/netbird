@@ -98,6 +98,10 @@ func AddEndpoints(manager workbenchManager.Manager, router *mux.Router) {
 	router.HandleFunc("/workbench/admin/resources/{resourceId:.*}", h.getAdminResource).Methods(http.MethodGet, "OPTIONS")
 	router.HandleFunc("/workbench/admin/resources/{resourceId:.*}", h.updateAdminResource).Methods(http.MethodPut, "OPTIONS")
 	router.HandleFunc("/workbench/admin/resources/{resourceId:.*}", h.deleteAdminResource).Methods(http.MethodDelete, "OPTIONS")
+	router.HandleFunc("/workbench/admin/categories", h.listAdminCategories).Methods(http.MethodGet, "OPTIONS")
+	router.HandleFunc("/workbench/admin/categories", h.createAdminCategory).Methods(http.MethodPost, "OPTIONS")
+	router.HandleFunc("/workbench/admin/categories/{categoryId:.*}", h.updateAdminCategory).Methods(http.MethodPut, "OPTIONS")
+	router.HandleFunc("/workbench/admin/categories/{categoryId:.*}", h.deleteAdminCategory).Methods(http.MethodDelete, "OPTIONS")
 	router.HandleFunc("/workbench/admin/assets/icon", h.uploadAdminIcon).Methods(http.MethodPost, "OPTIONS")
 	router.HandleFunc("/workbench/admin/assets/fetch-icon", h.fetchAdminIcon).Methods(http.MethodPost, "OPTIONS")
 }
@@ -232,6 +236,79 @@ func (h *handler) deleteAdminResource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.manager.DeleteAdminResource(r.Context(), userAuth.AccountId, userAuth.UserId, resourceID); err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+	util.WriteJSONObject(r.Context(), w, util.EmptyObject{})
+}
+
+func (h *handler) listAdminCategories(w http.ResponseWriter, r *http.Request) {
+	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+	categories, err := h.manager.ListAdminCategories(r.Context(), userAuth.AccountId, userAuth.UserId)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+	util.WriteJSONObject(r.Context(), w, categories)
+}
+
+func (h *handler) createAdminCategory(w http.ResponseWriter, r *http.Request) {
+	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+	category, ok := decodeCategory(w, r)
+	if !ok {
+		return
+	}
+	created, err := h.manager.CreateAdminCategory(r.Context(), userAuth.AccountId, userAuth.UserId, category)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+	util.WriteJSONObject(r.Context(), w, created)
+}
+
+func (h *handler) updateAdminCategory(w http.ResponseWriter, r *http.Request) {
+	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+	categoryID, err := categoryIDFromRequest(r)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+	category, ok := decodeCategory(w, r)
+	if !ok {
+		return
+	}
+	updated, err := h.manager.UpdateAdminCategory(r.Context(), userAuth.AccountId, userAuth.UserId, categoryID, category)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+	util.WriteJSONObject(r.Context(), w, updated)
+}
+
+func (h *handler) deleteAdminCategory(w http.ResponseWriter, r *http.Request) {
+	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+	categoryID, err := categoryIDFromRequest(r)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+	if err := h.manager.DeleteAdminCategory(r.Context(), userAuth.AccountId, userAuth.UserId, categoryID); err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
@@ -449,10 +526,33 @@ func decodeResource(w http.ResponseWriter, r *http.Request) (*types.Resource, bo
 	return resource, true
 }
 
+func decodeCategory(w http.ResponseWriter, r *http.Request) (*types.Category, bool) {
+	category := &types.Category{}
+	r.Body = http.MaxBytesReader(w, r.Body, maxJSONRequestSize)
+	if err := json.NewDecoder(r.Body).Decode(category); err != nil {
+		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
+		return nil, false
+	}
+	return category, true
+}
+
 func setAssetSecurityHeaders(w http.ResponseWriter) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'none'; object-src 'none'; base-uri 'none'; sandbox")
+}
+
+func categoryIDFromRequest(r *http.Request) (string, error) {
+	categoryID := mux.Vars(r)["categoryId"]
+	decoded, err := url.PathUnescape(categoryID)
+	if err != nil {
+		return "", status.Errorf(status.InvalidArgument, "category id is invalid")
+	}
+	decoded = strings.TrimSpace(decoded)
+	if decoded == "" {
+		return "", status.Errorf(status.InvalidArgument, "category id shouldn't be empty")
+	}
+	return decoded, nil
 }
 
 func resourceIDFromRequest(r *http.Request) (string, error) {

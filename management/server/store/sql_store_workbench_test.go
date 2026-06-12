@@ -29,6 +29,7 @@ func TestSqlStoreAutoMigratesWorkbenchTables(t *testing.T) {
 		{name: "workbench_resource_visible_users", model: &workbenchTypes.ResourceVisibleUser{}},
 		{name: "workbench_user_resources", model: &workbenchTypes.UserResources{}},
 		{name: "workbench_assets", model: &workbenchTypes.Asset{}},
+		{name: "workbench_categories", model: &workbenchTypes.Category{}},
 	}
 	for _, table := range tables {
 		t.Run(table.name, func(t *testing.T) {
@@ -338,5 +339,61 @@ func TestSqlStoreWorkbenchAssetRoundTripAndAccountIsolation(t *testing.T) {
 	}
 	if updated.ContentType != "image/webp" || updated.Size != 456 || updated.SHA256 != "sha256-updated" {
 		t.Fatalf("updated asset mismatch: %+v", updated)
+	}
+}
+
+func TestSqlStoreWorkbenchCategoryRoundTripAndAccountIsolation(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup, err := NewTestStoreFromSQL(ctx, "", t.TempDir())
+	t.Cleanup(cleanup)
+	if err != nil {
+		t.Fatalf("NewTestStoreFromSQL() error = %v", err)
+	}
+	sqlStore, ok := store.(*SqlStore)
+	if !ok {
+		t.Fatalf("store type = %T, want *SqlStore", store)
+	}
+
+	category := &workbenchTypes.Category{
+		ID:        "category-1",
+		AccountID: "account-1",
+		Name:      "内部系统",
+		Sort:      20,
+		CreatedBy: "admin-1",
+	}
+	if err := sqlStore.SaveWorkbenchCategory(ctx, category); err != nil {
+		t.Fatalf("SaveWorkbenchCategory() error = %v", err)
+	}
+
+	got, err := sqlStore.GetWorkbenchCategory(ctx, "account-1", "category-1")
+	if err != nil {
+		t.Fatalf("GetWorkbenchCategory() error = %v", err)
+	}
+	if got.ID != category.ID || got.AccountID != category.AccountID || got.Name != category.Name || got.Sort != category.Sort || got.CreatedBy != category.CreatedBy {
+		t.Fatalf("category round trip mismatch: %+v", got)
+	}
+
+	if _, err := sqlStore.GetWorkbenchCategory(ctx, "other-account", "category-1"); err == nil {
+		t.Fatal("GetWorkbenchCategory(other account) error = nil, want not found")
+	}
+
+	category.Name = "研发系统"
+	category.Sort = 10
+	if err := sqlStore.SaveWorkbenchCategory(ctx, category); err != nil {
+		t.Fatalf("SaveWorkbenchCategory(update) error = %v", err)
+	}
+	categories, err := sqlStore.GetWorkbenchCategories(ctx, "account-1")
+	if err != nil {
+		t.Fatalf("GetWorkbenchCategories() error = %v", err)
+	}
+	if len(categories) != 1 || categories[0].Name != "研发系统" || categories[0].Sort != 10 {
+		t.Fatalf("categories mismatch: %+v", categories)
+	}
+
+	if err := sqlStore.DeleteWorkbenchCategory(ctx, "account-1", "category-1"); err != nil {
+		t.Fatalf("DeleteWorkbenchCategory() error = %v", err)
+	}
+	if _, err := sqlStore.GetWorkbenchCategory(ctx, "account-1", "category-1"); err == nil {
+		t.Fatal("GetWorkbenchCategory(deleted) error = nil, want not found")
 	}
 }

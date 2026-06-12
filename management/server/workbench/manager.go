@@ -32,6 +32,10 @@ type Store interface {
 	SaveWorkbenchUserRecentVisits(ctx context.Context, accountID, userID string, recentVisits []types.RecentVisit) error
 	SaveWorkbenchAsset(ctx context.Context, asset *types.Asset) error
 	GetWorkbenchAsset(ctx context.Context, accountID, assetID string) (*types.Asset, error)
+	GetWorkbenchCategories(ctx context.Context, accountID string) ([]*types.Category, error)
+	GetWorkbenchCategory(ctx context.Context, accountID, categoryID string) (*types.Category, error)
+	SaveWorkbenchCategory(ctx context.Context, category *types.Category) error
+	DeleteWorkbenchCategory(ctx context.Context, accountID, categoryID string) error
 }
 
 type PermissionsManager interface {
@@ -49,6 +53,10 @@ type Manager interface {
 	CreateAdminResource(ctx context.Context, accountID, userID string, resource *types.Resource) (*types.Resource, error)
 	UpdateAdminResource(ctx context.Context, accountID, userID, resourceID string, resource *types.Resource) (*types.Resource, error)
 	DeleteAdminResource(ctx context.Context, accountID, userID, resourceID string) error
+	ListAdminCategories(ctx context.Context, accountID, userID string) ([]*types.Category, error)
+	CreateAdminCategory(ctx context.Context, accountID, userID string, category *types.Category) (*types.Category, error)
+	UpdateAdminCategory(ctx context.Context, accountID, userID, categoryID string, category *types.Category) (*types.Category, error)
+	DeleteAdminCategory(ctx context.Context, accountID, userID, categoryID string) error
 	CreatePersonalResource(ctx context.Context, accountID, userID string, resource *types.Resource) (*types.Resource, error)
 	UpdatePersonalResource(ctx context.Context, accountID, userID, resourceID string, resource *types.Resource) (*types.Resource, error)
 	DeletePersonalResource(ctx context.Context, accountID, userID, resourceID string) error
@@ -107,10 +115,15 @@ func (m *manager) ListResources(ctx context.Context, accountID, userID string) (
 	}
 	sortResources(normalizedPersonalResources)
 
+	categories, err := m.store.GetWorkbenchCategories(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+
 	return &types.ResourceList{
 		ServerResources:   visibleServer,
 		PersonalResources: publicResourcesForClient(normalizedPersonalResources),
-		Categories:        defaultCategories(visibleServer, normalizedPersonalResources),
+		Categories:        defaultCategories(categories, visibleServer, normalizedPersonalResources),
 		Version:           1,
 	}, nil
 }
@@ -231,6 +244,99 @@ func (m *manager) DeleteAdminResource(ctx context.Context, accountID, userID, re
 		return err
 	}
 	return m.store.DeleteWorkbenchServerResource(ctx, accountID, resourceID)
+}
+
+func (m *manager) ListAdminCategories(ctx context.Context, accountID, userID string) ([]*types.Category, error) {
+	if err := m.ensureAdminAccess(ctx, accountID, userID, operations.Read); err != nil {
+		return nil, err
+	}
+	categories, err := m.store.GetWorkbenchCategories(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	normalized := make([]*types.Category, 0, len(categories))
+	for _, category := range categories {
+		if category == nil {
+			continue
+		}
+		next := normalizeCategory(accountID, userID, *category)
+		normalized = append(normalized, &next)
+	}
+	return normalized, nil
+}
+
+func (m *manager) CreateAdminCategory(ctx context.Context, accountID, userID string, category *types.Category) (*types.Category, error) {
+	if err := m.ensureAdminAccess(ctx, accountID, userID, operations.Create); err != nil {
+		return nil, err
+	}
+	if category == nil {
+		return nil, status.Errorf(status.InvalidArgument, "workbench category payload is empty")
+	}
+	category.ID = xid.New().String()
+	normalized := normalizeCategory(accountID, userID, *category)
+	if err := validateCategory(&normalized); err != nil {
+		return nil, err
+	}
+	if err := m.store.SaveWorkbenchCategory(ctx, &normalized); err != nil {
+		return nil, err
+	}
+	created, err := m.store.GetWorkbenchCategory(ctx, accountID, normalized.ID)
+	if err != nil {
+		return nil, err
+	}
+	if created == nil {
+		return nil, status.Errorf(status.Internal, "failed to load saved workbench category")
+	}
+	return created, nil
+}
+
+func (m *manager) UpdateAdminCategory(ctx context.Context, accountID, userID, categoryID string, category *types.Category) (*types.Category, error) {
+	if err := m.ensureAdminAccess(ctx, accountID, userID, operations.Update); err != nil {
+		return nil, err
+	}
+	if category == nil {
+		return nil, status.Errorf(status.InvalidArgument, "workbench category payload is empty")
+	}
+	categoryID, err := normalizeResourceID(categoryID)
+	if err != nil {
+		return nil, err
+	}
+	existing, err := m.store.GetWorkbenchCategory(ctx, accountID, categoryID)
+	if err != nil {
+		return nil, err
+	}
+	if existing == nil {
+		return nil, status.Errorf(status.NotFound, "workbench category not found")
+	}
+	category.ID = categoryID
+	normalized := normalizeCategory(accountID, userID, *category)
+	normalized.CreatedBy = existing.CreatedBy
+	normalized.CreatedAt = existing.CreatedAt
+	if err := validateCategory(&normalized); err != nil {
+		return nil, err
+	}
+	if err := m.store.SaveWorkbenchCategory(ctx, &normalized); err != nil {
+		return nil, err
+	}
+	updated, err := m.store.GetWorkbenchCategory(ctx, accountID, categoryID)
+	if err != nil {
+		return nil, err
+	}
+	if updated == nil {
+		return nil, status.Errorf(status.Internal, "failed to load saved workbench category")
+	}
+	return updated, nil
+}
+
+func (m *manager) DeleteAdminCategory(ctx context.Context, accountID, userID, categoryID string) error {
+	if err := m.ensureAdminAccess(ctx, accountID, userID, operations.Delete); err != nil {
+		return err
+	}
+	categoryID, err := normalizeResourceID(categoryID)
+	if err != nil {
+		return err
+	}
+	return m.store.DeleteWorkbenchCategory(ctx, accountID, categoryID)
 }
 
 func (m *manager) CreatePersonalResource(ctx context.Context, accountID, userID string, resource *types.Resource) (*types.Resource, error) {
@@ -737,7 +843,31 @@ func isValidIconMode(iconMode string) bool {
 		iconMode == types.IconModeLetter
 }
 
-func defaultCategories(server []types.Resource, personal []types.Resource) []types.Category {
+func normalizeCategory(accountID, userID string, category types.Category) types.Category {
+	category.ID = strings.TrimSpace(category.ID)
+	if category.ID == "" {
+		category.ID = xid.New().String()
+	}
+	category.AccountID = accountID
+	category.Name = strings.TrimSpace(category.Name)
+	category.CreatedBy = strings.TrimSpace(category.CreatedBy)
+	if category.CreatedBy == "" {
+		category.CreatedBy = userID
+	}
+	return category
+}
+
+func validateCategory(category *types.Category) error {
+	if category == nil {
+		return status.Errorf(status.InvalidArgument, "workbench category payload is empty")
+	}
+	if strings.TrimSpace(category.Name) == "" {
+		return status.Errorf(status.InvalidArgument, "workbench category name shouldn't be empty")
+	}
+	return nil
+}
+
+func defaultCategories(stored []*types.Category, server []types.Resource, personal []types.Resource) []types.Category {
 	categories := []types.Category{
 		{ID: "all", Name: "全部资源", Sort: 0},
 		{ID: "server", Name: "服务器资源", Sort: 5},
@@ -748,7 +878,25 @@ func defaultCategories(server []types.Resource, personal []types.Resource) []typ
 		"服务器资源": {},
 		"个人资源":  {},
 	}
-	add := func(name string) {
+	addStored := func(category *types.Category) {
+		if category == nil {
+			return
+		}
+		normalized := normalizeCategory(category.AccountID, category.CreatedBy, *category)
+		if normalized.Name == "" {
+			return
+		}
+		if _, ok := seen[normalized.Name]; ok {
+			return
+		}
+		seen[normalized.Name] = struct{}{}
+		categories = append(categories, types.Category{
+			ID:   normalized.ID,
+			Name: normalized.Name,
+			Sort: normalized.Sort,
+		})
+	}
+	addDynamic := func(name string) {
 		name = strings.TrimSpace(name)
 		if name == "" {
 			return
@@ -759,12 +907,21 @@ func defaultCategories(server []types.Resource, personal []types.Resource) []typ
 		seen[name] = struct{}{}
 		categories = append(categories, types.Category{ID: fmt.Sprintf("category-%d", len(categories)), Name: name, Sort: len(categories) * 10})
 	}
+	for _, category := range stored {
+		addStored(category)
+	}
 	for _, resource := range server {
-		add(resource.Category)
+		addDynamic(resource.Category)
 	}
 	for _, resource := range personal {
-		add(resource.Category)
+		addDynamic(resource.Category)
 	}
+	slices.SortFunc(categories[3:], func(a, b types.Category) int {
+		if a.Sort != b.Sort {
+			return a.Sort - b.Sort
+		}
+		return strings.Compare(a.Name, b.Name)
+	})
 	return categories
 }
 

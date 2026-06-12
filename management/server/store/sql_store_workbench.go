@@ -213,6 +213,53 @@ func (s *SqlStore) GetWorkbenchAsset(ctx context.Context, accountID, assetID str
 	return &asset, nil
 }
 
+func (s *SqlStore) GetWorkbenchCategories(ctx context.Context, accountID string) ([]*workbenchTypes.Category, error) {
+	var categories []*workbenchTypes.Category
+	result := s.db.
+		Where("account_id = ?", accountID).
+		Order("sort ASC, name ASC").
+		Find(&categories)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get workbench categories: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get workbench categories")
+	}
+	return categories, nil
+}
+
+func (s *SqlStore) GetWorkbenchCategory(ctx context.Context, accountID, categoryID string) (*workbenchTypes.Category, error) {
+	var category workbenchTypes.Category
+	result := s.db.Take(&category, "account_id = ? AND id = ?", accountID, categoryID)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "workbench category not found")
+		}
+		log.WithContext(ctx).Errorf("failed to get workbench category: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get workbench category")
+	}
+	return &category, nil
+}
+
+func (s *SqlStore) SaveWorkbenchCategory(ctx context.Context, category *workbenchTypes.Category) error {
+	result := s.db.Save(category)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to save workbench category: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to save workbench category")
+	}
+	return nil
+}
+
+func (s *SqlStore) DeleteWorkbenchCategory(ctx context.Context, accountID, categoryID string) error {
+	result := s.db.Delete(&workbenchTypes.Category{}, "account_id = ? AND id = ?", accountID, categoryID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to delete workbench category: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to delete workbench category")
+	}
+	if result.RowsAffected == 0 {
+		return status.Errorf(status.NotFound, "workbench category not found")
+	}
+	return nil
+}
+
 func (s *SqlStore) populateWorkbenchVisibility(ctx context.Context, accountID string, resources []*workbenchTypes.Resource) error {
 	if len(resources) == 0 {
 		return nil

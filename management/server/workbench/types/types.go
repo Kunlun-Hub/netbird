@@ -69,9 +69,9 @@ func (ResourceVisibleUser) TableName() string {
 }
 
 type UserResources struct {
-	AccountID     string     `gorm:"primaryKey"`
-	UserID        string     `gorm:"primaryKey"`
-	ResourcesJSON []Resource `gorm:"serializer:json"`
+	AccountID     string        `gorm:"primaryKey"`
+	UserID        string        `gorm:"primaryKey"`
+	ResourcesJSON []Resource    `gorm:"serializer:json"`
 	RecentVisits  []RecentVisit `gorm:"serializer:json"`
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
@@ -98,17 +98,25 @@ func (Asset) TableName() string {
 	return "workbench_assets"
 }
 
+type Category struct {
+	ID        string    `json:"id" gorm:"primaryKey"`
+	AccountID string    `json:"-" gorm:"index"`
+	Name      string    `json:"name"`
+	Sort      int       `json:"sort"`
+	CreatedBy string    `json:"createdBy,omitempty"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+func (Category) TableName() string {
+	return "workbench_categories"
+}
+
 type ResourceList struct {
 	ServerResources   []Resource `json:"serverResources"`
 	PersonalResources []Resource `json:"personalResources"`
 	Categories        []Category `json:"categories"`
 	Version           int        `json:"version"`
-}
-
-type Category struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-	Sort int    `json:"sort"`
 }
 
 type RecentVisit struct {

@@ -472,6 +472,108 @@ func TestListAdminResourcesEndpointUsesAuthContext(t *testing.T) {
 	}
 }
 
+func TestAdminCategoryEndpointsUseAuthContextAndPathID(t *testing.T) {
+	manager := &fakeWorkbenchManager{}
+	router := mux.NewRouter()
+	AddEndpoints(manager, router)
+
+	req := httptest.NewRequest(http.MethodGet, "/workbench/admin/categories", nil)
+	req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{AccountId: "account-10", UserId: "admin-10"})
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("list status = %d, want %d, body: %s", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
+	if manager.lastAccountID != "account-10" || manager.lastUserID != "admin-10" {
+		t.Fatalf("list auth = account %q user %q, want account-10 admin-10", manager.lastAccountID, manager.lastUserID)
+	}
+	var listResponse []types.Category
+	if err := json.NewDecoder(recorder.Body).Decode(&listResponse); err != nil {
+		t.Fatalf("Decode(list) error = %v", err)
+	}
+	if len(listResponse) != 1 || listResponse[0].ID != "category-1" {
+		t.Fatalf("list response = %+v, want category-1", listResponse)
+	}
+
+	body := strings.NewReader(`{"name":"内部系统","sort":20}`)
+	req = httptest.NewRequest(http.MethodPost, "/workbench/admin/categories", body)
+	req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{AccountId: "account-11", UserId: "admin-11"})
+	recorder = httptest.NewRecorder()
+	router.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("create status = %d, want %d, body: %s", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
+	if manager.lastAccountID != "account-11" || manager.lastUserID != "admin-11" {
+		t.Fatalf("create auth = account %q user %q, want account-11 admin-11", manager.lastAccountID, manager.lastUserID)
+	}
+	if manager.lastCategory == nil || manager.lastCategory.Name != "内部系统" || manager.lastCategory.Sort != 20 {
+		t.Fatalf("created category payload = %+v, want decoded category", manager.lastCategory)
+	}
+
+	body = strings.NewReader(`{"name":"研发系统","sort":30}`)
+	req = httptest.NewRequest(http.MethodPut, "/workbench/admin/categories/category%2F2", body)
+	req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{AccountId: "account-12", UserId: "admin-12"})
+	recorder = httptest.NewRecorder()
+	router.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("update status = %d, want %d, body: %s", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
+	if manager.lastCategoryID != "category/2" {
+		t.Fatalf("updated category ID = %q, want category/2", manager.lastCategoryID)
+	}
+
+	req = httptest.NewRequest(http.MethodDelete, "/workbench/admin/categories/category-3", nil)
+	req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{AccountId: "account-13", UserId: "admin-13"})
+	recorder = httptest.NewRecorder()
+	router.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("delete status = %d, want %d, body: %s", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
+	if manager.lastCategoryID != "category-3" || manager.lastAccountID != "account-13" || manager.lastUserID != "admin-13" {
+		t.Fatalf("delete call = account %q user %q category %q, want account-13 admin-13 category-3", manager.lastAccountID, manager.lastUserID, manager.lastCategoryID)
+	}
+}
+
+func TestAdminCategoryEndpointsRejectEmptyCategoryID(t *testing.T) {
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		body   io.Reader
+	}{
+		{
+			name:   "update",
+			method: http.MethodPut,
+			path:   "/workbench/admin/categories/",
+			body:   strings.NewReader(`{"name":"内部系统"}`),
+		},
+		{
+			name:   "delete",
+			method: http.MethodDelete,
+			path:   "/workbench/admin/categories/",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			manager := &fakeWorkbenchManager{}
+			router := mux.NewRouter()
+			AddEndpoints(manager, router)
+
+			req := httptest.NewRequest(tt.method, tt.path, tt.body)
+			req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{AccountId: "account-7", UserId: "admin-7"})
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, req)
+
+			if recorder.Code == http.StatusOK {
+				t.Fatalf("status = %d, want empty category ID rejection", recorder.Code)
+			}
+			if manager.lastCategoryID != "" || manager.lastAccountID != "" || manager.lastUserID != "" {
+				t.Fatalf("manager called with account=%q user=%q category=%q, want no manager call", manager.lastAccountID, manager.lastUserID, manager.lastCategoryID)
+			}
+		})
+	}
+}
+
 func TestResourcesEndpointWithManagerFiltersServerResourcesAndPersistsPersonalResources(t *testing.T) {
 	accountID := "account-1"
 	userID := "user-1"
@@ -1406,7 +1508,9 @@ type fakeWorkbenchManager struct {
 	lastResourceID         string
 	lastScope              string
 	lastAssetID            string
+	lastCategoryID         string
 	lastResource           *types.Resource
+	lastCategory           *types.Category
 	asset                  *types.Asset
 	lastAssetOwnerUserID   string
 	listResources          *types.ResourceList
@@ -1456,6 +1560,32 @@ func (m *fakeWorkbenchManager) UpdateAdminResource(ctx context.Context, accountI
 func (m *fakeWorkbenchManager) DeleteAdminResource(ctx context.Context, accountID, userID, resourceID string) error {
 	m.remember(accountID, userID)
 	m.lastResourceID = resourceID
+	return nil
+}
+
+func (m *fakeWorkbenchManager) ListAdminCategories(ctx context.Context, accountID, userID string) ([]*types.Category, error) {
+	m.remember(accountID, userID)
+	return []*types.Category{{ID: "category-1", Name: "内部系统", Sort: 10}}, nil
+}
+
+func (m *fakeWorkbenchManager) CreateAdminCategory(ctx context.Context, accountID, userID string, category *types.Category) (*types.Category, error) {
+	m.remember(accountID, userID)
+	m.lastCategory = category
+	category.ID = "category-created"
+	return category, nil
+}
+
+func (m *fakeWorkbenchManager) UpdateAdminCategory(ctx context.Context, accountID, userID, categoryID string, category *types.Category) (*types.Category, error) {
+	m.remember(accountID, userID)
+	m.lastCategoryID = categoryID
+	m.lastCategory = category
+	category.ID = categoryID
+	return category, nil
+}
+
+func (m *fakeWorkbenchManager) DeleteAdminCategory(ctx context.Context, accountID, userID, categoryID string) error {
+	m.remember(accountID, userID)
+	m.lastCategoryID = categoryID
 	return nil
 }
 
@@ -1531,6 +1661,7 @@ type httpWorkbenchStore struct {
 	user            *nbtypes.User
 	groups          map[string]*nbtypes.Group
 	serverResources []*types.Resource
+	categories      []*types.Category
 	userResources   map[string][]types.Resource
 	recentVisits    map[string][]types.RecentVisit
 	asset           *types.Asset
@@ -1596,6 +1727,50 @@ func (s *httpWorkbenchStore) DeleteWorkbenchServerResource(ctx context.Context, 
 		}
 	}
 	return status.Errorf(status.NotFound, "workbench resource not found")
+}
+
+func (s *httpWorkbenchStore) GetWorkbenchCategories(ctx context.Context, accountID string) ([]*types.Category, error) {
+	categories := make([]*types.Category, 0, len(s.categories))
+	for _, category := range s.categories {
+		if category.AccountID == accountID {
+			copyCategory := *category
+			categories = append(categories, &copyCategory)
+		}
+	}
+	return categories, nil
+}
+
+func (s *httpWorkbenchStore) GetWorkbenchCategory(ctx context.Context, accountID, categoryID string) (*types.Category, error) {
+	for _, category := range s.categories {
+		if category.AccountID == accountID && category.ID == categoryID {
+			copyCategory := *category
+			return &copyCategory, nil
+		}
+	}
+	return nil, status.Errorf(status.NotFound, "workbench category not found")
+}
+
+func (s *httpWorkbenchStore) SaveWorkbenchCategory(ctx context.Context, category *types.Category) error {
+	for i := range s.categories {
+		if s.categories[i].AccountID == category.AccountID && s.categories[i].ID == category.ID {
+			copyCategory := *category
+			s.categories[i] = &copyCategory
+			return nil
+		}
+	}
+	copyCategory := *category
+	s.categories = append(s.categories, &copyCategory)
+	return nil
+}
+
+func (s *httpWorkbenchStore) DeleteWorkbenchCategory(ctx context.Context, accountID, categoryID string) error {
+	for i := range s.categories {
+		if s.categories[i].AccountID == accountID && s.categories[i].ID == categoryID {
+			s.categories = append(s.categories[:i], s.categories[i+1:]...)
+			return nil
+		}
+	}
+	return status.Errorf(status.NotFound, "workbench category not found")
 }
 
 func (s *httpWorkbenchStore) GetWorkbenchUserResources(ctx context.Context, accountID, userID string) ([]types.Resource, error) {
