@@ -40,6 +40,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
+	emailmanager "github.com/netbirdio/netbird/management/server/email"
 	"github.com/netbirdio/netbird/management/server/entitlements"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/idp"
@@ -124,6 +125,7 @@ type DefaultAccountManager struct {
 
 	entitlementsChecker entitlements.Checker
 	licenseManager      *licensing.Manager
+	emailService        emailmanager.Service
 }
 
 var _ account.Manager = (*DefaultAccountManager)(nil)
@@ -149,6 +151,10 @@ func (am *DefaultAccountManager) SetEntitlementsChecker(checker entitlements.Che
 
 func (am *DefaultAccountManager) SetLicenseManager(manager *licensing.Manager) {
 	am.licenseManager = manager
+}
+
+func (am *DefaultAccountManager) SetEmailService(service emailmanager.Service) {
+	am.emailService = service
 }
 
 func isUniqueConstraintError(err error) bool {
@@ -1988,6 +1994,7 @@ func (am *DefaultAccountManager) addNewUserToDomainAccount(ctx context.Context, 
 
 	if newUser.PendingApproval {
 		am.StoreEvent(ctx, userAuth.UserId, userAuth.UserId, domainAccountID, activity.UserJoined, map[string]any{"pending_approval": true})
+		am.notifyUserPendingApproval(ctx, domainAccountID, newUser)
 	} else {
 		am.StoreEvent(ctx, userAuth.UserId, userAuth.UserId, domainAccountID, activity.UserJoined, nil)
 	}

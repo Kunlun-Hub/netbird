@@ -143,6 +143,7 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 		&types.Job{}, &zones.Zone{}, &records.Record{}, &types.UserInviteRecord{}, &rpservice.Service{}, &rpservice.Target{}, &domain.Domain{},
 		&accesslogs.AccessLogEntry{}, &networktraffic.Event{}, &networktraffic.FlowSummary{}, &proxy.Proxy{},
 		&workbenchTypes.Resource{}, &workbenchTypes.ResourceVisibleGroup{}, &workbenchTypes.ResourceVisibleUser{}, &workbenchTypes.UserResources{}, &workbenchTypes.Asset{}, &workbenchTypes.Category{},
+		&types.EmailSettings{},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("auto migratePreAuto: %w", err)
@@ -1106,6 +1107,51 @@ func (s *SqlStore) DeleteUserInvite(ctx context.Context, inviteID string) error 
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to delete user invite from store: %s", result.Error)
 		return status.Errorf(status.Internal, "failed to delete user invite from store")
+	}
+	return nil
+}
+
+func (s *SqlStore) GetEmailSettings(ctx context.Context, lockStrength LockingStrength, accountID string) (*types.EmailSettings, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var settings types.EmailSettings
+	result := tx.Take(&settings, "account_id = ?", accountID)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			settings = types.EmailSettings{AccountID: accountID}
+			settings.Normalize()
+			return &settings, nil
+		}
+		log.WithContext(ctx).Errorf("failed to get email settings from store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get email settings from store")
+	}
+
+	if err := settings.DecryptSensitiveData(s.fieldEncrypt); err != nil {
+		return nil, fmt.Errorf("decrypt email settings: %w", err)
+	}
+	settings.Normalize()
+	settings.PasswordConfigured = settings.Password != "" || settings.PasswordEncrypted != ""
+
+	return &settings, nil
+}
+
+func (s *SqlStore) SaveEmailSettings(ctx context.Context, settings *types.EmailSettings) error {
+	settingsCopy := settings.Copy()
+	settingsCopy.Normalize()
+	settingsCopy.PasswordConfigured = false
+	if settingsCopy.Password != "" {
+		if err := settingsCopy.EncryptSensitiveData(s.fieldEncrypt); err != nil {
+			return fmt.Errorf("encrypt email settings: %w", err)
+		}
+	}
+
+	result := s.db.Save(settingsCopy)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to save email settings to store: %s", result.Error)
+		return status.Errorf(status.Internal, "failed to save email settings to store")
 	}
 	return nil
 }

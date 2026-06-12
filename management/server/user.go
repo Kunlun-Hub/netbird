@@ -163,6 +163,7 @@ func (am *DefaultAccountManager) inviteNewUser(ctx context.Context, accountID, u
 		eventType = activity.UserCreated
 	}
 	am.StoreEvent(ctx, userID, newUser.Id, accountID, eventType, nil)
+	am.notifyUserCreated(ctx, accountID, newUser)
 
 	return newUser.ToUserInfo(idpUser)
 }
@@ -1655,6 +1656,7 @@ func (am *DefaultAccountManager) CreateUserInvite(ctx context.Context, accountID
 	}
 
 	am.StoreEvent(ctx, initiatorUserID, inviteID, accountID, activity.UserInviteLinkCreated, map[string]any{"email": invite.Email})
+	am.notifyInviteCreated(ctx, accountID, userInvite, plainToken)
 
 	return &types.UserInvite{
 		UserInfo: &types.UserInfo{
@@ -1817,6 +1819,7 @@ func (am *DefaultAccountManager) AcceptUserInvite(ctx context.Context, token, pa
 	}
 
 	am.StoreEvent(ctx, newUser.Id, newUser.Id, invite.AccountID, activity.UserInviteLinkAccepted, map[string]any{"email": invite.Email})
+	am.notifyInviteAccepted(ctx, invite, newUser)
 
 	return nil
 }

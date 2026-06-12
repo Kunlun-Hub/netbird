@@ -1421,6 +1421,21 @@ func (mr *MockStoreMockRecorder) GetAccountUsers(ctx, lockStrength, accountID in
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAccountUsers", reflect.TypeOf((*MockStore)(nil).GetAccountUsers), ctx, lockStrength, accountID)
 }
 
+// GetEmailSettings mocks base method.
+func (m *MockStore) GetEmailSettings(ctx context.Context, lockStrength LockingStrength, accountID string) (*types2.EmailSettings, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetEmailSettings", ctx, lockStrength, accountID)
+	ret0, _ := ret[0].(*types2.EmailSettings)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetEmailSettings indicates an expected call of GetEmailSettings.
+func (mr *MockStoreMockRecorder) GetEmailSettings(ctx, lockStrength, accountID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEmailSettings", reflect.TypeOf((*MockStore)(nil).GetEmailSettings), ctx, lockStrength, accountID)
+}
+
 // GetAccountZones mocks base method.
 func (m *MockStore) GetAccountZones(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*zones.Zone, error) {
 	m.ctrl.T.Helper()
@@ -3197,6 +3212,20 @@ func (m *MockStore) SaveUserInvite(ctx context.Context, invite *types2.UserInvit
 func (mr *MockStoreMockRecorder) SaveUserInvite(ctx, invite interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveUserInvite", reflect.TypeOf((*MockStore)(nil).SaveUserInvite), ctx, invite)
+}
+
+// SaveEmailSettings mocks base method.
+func (m *MockStore) SaveEmailSettings(ctx context.Context, settings *types2.EmailSettings) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SaveEmailSettings", ctx, settings)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SaveEmailSettings indicates an expected call of SaveEmailSettings.
+func (mr *MockStoreMockRecorder) SaveEmailSettings(ctx, settings interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveEmailSettings", reflect.TypeOf((*MockStore)(nil).SaveEmailSettings), ctx, settings)
 }
 
 // SaveUserLastLogin mocks base method.

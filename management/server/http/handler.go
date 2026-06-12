@@ -40,10 +40,12 @@ import (
 
 	nbpeers "github.com/netbirdio/netbird/management/internals/modules/peers"
 	"github.com/netbirdio/netbird/management/server/auth"
+	emailmanager "github.com/netbirdio/netbird/management/server/email"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	nbgroups "github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/http/handlers/accounts"
 	"github.com/netbirdio/netbird/management/server/http/handlers/dns"
+	emailhandler "github.com/netbirdio/netbird/management/server/http/handlers/email"
 	"github.com/netbirdio/netbird/management/server/http/handlers/events"
 	"github.com/netbirdio/netbird/management/server/http/handlers/groups"
 	"github.com/netbirdio/netbird/management/server/http/handlers/idp"
@@ -142,7 +144,13 @@ func NewAPIHandler(ctx context.Context, rootRouter *mux.Router, accountManager a
 		return nil, fmt.Errorf("failed to create instance manager: %w", err)
 	}
 
+	emailService := emailmanager.NewManager(accountManager.GetStore(), permissionsManager, "")
+	if setter, ok := accountManager.(interface{ SetEmailService(emailmanager.Service) }); ok {
+		setter.SetEmailService(emailService)
+	}
+
 	accounts.AddEndpoints(accountManager, settingsManager, router)
+	emailhandler.AddEndpoints(emailService, router)
 	peers.AddEndpoints(accountManager, router, networkMapController, permissionsManager)
 	users.AddEndpoints(accountManager, router)
 	users.AddInvitesEndpoints(accountManager, router)
