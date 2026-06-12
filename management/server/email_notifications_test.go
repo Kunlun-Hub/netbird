@@ -2,6 +2,7 @@ package server
 
 import (
 	"testing"
+	"time"
 
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 )
@@ -52,6 +53,33 @@ func TestDashboardURLPrefersPublicAuthAudienceWhenItIsURL(t *testing.T) {
 	want := "https://dashboard.example.com/invite"
 	if got != want {
 		t.Fatalf("dashboardURL() = %q, want %q", got, want)
+	}
+}
+
+func TestEmailDashboardDataUsesPublicOrigin(t *testing.T) {
+	manager := &DefaultAccountManager{
+		config: &nbconfig.Config{
+			HttpConfig: &nbconfig.HttpServerConfig{
+				AuthCallbackURL: "https://cloink.4w.ink/api/reverse-proxy/callback",
+			},
+		},
+	}
+
+	data := manager.emailDashboardData()
+	got, _ := data["url"].(string)
+	want := "https://cloink.4w.ink"
+	if got != want {
+		t.Fatalf("emailDashboardData()[url] = %q, want %q", got, want)
+	}
+}
+
+func TestFormatEmailDisplayTimeUsesUTC8(t *testing.T) {
+	value := time.Date(2026, 6, 15, 14, 29, 21, 0, time.UTC)
+
+	got := formatEmailDisplayTime(value)
+	want := "2026年6月15日 22:29（UTC+8）"
+	if got != want {
+		t.Fatalf("formatEmailDisplayTime() = %q, want %q", got, want)
 	}
 }
 

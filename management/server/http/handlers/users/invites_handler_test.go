@@ -587,6 +587,121 @@ func TestRegenerateInvite(t *testing.T) {
 	}
 }
 
+func TestResendInvite(t *testing.T) {
+	now := time.Now().UTC()
+	expiresAt := now.Add(72 * time.Hour)
+
+	tt := []struct {
+		name           string
+		inviteID       string
+		requestBody    string
+		expectedStatus int
+		mockFunc       func(ctx context.Context, accountID, initiatorUserID, inviteID string, expiresIn int) (*types.UserInvite, error)
+	}{
+		{
+			name:           "successful resend with empty body",
+			inviteID:       testInviteID,
+			requestBody:    "",
+			expectedStatus: http.StatusOK,
+			mockFunc: func(ctx context.Context, accountID, initiatorUserID, inviteID string, expiresIn int) (*types.UserInvite, error) {
+				assert.Equal(t, 0, expiresIn)
+				return &types.UserInvite{
+					UserInfo: &types.UserInfo{
+						ID:    inviteID,
+						Email: testEmail,
+					},
+					InviteToken:     "nbi_newtoken12345678901234567890",
+					InviteExpiresAt: expiresAt,
+				}, nil
+			},
+		},
+		{
+			name:           "successful resend with custom expiration",
+			inviteID:       testInviteID,
+			requestBody:    `{"expires_in":7200}`,
+			expectedStatus: http.StatusOK,
+			mockFunc: func(ctx context.Context, accountID, initiatorUserID, inviteID string, expiresIn int) (*types.UserInvite, error) {
+				assert.Equal(t, 7200, expiresIn)
+				return &types.UserInvite{
+					UserInfo: &types.UserInfo{
+						ID:    inviteID,
+						Email: testEmail,
+					},
+					InviteToken:     "nbi_newtoken12345678901234567890",
+					InviteExpiresAt: expiresAt,
+				}, nil
+			},
+		},
+		{
+			name:           "invite not found",
+			inviteID:       "non-existent-invite",
+			requestBody:    "",
+			expectedStatus: http.StatusNotFound,
+			mockFunc: func(ctx context.Context, accountID, initiatorUserID, inviteID string, expiresIn int) (*types.UserInvite, error) {
+				return nil, status.Errorf(status.NotFound, "invite not found")
+			},
+		},
+		{
+			name:           "permission denied",
+			inviteID:       testInviteID,
+			requestBody:    "",
+			expectedStatus: http.StatusForbidden,
+			mockFunc: func(ctx context.Context, accountID, initiatorUserID, inviteID string, expiresIn int) (*types.UserInvite, error) {
+				return nil, status.NewPermissionDeniedError()
+			},
+		},
+		{
+			name:           "missing invite ID",
+			inviteID:       "",
+			requestBody:    "",
+			expectedStatus: http.StatusUnprocessableEntity,
+			mockFunc:       nil,
+		},
+		{
+			name:           "invalid JSON should return error",
+			inviteID:       testInviteID,
+			requestBody:    `{invalid json}`,
+			expectedStatus: http.StatusBadRequest,
+			mockFunc:       nil,
+		},
+	}
+
+	for _, tc := range tt {
+		t.Run(tc.name, func(t *testing.T) {
+			am := &mock_server.MockAccountManager{
+				ResendUserInviteFunc: tc.mockFunc,
+			}
+			handler := setupInvitesTestHandler(am)
+
+			var body io.Reader
+			if tc.requestBody != "" {
+				body = bytes.NewBufferString(tc.requestBody)
+			}
+
+			req := httptest.NewRequest(http.MethodPost, "/api/users/invites/"+tc.inviteID+"/resend", body)
+			req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{
+				UserId:    testUserID,
+				AccountId: testAccountID,
+			})
+			if tc.inviteID != "" {
+				req = mux.SetURLVars(req, map[string]string{"inviteId": tc.inviteID})
+			}
+
+			rr := httptest.NewRecorder()
+			handler.resendInvite(rr, req)
+
+			assert.Equal(t, tc.expectedStatus, rr.Code)
+
+			if tc.expectedStatus == http.StatusOK {
+				var resp api.UserInviteRegenerateResponse
+				err := json.NewDecoder(rr.Body).Decode(&resp)
+				require.NoError(t, err)
+				assert.NotEmpty(t, resp.InviteToken)
+			}
+		})
+	}
+}
+
 func TestDeleteInvite(t *testing.T) {
 	tt := []struct {
 		name           string

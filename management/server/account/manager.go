@@ -36,6 +36,7 @@ type Manager interface {
 	CreateUserInvite(ctx context.Context, accountID, initiatorUserID string, invite *types.UserInfo, expiresIn int) (*types.UserInvite, error)
 	AcceptUserInvite(ctx context.Context, token, password string) error
 	RegenerateUserInvite(ctx context.Context, accountID, initiatorUserID, inviteID string, expiresIn int) (*types.UserInvite, error)
+	ResendUserInvite(ctx context.Context, accountID, initiatorUserID, inviteID string, expiresIn int) (*types.UserInvite, error)
 	GetUserInviteInfo(ctx context.Context, token string) (*types.UserInviteInfo, error)
 	ListUserInvites(ctx context.Context, accountID, initiatorUserID string) ([]*types.UserInvite, error)
 	DeleteUserInvite(ctx context.Context, accountID, initiatorUserID, inviteID string) error
@@ -109,7 +110,7 @@ type Manager interface {
 	UpdateAccountSettings(ctx context.Context, accountID, userID string, newSettings *types.Settings) (*types.Settings, error)
 	UpdateAccountOnboarding(ctx context.Context, accountID, userID string, newOnboarding *types.AccountOnboarding) (*types.AccountOnboarding, error)
 	LoginPeer(ctx context.Context, login types.PeerLogin) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error)                       // used by peer gRPC API
-	ExtendPeerSession(ctx context.Context, peerPubKey, userID string) (time.Time, error)                                                   // used by peer gRPC API for ExtendAuthSession
+	ExtendPeerSession(ctx context.Context, peerPubKey, userID string) (time.Time, error)                                                    // used by peer gRPC API for ExtendAuthSession
 	SyncPeer(ctx context.Context, sync types.PeerSync, accountID string) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, int64, error) // used by peer gRPC API
 	GetExternalCacheManager() ExternalCacheManager
 	GetPostureChecks(ctx context.Context, accountID, postureChecksID, userID string) (*posture.Checks, error)

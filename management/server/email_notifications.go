@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"time"
 
 	emailmanager "github.com/netbirdio/netbird/management/server/email"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
@@ -20,10 +21,12 @@ func (am *DefaultAccountManager) notifyInviteCreated(ctx context.Context, accoun
 	_ = am.emailService.Notify(ctx, accountID, types.EmailTemplateInviteUser, emailmanager.TemplateData{
 		"recipients": []string{invite.Email},
 		"account":    am.emailAccountData(ctx, accountID),
+		"dashboard":  am.emailDashboardData(),
 		"user":       emailUserData(invite.Name, invite.Email, invite.Role),
 		"invite": map[string]any{
 			"url":              am.inviteURL(plainToken),
-			"expires_at":       invite.ExpiresAt.Format(timeLayout),
+			"expires_at":       formatEmailDisplayTime(invite.ExpiresAt),
+			"expires_at_utc":   invite.ExpiresAt.UTC().Format(timeLayoutUTC),
 			"created_by_name":  inviter["name"],
 			"created_by_email": inviter["email"],
 		},
@@ -37,6 +40,7 @@ func (am *DefaultAccountManager) notifyUserCreated(ctx context.Context, accountI
 	_ = am.emailService.Notify(ctx, accountID, types.EmailTemplateCreateUser, emailmanager.TemplateData{
 		"recipients": []string{user.Email},
 		"account":    am.emailAccountData(ctx, accountID),
+		"dashboard":  am.emailDashboardData(),
 		"user":       emailUserData(user.Name, user.Email, string(user.Role)),
 	})
 }
@@ -52,11 +56,13 @@ func (am *DefaultAccountManager) notifyInviteAccepted(ctx context.Context, invit
 	_ = am.emailService.Notify(ctx, invite.AccountID, types.EmailTemplateInviteAccepted, emailmanager.TemplateData{
 		"recipients": []string{inviter.Email},
 		"account":    am.emailAccountData(ctx, invite.AccountID),
+		"dashboard":  am.emailDashboardData(),
 		"user":       emailUserData(user.Name, user.Email, string(user.Role)),
 		"invite": map[string]any{
 			"created_by_name":  inviter.Name,
 			"created_by_email": inviter.Email,
-			"expires_at":       invite.ExpiresAt.Format(timeLayout),
+			"expires_at":       formatEmailDisplayTime(invite.ExpiresAt),
+			"expires_at_utc":   invite.ExpiresAt.UTC().Format(timeLayoutUTC),
 		},
 	})
 }
@@ -68,6 +74,7 @@ func (am *DefaultAccountManager) notifyUserPendingApproval(ctx context.Context, 
 	_ = am.emailService.Notify(ctx, accountID, types.EmailTemplateUserPendingApproval, emailmanager.TemplateData{
 		"fallback_recipients": am.adminNotificationRecipients(ctx, accountID),
 		"account":             am.emailAccountData(ctx, accountID),
+		"dashboard":           am.emailDashboardData(),
 		"user":                emailUserData(user.Name, user.Email, string(user.Role)),
 		"approval": map[string]any{
 			"url": am.dashboardURL("/team?status=pending"),
@@ -83,6 +90,7 @@ func (am *DefaultAccountManager) notifyDevicePendingApproval(ctx context.Context
 	_ = am.emailService.Notify(ctx, accountID, types.EmailTemplateDevicePendingApproval, emailmanager.TemplateData{
 		"fallback_recipients": am.adminNotificationRecipients(ctx, accountID),
 		"account":             am.emailAccountData(ctx, accountID),
+		"dashboard":           am.emailDashboardData(),
 		"device": map[string]any{
 			"id":         peer.ID,
 			"name":       peer.Name,
@@ -96,7 +104,21 @@ func (am *DefaultAccountManager) notifyDevicePendingApproval(ctx context.Context
 	})
 }
 
-const timeLayout = "2006-01-02 15:04:05 UTC"
+const (
+	timeLayoutUTC         = "2006-01-02 15:04:05 UTC"
+	timeLayoutDisplay     = "2006年1月2日 15:04"
+	emailDisplayZoneName  = "UTC+8"
+	emailDisplayZoneHours = 8
+)
+
+var emailDisplayLocation = time.FixedZone(emailDisplayZoneName, emailDisplayZoneHours*60*60)
+
+func formatEmailDisplayTime(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return value.In(emailDisplayLocation).Format(timeLayoutDisplay) + "（" + emailDisplayZoneName + "）"
+}
 
 func (am *DefaultAccountManager) emailAccountData(ctx context.Context, accountID string) map[string]any {
 	meta, err := am.Store.GetAccountMeta(ctx, store.LockingStrengthNone, accountID)
@@ -108,6 +130,10 @@ func (am *DefaultAccountManager) emailAccountData(ctx context.Context, accountID
 		name = meta.Domain
 	}
 	return map[string]any{"name": name, "domain": meta.Domain}
+}
+
+func (am *DefaultAccountManager) emailDashboardData() map[string]any {
+	return map[string]any{"url": am.dashboardURL("")}
 }
 
 func emailUserData(name, email, role string) map[string]any {

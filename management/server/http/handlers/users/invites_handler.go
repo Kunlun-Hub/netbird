@@ -68,6 +68,7 @@ func AddInvitesEndpoints(accountManager account.Manager, router *mux.Router) {
 	router.HandleFunc("/users/invites", h.createInvite).Methods("POST", "OPTIONS")
 	router.HandleFunc("/users/invites/{inviteId}", h.deleteInvite).Methods("DELETE", "OPTIONS")
 	router.HandleFunc("/users/invites/{inviteId}/regenerate", h.regenerateInvite).Methods("POST", "OPTIONS")
+	router.HandleFunc("/users/invites/{inviteId}/resend", h.resendInvite).Methods("POST", "OPTIONS")
 }
 
 // AddPublicInvitesEndpoints registers public (unauthenticated) invite endpoints with rate limiting
@@ -235,6 +236,52 @@ func (h *invitesHandler) regenerateInvite(w http.ResponseWriter, r *http.Request
 	}
 
 	result, err := h.accountManager.RegenerateUserInvite(r.Context(), userAuth.AccountId, userAuth.UserId, inviteID, expiresIn)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	expiresAt := result.InviteExpiresAt.UTC()
+	util.WriteJSONObject(r.Context(), w, &api.UserInviteRegenerateResponse{
+		InviteToken:     result.InviteToken,
+		InviteExpiresAt: expiresAt,
+	})
+}
+
+// resendInvite handles POST /api/users/invites/{inviteId}/resend
+func (h *invitesHandler) resendInvite(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
+		return
+	}
+
+	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	vars := mux.Vars(r)
+	inviteID := vars["inviteId"]
+	if inviteID == "" {
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invite ID is required"), w)
+		return
+	}
+
+	var req api.UserInviteRegenerateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if !errors.Is(err, io.EOF) {
+			util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
+			return
+		}
+	}
+
+	expiresIn := 0
+	if req.ExpiresIn != nil {
+		expiresIn = *req.ExpiresIn
+	}
+
+	result, err := h.accountManager.ResendUserInvite(r.Context(), userAuth.AccountId, userAuth.UserId, inviteID, expiresIn)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return

@@ -1887,6 +1887,28 @@ func (am *DefaultAccountManager) RegenerateUserInvite(ctx context.Context, accou
 	}, nil
 }
 
+// ResendUserInvite regenerates an existing invite token and sends it to the invited user.
+func (am *DefaultAccountManager) ResendUserInvite(ctx context.Context, accountID, initiatorUserID, inviteID string, expiresIn int) (*types.UserInvite, error) {
+	invite, err := am.RegenerateUserInvite(ctx, accountID, initiatorUserID, inviteID, expiresIn)
+	if err != nil {
+		return nil, err
+	}
+
+	am.notifyInviteCreated(ctx, accountID, &types.UserInviteRecord{
+		ID:         invite.UserInfo.ID,
+		AccountID:  accountID,
+		Email:      invite.UserInfo.Email,
+		Name:       invite.UserInfo.Name,
+		Role:       invite.UserInfo.Role,
+		AutoGroups: invite.UserInfo.AutoGroups,
+		UserGroups: invite.UserInfo.UserGroups,
+		ExpiresAt:  invite.InviteExpiresAt,
+		CreatedBy:  initiatorUserID,
+	}, invite.InviteToken)
+
+	return invite, nil
+}
+
 // DeleteUserInvite deletes an existing invite by ID.
 func (am *DefaultAccountManager) DeleteUserInvite(ctx context.Context, accountID, initiatorUserID, inviteID string) error {
 	if !IsEmbeddedIdp(am.idpManager) {
