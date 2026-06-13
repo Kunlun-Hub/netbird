@@ -4113,12 +4113,19 @@ func (s *SqlStore) CreatePolicy(ctx context.Context, policy *types.Policy) error
 
 // SavePolicy saves a policy to the database.
 func (s *SqlStore) SavePolicy(ctx context.Context, policy *types.Policy) error {
-	result := s.db.Session(&gorm.Session{FullSaveAssociations: true}).Save(policy)
-	if err := result.Error; err != nil {
-		log.WithContext(ctx).Errorf("failed to save policy to the store: %s", err)
-		return status.Errorf(status.Internal, "failed to save policy to store")
-	}
-	return nil
+	return s.transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("policy_id = ?", policy.ID).Delete(&types.PolicyRule{}).Error; err != nil {
+			log.WithContext(ctx).Errorf("failed to delete stale policy rules from the store: %s", err)
+			return status.Errorf(status.Internal, "failed to save policy to store")
+		}
+
+		result := tx.Session(&gorm.Session{FullSaveAssociations: true}).Save(policy)
+		if err := result.Error; err != nil {
+			log.WithContext(ctx).Errorf("failed to save policy to the store: %s", err)
+			return status.Errorf(status.Internal, "failed to save policy to store")
+		}
+		return nil
+	})
 }
 
 func (s *SqlStore) DeletePolicy(ctx context.Context, accountID, policyID string) error {

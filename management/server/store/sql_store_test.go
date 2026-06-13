@@ -1991,6 +1991,37 @@ func TestSqlStore_SavePolicy(t *testing.T) {
 	require.Equal(t, savePolicy, policy)
 }
 
+func TestSqlStore_SavePolicyRemovesDeletedRules(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	policyID := "cs1tnh0hhcjnqoiuebf0"
+
+	policy, err := store.GetPolicyByID(context.Background(), LockingStrengthNone, accountID, policyID)
+	require.NoError(t, err)
+	require.Len(t, policy.Rules, 1)
+
+	secondRule := policy.Rules[0].Copy()
+	secondRule.ID = "rule-to-remove"
+	secondRule.Name = "rule to remove"
+	secondRule.PolicyID = policy.ID
+	policy.Rules = append(policy.Rules, secondRule)
+
+	err = store.SavePolicy(context.Background(), policy)
+	require.NoError(t, err)
+
+	policy.Rules = policy.Rules[:1]
+	err = store.SavePolicy(context.Background(), policy)
+	require.NoError(t, err)
+
+	savedPolicy, err := store.GetPolicyByID(context.Background(), LockingStrengthNone, accountID, policyID)
+	require.NoError(t, err)
+	require.Len(t, savedPolicy.Rules, 1)
+	require.Equal(t, policy.Rules[0].ID, savedPolicy.Rules[0].ID)
+}
+
 func TestSqlStore_DeletePolicy(t *testing.T) {
 	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanup)
