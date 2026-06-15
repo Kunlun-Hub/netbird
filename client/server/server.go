@@ -1460,7 +1460,7 @@ func (s *Server) WaitJWTToken(
 	authInfo := s.oauthAuthFlow.info
 	s.mutex.Unlock()
 
-	if oAuthFlow == nil || authInfo.DeviceCode != req.DeviceCode {
+	if oAuthFlow == nil || (authInfo.DeviceCode != "" && authInfo.DeviceCode != req.DeviceCode) {
 		return nil, gstatus.Errorf(codes.InvalidArgument, "invalid device code or no active auth flow")
 	}
 
