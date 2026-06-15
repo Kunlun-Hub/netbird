@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os/user"
+	"strings"
 	"sync"
 	"time"
 
@@ -397,6 +398,7 @@ type profileMenu struct {
 	profileSubItems       []*subItem
 	manageProfilesSubItem *subItem
 	logoutSubItem         *subItem
+	lastSnapshot          string
 }
 
 type newProfileMenuArgs struct {
@@ -492,32 +494,52 @@ func (p *profileMenu) refresh() {
 		return
 	}
 
+	showEmail := false
+	emailTitle := ""
 	if activeProf.ProfileName == "default" || activeProf.Username == currUser.Username {
 		activeProfState, err := p.profileManager.GetProfileState(activeProf.ProfileName)
 		if err != nil {
 			log.Warnf("failed to get active profile state: %v", err)
-			p.emailMenuItem.Hide()
 		} else if activeProfState.Email != "" {
-			p.emailMenuItem.SetTitle(fmt.Sprintf("(%s)", activeProfState.Email))
-			p.emailMenuItem.Show()
+			showEmail = true
+			emailTitle = fmt.Sprintf("(%s)", activeProfState.Email)
 		}
+	}
+
+	menuTitle := activeProf.ProfileName
+	if activeProf.ProfileName != "default" && activeProf.Username != currUser.Username {
+		menuTitle = fmt.Sprintf("Profile: %s (User: %s)", activeProf.ProfileName, activeProf.Username)
+	}
+
+	snapshot := buildProfileMenuSnapshot(profiles, menuTitle, emailTitle, showEmail)
+	if snapshot == p.lastSnapshot {
+		return
+	}
+
+	p.clearItems()
+	p.lastSnapshot = snapshot
+
+	if showEmail {
+		p.emailMenuItem.SetTitle(emailTitle)
+		p.emailMenuItem.Show()
 	} else {
 		p.emailMenuItem.Hide()
 	}
 
 	for _, profile := range profiles {
+		profile := profile
 		item := p.profileMenuItem.AddSubMenuItem(profile.Name, "")
 		if profile.IsActive {
 			item.Check()
 		}
 
-		ctx, cancel := context.WithCancel(context.Background())
-		p.profileSubItems = append(p.profileSubItems, &subItem{item, ctx, cancel})
+		itemCtx, cancel := context.WithCancel(p.ctx)
+		p.profileSubItems = append(p.profileSubItems, &subItem{MenuItem: item, ctx: itemCtx, cancel: cancel})
 
 		go func() {
 			for {
 				select {
-				case <-ctx.Done():
+				case <-itemCtx.Done():
 					return // context cancelled
 				case _, ok := <-item.ClickedCh:
 					if !ok {
@@ -535,7 +557,7 @@ func (p *profileMenu) refresh() {
 						return
 					}
 
-					_, err = conn.SwitchProfile(ctx, &proto.SwitchProfileRequest{
+					_, err = conn.SwitchProfile(p.ctx, &proto.SwitchProfileRequest{
 						ProfileName: &profile.Name,
 						Username:    &currUser.Username,
 					})
@@ -554,7 +576,7 @@ func (p *profileMenu) refresh() {
 
 					log.Infof("Switched to profile '%s'", profile.Name)
 
-					status, err := conn.Status(ctx, &proto.StatusRequest{})
+					status, err := conn.Status(p.ctx, &proto.StatusRequest{})
 					if err != nil {
 						log.Errorf("failed to get status after switching profile: %v", err)
 						return
@@ -586,9 +608,9 @@ func (p *profileMenu) refresh() {
 		}()
 
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(p.ctx)
 	manageItem := p.profileMenuItem.AddSubMenuItem("Manage Profiles", "")
-	p.manageProfilesSubItem = &subItem{manageItem, ctx, cancel}
+	p.manageProfilesSubItem = &subItem{MenuItem: manageItem, ctx: ctx, cancel: cancel}
 
 	go func() {
 		for {
@@ -607,9 +629,9 @@ func (p *profileMenu) refresh() {
 	}()
 
 	// Add Logout menu item
-	ctx2, cancel2 := context.WithCancel(context.Background())
+	ctx2, cancel2 := context.WithCancel(p.ctx)
 	logoutItem := p.profileMenuItem.AddSubMenuItem("Deregister", "")
-	p.logoutSubItem = &subItem{logoutItem, ctx2, cancel2}
+	p.logoutSubItem = &subItem{MenuItem: logoutItem, ctx: ctx2, cancel: cancel2}
 
 	go func() {
 		for {
@@ -630,12 +652,57 @@ func (p *profileMenu) refresh() {
 		}
 	}()
 
-	if activeProf.ProfileName == "default" || activeProf.Username == currUser.Username {
-		p.profileMenuItem.SetTitle(activeProf.ProfileName)
-	} else {
-		p.profileMenuItem.SetTitle(fmt.Sprintf("Profile: %s (User: %s)", activeProf.ProfileName, activeProf.Username))
-		p.emailMenuItem.Hide()
+	p.profileMenuItem.SetTitle(menuTitle)
+}
+
+func (p *profileMenu) clearItems() {
+	for _, item := range p.profileSubItems {
+		item.cleanup()
 	}
+	p.profileSubItems = nil
+
+	p.manageProfilesSubItem.cleanup()
+	p.manageProfilesSubItem = nil
+
+	p.logoutSubItem.cleanup()
+	p.logoutSubItem = nil
+}
+
+func (s *subItem) cleanup() {
+	if s == nil {
+		return
+	}
+	if s.cancel != nil {
+		s.cancel()
+	}
+	if s.MenuItem != nil {
+		s.Hide()
+		s.Remove()
+	}
+}
+
+func buildProfileMenuSnapshot(profiles []Profile, menuTitle, emailTitle string, showEmail bool) string {
+	var builder strings.Builder
+
+	builder.WriteString(menuTitle)
+	builder.WriteByte('\x00')
+	if showEmail {
+		builder.WriteString(emailTitle)
+	}
+	builder.WriteByte('\x00')
+
+	for _, profile := range profiles {
+		builder.WriteString(profile.Name)
+		builder.WriteByte('\x00')
+		if profile.IsActive {
+			builder.WriteByte('1')
+		} else {
+			builder.WriteByte('0')
+		}
+		builder.WriteByte('\x00')
+	}
+
+	return builder.String()
 }
 
 // setEnabled enables or disables the profile menu based on the provided state

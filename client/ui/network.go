@@ -8,6 +8,8 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -33,26 +35,61 @@ const (
 
 type filter string
 
+type networkSnapshotCache struct {
+	mu     sync.Mutex
+	values map[filter]string
+}
+
+func newNetworkSnapshotCache() *networkSnapshotCache {
+	return &networkSnapshotCache{
+		values: make(map[filter]string),
+	}
+}
+
+func (c *networkSnapshotCache) shouldRender(f filter, snapshot string, force bool) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if !force && c.values[f] == snapshot {
+		return false
+	}
+
+	c.values[f] = snapshot
+	return true
+}
+
 func (s *serviceClient) showNetworksUI() {
+	ctx, cancel := context.WithCancel(s.ctx)
+	var refreshing atomic.Bool
+	var pendingRefresh atomic.Bool
+	snapshots := newNetworkSnapshotCache()
+
 	s.wNetworks = s.app.NewWindow("网络路由")
-	s.wNetworks.SetOnClosed(s.cancel)
 
 	allGrid := container.New(layout.NewGridLayout(3))
-	go s.updateNetworks(allGrid, allNetworks)
+	s.renderNetworks(allGrid, nil)
 	overlappingGrid := container.New(layout.NewGridLayout(3))
+	s.renderNetworks(overlappingGrid, nil)
 	exitNodeGrid := container.New(layout.NewGridLayout(3))
+	s.renderNetworks(exitNodeGrid, nil)
 	routeCheckContainer := container.NewVBox()
 	tabs := container.NewAppTabs(
 		container.NewTabItem(allNetworksText, allGrid),
 		container.NewTabItem(overlappingNetworksText, overlappingGrid),
 		container.NewTabItem(exitNodeNetworksText, exitNodeGrid),
 	)
-	tabs.OnSelected = func(item *container.TabItem) {
-		s.updateNetworksBasedOnDisplayTab(tabs, allGrid, overlappingGrid, exitNodeGrid)
+	refreshCurrentTab := func(force bool) {
+		fyne.Do(func() {
+			if ctx.Err() != nil {
+				return
+			}
+
+			grid, f := getGridAndFilterFromTab(tabs, allGrid, overlappingGrid, exitNodeGrid)
+			s.refreshNetworks(ctx, &refreshing, &pendingRefresh, snapshots, grid, f, force)
+		})
 	}
-	tabs.OnUnselected = func(item *container.TabItem) {
-		grid, _ := getGridAndFilterFromTab(tabs, allGrid, overlappingGrid, exitNodeGrid)
-		grid.Objects = nil
+	tabs.OnSelected = func(item *container.TabItem) {
+		refreshCurrentTab(false)
 	}
 
 	routeCheckContainer.Add(tabs)
@@ -62,17 +99,17 @@ func (s *serviceClient) showNetworksUI() {
 	buttonBox := container.NewHBox(
 		layout.NewSpacer(),
 		widget.NewButton("刷新", func() {
-			s.updateNetworksBasedOnDisplayTab(tabs, allGrid, overlappingGrid, exitNodeGrid)
+			refreshCurrentTab(true)
 		}),
 		widget.NewButton("全选", func() {
 			_, f := getGridAndFilterFromTab(tabs, allGrid, overlappingGrid, exitNodeGrid)
 			s.selectAllFilteredNetworks(f)
-			s.updateNetworksBasedOnDisplayTab(tabs, allGrid, overlappingGrid, exitNodeGrid)
+			refreshCurrentTab(true)
 		}),
 		widget.NewButton("取消全选", func() {
 			_, f := getGridAndFilterFromTab(tabs, allGrid, overlappingGrid, exitNodeGrid)
 			s.deselectAllFilteredNetworks(f)
-			s.updateNetworksBasedOnDisplayTab(tabs, allGrid, overlappingGrid, exitNodeGrid)
+			refreshCurrentTab(true)
 		}),
 		layout.NewSpacer(),
 	)
@@ -82,12 +119,80 @@ func (s *serviceClient) showNetworksUI() {
 	s.wNetworks.SetContent(content)
 	s.wNetworks.Show()
 
-	s.startAutoRefresh(10*time.Second, tabs, allGrid, overlappingGrid, exitNodeGrid)
+	s.refreshNetworks(ctx, &refreshing, &pendingRefresh, snapshots, allGrid, allNetworks, true)
+	s.startAutoRefresh(ctx, 10*time.Second, func() {
+		refreshCurrentTab(false)
+	})
+
+	s.wNetworks.SetOnClosed(func() {
+		cancel()
+		s.cancel()
+	})
 }
 
 func (s *serviceClient) updateNetworks(grid *fyne.Container, f filter) {
-	grid.Objects = nil
-	grid.Refresh()
+	filteredRoutes, err := s.getFilteredNetworks(f)
+	if err != nil {
+		return
+	}
+
+	sortNetworksByIDs(filteredRoutes)
+	s.renderNetworks(grid, filteredRoutes)
+}
+
+func (s *serviceClient) refreshNetworks(
+	ctx context.Context,
+	refreshing *atomic.Bool,
+	pendingRefresh *atomic.Bool,
+	snapshots *networkSnapshotCache,
+	grid *fyne.Container,
+	f filter,
+	force bool,
+) {
+	if !refreshing.CompareAndSwap(false, true) {
+		if force {
+			pendingRefresh.Store(true)
+		}
+		return
+	}
+
+	go func() {
+		defer func() {
+			refreshing.Store(false)
+			if pendingRefresh.Swap(false) && ctx.Err() == nil {
+				s.refreshNetworks(ctx, refreshing, pendingRefresh, snapshots, grid, f, true)
+			}
+		}()
+
+		filteredRoutes, err := s.fetchFilteredNetworks(f)
+		if err != nil {
+			log.Errorf(getClientFMT, err)
+			fyne.Do(func() {
+				if ctx.Err() == nil {
+					s.showError(fmt.Errorf(getClientFMT, err))
+				}
+			})
+			return
+		}
+
+		sortNetworksByIDs(filteredRoutes)
+		snapshot := snapshotNetworks(filteredRoutes)
+		if !snapshots.shouldRender(f, snapshot, force) {
+			return
+		}
+
+		fyne.Do(func() {
+			if ctx.Err() != nil {
+				return
+			}
+
+			s.renderNetworks(grid, filteredRoutes)
+		})
+	}()
+}
+
+func (s *serviceClient) renderNetworks(grid *fyne.Container, filteredRoutes []*proto.Network) {
+	grid.RemoveAll()
 	idHeader := widget.NewLabelWithStyle("      ID", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 	networkHeader := widget.NewLabelWithStyle("范围/域名", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 	resolvedIPsHeader := widget.NewLabelWithStyle("解析IP", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
@@ -95,13 +200,6 @@ func (s *serviceClient) updateNetworks(grid *fyne.Container, f filter) {
 	grid.Add(idHeader)
 	grid.Add(networkHeader)
 	grid.Add(resolvedIPsHeader)
-
-	filteredRoutes, err := s.getFilteredNetworks(f)
-	if err != nil {
-		return
-	}
-
-	sortNetworksByIDs(filteredRoutes)
 
 	for _, route := range filteredRoutes {
 		r := route
@@ -149,15 +247,23 @@ func (s *serviceClient) updateNetworks(grid *fyne.Container, f filter) {
 		grid.Add(resolvedIPsSelector)
 	}
 
-	s.wNetworks.Content().Refresh()
 	grid.Refresh()
 }
 
 func (s *serviceClient) getFilteredNetworks(f filter) ([]*proto.Network, error) {
-	routes, err := s.fetchNetworks()
+	routes, err := s.fetchFilteredNetworks(f)
 	if err != nil {
 		log.Errorf(getClientFMT, err)
 		s.showError(fmt.Errorf(getClientFMT, err))
+		return nil, err
+	}
+
+	return routes, nil
+}
+
+func (s *serviceClient) fetchFilteredNetworks(f filter) ([]*proto.Network, error) {
+	routes, err := s.fetchNetworks()
+	if err != nil {
 		return nil, err
 	}
 	switch f {
@@ -168,6 +274,40 @@ func (s *serviceClient) getFilteredNetworks(f filter) ([]*proto.Network, error) 
 	default:
 	}
 	return routes, nil
+}
+
+func snapshotNetworks(routes []*proto.Network) string {
+	var builder strings.Builder
+	for _, route := range routes {
+		builder.WriteString(route.GetID())
+		builder.WriteByte('\x1f')
+		builder.WriteString(route.GetRange())
+		builder.WriteByte('\x1f')
+		if route.GetSelected() {
+			builder.WriteByte('1')
+		} else {
+			builder.WriteByte('0')
+		}
+		builder.WriteByte('\x1f')
+		builder.WriteString(strings.Join(route.GetDomains(), "\x1e"))
+		builder.WriteByte('\x1f')
+
+		resolvedDomains := make([]string, 0, len(route.GetResolvedIPs()))
+		for domain := range route.GetResolvedIPs() {
+			resolvedDomains = append(resolvedDomains, domain)
+		}
+		sort.Strings(resolvedDomains)
+		for _, domain := range resolvedDomains {
+			ips := append([]string(nil), route.GetResolvedIPs()[domain].GetIps()...)
+			sort.Strings(ips)
+			builder.WriteString(domain)
+			builder.WriteByte('=')
+			builder.WriteString(strings.Join(ips, ","))
+			builder.WriteByte('\x1e')
+		}
+		builder.WriteByte('\x1d')
+	}
+	return builder.String()
 }
 
 func getOverlappingNetworks(routes []*proto.Network) []*proto.Network {
@@ -321,23 +461,23 @@ func (s *serviceClient) showError(err error) {
 	dialog.ShowError(fmt.Errorf("%s", wrappedMessage), s.wNetworks)
 }
 
-func (s *serviceClient) startAutoRefresh(interval time.Duration, tabs *container.AppTabs, allGrid, overlappingGrid, exitNodesGrid *fyne.Container) {
+func (s *serviceClient) startAutoRefresh(ctx context.Context, interval time.Duration, refresh func()) {
 	ticker := time.NewTicker(interval)
 	go func() {
-		for range ticker.C {
-			s.updateNetworksBasedOnDisplayTab(tabs, allGrid, overlappingGrid, exitNodesGrid)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				refresh()
+			}
 		}
 	}()
-
-	s.wNetworks.SetOnClosed(func() {
-		ticker.Stop()
-		s.cancel()
-	})
 }
 
 func (s *serviceClient) updateNetworksBasedOnDisplayTab(tabs *container.AppTabs, allGrid, overlappingGrid, exitNodesGrid *fyne.Container) {
 	grid, f := getGridAndFilterFromTab(tabs, allGrid, overlappingGrid, exitNodesGrid)
-	s.wNetworks.Content().Refresh()
 	s.updateNetworks(grid, f)
 }
 
