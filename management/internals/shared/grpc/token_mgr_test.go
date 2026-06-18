@@ -6,6 +6,7 @@ import (
 	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"hash"
 	"testing"
 	"time"
@@ -19,6 +20,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/groups"
 	relayhandler "github.com/netbirdio/netbird/management/server/http/handlers/relays"
 	"github.com/netbirdio/netbird/management/server/settings"
+	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/util"
@@ -84,6 +86,53 @@ func TestTimeBasedAuthSecretsManager_GenerateCredentials(t *testing.T) {
 
 	hashedSecret := sha256.Sum256([]byte(secret))
 	validateMAC(t, sha256.New, relayCredentials.Payload, relayCredentials.Signature, hashedSecret[:])
+}
+
+func TestTimeBasedAuthSecretsManagerGenerateRelayTokenForAccountIncludesBandwidthPolicy(t *testing.T) {
+	ctx := context.Background()
+	ttl := util.Duration{Duration: time.Hour}
+	secret := "some_secret"
+	peersManager := update_channel.NewPeersUpdateManager(nil)
+	sqlStore, cleanup, err := store.NewTestStoreFromSQL(ctx, "", t.TempDir())
+	require.NoError(t, err)
+	defer cleanup()
+
+	require.NoError(t, sqlStore.SaveSaaSOrganization(ctx, &types.SaaSOrganization{
+		AccountID: "account-id",
+		Slug:      "account-id",
+		Domain:    "account-id.cloink.4w.ink",
+		Status:    types.SaaSOrganizationStatusActive,
+	}))
+	require.NoError(t, sqlStore.SaveSaaSBandwidthPolicy(ctx, &types.SaaSBandwidthPolicy{
+		AccountID:              "account-id",
+		HighSpeedRateLimitMbps: 50,
+		StandardRateLimitMbps:  10,
+		TotalRateLimitMbps:     30,
+		RelayOnlyAccounting:    true,
+		FairShareEnabled:       true,
+	}))
+
+	settingsManager := settings.NewManager(sqlStore, nil, nil, nil, settings.IdpConfig{})
+	groupsManager := groups.NewManagerMock()
+	tested, err := NewTimeBasedAuthSecretsManager(peersManager, nil, &config.Relay{
+		Servers:        []*config.RelayServer{{ID: "relay-a", Address: "rels://relay-a.example.com:443"}},
+		CredentialsTTL: ttl,
+		Secret:         secret,
+	}, settingsManager, groupsManager)
+	require.NoError(t, err)
+
+	token, err := tested.GenerateRelayTokenForAccount(ctx, "account-id")
+	require.NoError(t, err)
+	hashedSecret := sha256.Sum256([]byte(secret))
+	validateMAC(t, sha256.New, token.Payload, token.Signature, hashedSecret[:])
+
+	var claims relayTokenClaims
+	require.NoError(t, json.Unmarshal([]byte(token.Payload), &claims))
+	require.Equal(t, "account-id", claims.AccountID)
+	require.Equal(t, 30, claims.RateLimitMbps)
+	require.True(t, claims.RelayOnlyAccounting)
+	require.True(t, claims.FairShareEnabled)
+	require.Greater(t, claims.ExpiresAt, time.Now().Unix())
 }
 
 func TestTimeBasedAuthSecretsManager_PushRelayList(t *testing.T) {

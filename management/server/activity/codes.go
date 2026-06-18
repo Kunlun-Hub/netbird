@@ -248,6 +248,17 @@ const (
 	// WorkbenchResourceLaunched indicates that a user launched a workbench resource.
 	WorkbenchResourceLaunched Activity = 126
 
+	SaaSOrganizationRegistered Activity = 127
+	SaaSOrganizationSuspended  Activity = 128
+	SaaSOrganizationResumed    Activity = 129
+	SaaSLimitsUpdated          Activity = 130
+	SaaSBandwidthUpdated       Activity = 131
+	SaaSTrafficPurchaseGranted Activity = 132
+	SaaSPaymentOrderCreated    Activity = 133
+	SaaSPaymentSucceeded       Activity = 134
+	SaaSPaymentFailed          Activity = 135
+	SaaSMenuVisibilityUpdated  Activity = 136
+
 	AccountDeleted Activity = 99999
 )
 
@@ -408,6 +419,17 @@ var activityMap = map[Activity]Code{
 	DomainAdded:     {"Domain added", "domain.add"},
 	DomainDeleted:   {"Domain deleted", "domain.delete"},
 	DomainValidated: {"Domain validated", "domain.validate"},
+
+	SaaSOrganizationRegistered: {"SaaS organization registered", "saas.organization.register"},
+	SaaSOrganizationSuspended:  {"SaaS organization suspended", "saas.organization.suspend"},
+	SaaSOrganizationResumed:    {"SaaS organization resumed", "saas.organization.resume"},
+	SaaSLimitsUpdated:          {"SaaS organization limits updated", "saas.organization.limits.update"},
+	SaaSBandwidthUpdated:       {"SaaS organization bandwidth updated", "saas.organization.bandwidth.update"},
+	SaaSTrafficPurchaseGranted: {"SaaS traffic purchase granted", "saas.traffic.purchase.grant"},
+	SaaSPaymentOrderCreated:    {"SaaS payment order created", "saas.payment.order.create"},
+	SaaSPaymentSucceeded:       {"SaaS payment succeeded", "saas.payment.succeed"},
+	SaaSPaymentFailed:          {"SaaS payment failed", "saas.payment.fail"},
+	SaaSMenuVisibilityUpdated:  {"SaaS menu visibility updated", "saas.menu.visibility.update"},
 }
 
 // StringCode returns a string code of the activity

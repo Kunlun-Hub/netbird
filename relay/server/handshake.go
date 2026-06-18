@@ -8,6 +8,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/relay/server/listener"
+	authv2 "github.com/netbirdio/netbird/shared/relay/auth/hmac/v2"
 	"github.com/netbirdio/netbird/shared/relay/messages"
 	//nolint:staticcheck
 	"github.com/netbirdio/netbird/shared/relay/messages/address"
@@ -25,6 +26,15 @@ type Validator interface {
 	Validate(any) error
 	// Deprecated: Use Validate instead.
 	ValidateHelloMsgType(any) error
+}
+
+type ClaimsValidator interface {
+	ValidateWithClaims(any) (*authv2.Claims, error)
+}
+
+type handshakeMetadata struct {
+	accountID     string
+	rateLimitMbps int
 }
 
 // preparedMsg contains the marshalled success response messages
@@ -72,6 +82,7 @@ type handshake struct {
 
 	handshakeMethodAuth bool
 	peerID              *messages.PeerID
+	metadata            handshakeMetadata
 }
 
 func (h *handshake) handshakeReceive(ctx context.Context) (*messages.PeerID, error) {
@@ -155,7 +166,28 @@ func (h *handshake) handleAuthMsg(buf []byte) (*messages.PeerID, error) {
 	}
 
 	if err := h.validator.Validate(authPayload); err != nil {
+		if claimsValidator, ok := h.validator.(ClaimsValidator); ok {
+			claims, claimsErr := claimsValidator.ValidateWithClaims(authPayload)
+			if claimsErr != nil {
+				return rawPeerID, fmt.Errorf("validate %s (%s): %w", rawPeerID.String(), h.conn.RemoteAddr(), claimsErr)
+			}
+			h.metadata = handshakeMetadata{
+				accountID:     claims.AccountID,
+				rateLimitMbps: claims.RateLimitMbps,
+			}
+			return rawPeerID, nil
+		}
 		return rawPeerID, fmt.Errorf("validate %s (%s): %w", rawPeerID.String(), h.conn.RemoteAddr(), err)
+	}
+
+	if claimsValidator, ok := h.validator.(ClaimsValidator); ok {
+		claims, claimsErr := claimsValidator.ValidateWithClaims(authPayload)
+		if claimsErr == nil {
+			h.metadata = handshakeMetadata{
+				accountID:     claims.AccountID,
+				rateLimitMbps: claims.RateLimitMbps,
+			}
+		}
 	}
 
 	return rawPeerID, nil

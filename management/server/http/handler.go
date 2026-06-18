@@ -31,10 +31,12 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
 	recordsManager "github.com/netbirdio/netbird/management/internals/modules/zones/records/manager"
 	"github.com/netbirdio/netbird/management/server/account"
+	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/settings"
 
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	"github.com/netbirdio/netbird/management/server/permissions"
+	saasmanager "github.com/netbirdio/netbird/management/server/saas"
 
 	"github.com/netbirdio/netbird/management/server/http/handlers/proxy"
 
@@ -52,9 +54,11 @@ import (
 	"github.com/netbirdio/netbird/management/server/http/handlers/instance"
 	"github.com/netbirdio/netbird/management/server/http/handlers/networks"
 	"github.com/netbirdio/netbird/management/server/http/handlers/peers"
+	"github.com/netbirdio/netbird/management/server/http/handlers/platform"
 	"github.com/netbirdio/netbird/management/server/http/handlers/policies"
 	"github.com/netbirdio/netbird/management/server/http/handlers/relays"
 	"github.com/netbirdio/netbird/management/server/http/handlers/routes"
+	saashandler "github.com/netbirdio/netbird/management/server/http/handlers/saas"
 	"github.com/netbirdio/netbird/management/server/http/handlers/setup_keys"
 	"github.com/netbirdio/netbird/management/server/http/handlers/users"
 	"github.com/netbirdio/netbird/management/server/http/handlers/version_releases"
@@ -73,7 +77,7 @@ import (
 const apiPrefix = "/api"
 
 // NewAPIHandler creates the Management service HTTP API handler registering all the available endpoints.
-func NewAPIHandler(ctx context.Context, rootRouter *mux.Router, accountManager account.Manager, networksManager nbnetworks.Manager, resourceManager resources.Manager, routerManager routers.Manager, groupsManager nbgroups.Manager, LocationManager geolocation.Geolocation, authManager auth.Manager, appMetrics telemetry.AppMetrics, integratedValidator integrated_validator.IntegratedValidator, proxyController port_forwarding.Controller, permissionsManager permissions.Manager, peersManager nbpeers.Manager, settingsManager settings.Manager, zManager zones.Manager, rManager records.Manager, networkMapController network_map.Controller, idpManager idpmanager.Manager, serviceManager service.Manager, reverseProxyDomainManager *manager.Manager, reverseProxyAccessLogsManager accesslogs.Manager, proxyGRPCServer *nbgrpc.ProxyServiceServer, secretsManager nbgrpc.SecretsManager, relayConfig *nbconfig.Relay, trustedHTTPProxies []netip.Prefix, rateLimiter *middleware.APIRateLimiter, isValidChildAccount middleware.IsValidChildAccountFunc, dataDir string) (http.Handler, error) {
+func NewAPIHandler(ctx context.Context, rootRouter *mux.Router, accountManager account.Manager, networksManager nbnetworks.Manager, resourceManager resources.Manager, routerManager routers.Manager, groupsManager nbgroups.Manager, LocationManager geolocation.Geolocation, authManager auth.Manager, appMetrics telemetry.AppMetrics, integratedValidator integrated_validator.IntegratedValidator, proxyController port_forwarding.Controller, permissionsManager permissions.Manager, peersManager nbpeers.Manager, settingsManager settings.Manager, zManager zones.Manager, rManager records.Manager, networkMapController network_map.Controller, idpManager idpmanager.Manager, serviceManager service.Manager, reverseProxyDomainManager *manager.Manager, reverseProxyAccessLogsManager accesslogs.Manager, proxyGRPCServer *nbgrpc.ProxyServiceServer, secretsManager nbgrpc.SecretsManager, relayConfig *nbconfig.Relay, saasConfig nbconfig.SaaSConfig, trustedHTTPProxies []netip.Prefix, rateLimiter *middleware.APIRateLimiter, isValidChildAccount middleware.IsValidChildAccountFunc, dataDir string, eventStore activity.Store) (http.Handler, error) {
 
 	// Register bypass paths for unauthenticated endpoints
 	if err := bypass.AddBypassPath("/api/instance"); err != nil {
@@ -83,6 +87,12 @@ func NewAPIHandler(ctx context.Context, rootRouter *mux.Router, accountManager a
 		return nil, fmt.Errorf("failed to add bypass path: %w", err)
 	}
 	if err := bypass.AddBypassPath("/api/setup"); err != nil {
+		return nil, fmt.Errorf("failed to add bypass path: %w", err)
+	}
+	if err := bypass.AddBypassPath("/api/saas/signup"); err != nil {
+		return nil, fmt.Errorf("failed to add bypass path: %w", err)
+	}
+	if err := bypass.AddBypassPath("/api/saas/payments/alipay/notify"); err != nil {
 		return nil, fmt.Errorf("failed to add bypass path: %w", err)
 	}
 	// Public invite endpoints (tokens start with nbi_)
@@ -122,6 +132,7 @@ func NewAPIHandler(ctx context.Context, rootRouter *mux.Router, accountManager a
 		rateLimiter,
 		appMetrics.GetMeter(),
 		isValidChildAccount,
+		saasmanager.OrganizationStatusGuard{Store: accountManager.GetStore()}.RequireActive,
 	)
 
 	corsMiddleware := cors.AllowAll()
@@ -132,6 +143,14 @@ func NewAPIHandler(ctx context.Context, rootRouter *mux.Router, accountManager a
 	router := rootRouter.PathPrefix(prefix).Subrouter()
 
 	router.Use(metricsMiddleware.Handler, corsMiddleware.Handler, authMiddleware.Handler)
+
+	platformRouter := rootRouter.PathPrefix(prefix).Subrouter()
+	platformRouter.Use(
+		metricsMiddleware.Handler,
+		corsMiddleware.Handler,
+		authMiddleware.Handler,
+		middleware.NewPlatformAdminMiddleware(saasmanager.PlatformAuthorizer{Store: accountManager.GetStore()}).Handler,
+	)
 
 	if _, err := integrations.RegisterHandlers(ctx, prefix, router, accountManager, integratedValidator, appMetrics.GetMeter(), permissionsManager, peersManager, proxyController, settingsManager); err != nil {
 		return nil, fmt.Errorf("register integrations endpoints: %w", err)
@@ -155,6 +174,8 @@ func NewAPIHandler(ctx context.Context, rootRouter *mux.Router, accountManager a
 	users.AddEndpoints(accountManager, router)
 	users.AddInvitesEndpoints(accountManager, router)
 	users.AddPublicInvitesEndpoints(accountManager, router)
+	saashandler.AddEndpoints(accountManager.GetStore(), saasConfig, embeddedIdP, router, eventStore)
+	platform.AddEndpoints(accountManager.GetStore(), platformRouter, eventStore)
 	setup_keys.AddEndpoints(accountManager, router)
 	policies.AddEndpoints(accountManager, LocationManager, router)
 	policies.AddPostureCheckEndpoints(accountManager, LocationManager, router)

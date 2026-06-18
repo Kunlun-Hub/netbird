@@ -24,6 +24,7 @@ import (
 	"github.com/netbirdio/netbird/shared/management/domain"
 
 	"github.com/netbirdio/netbird/management/server/posture"
+	saasmanager "github.com/netbirdio/netbird/management/server/saas"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 
@@ -798,6 +799,9 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 		return nil, nil, nil, err
 	}
 	accountID = peerAddConfig.AccountID
+	if err := (saasmanager.OrganizationStatusGuard{Store: am.Store}).RequireActive(ctx, accountID); err != nil {
+		return nil, nil, nil, err
+	}
 	ephemeral := peerAddConfig.Ephemeral
 	addedByUser = peerAddConfig.AddedByUser
 	addedBySetupKey = peerAddConfig.AddedBySetupKey
@@ -1060,6 +1064,9 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 	if err != nil {
 		return nil, nil, nil, 0, err
 	}
+	if err := (saasmanager.OrganizationStatusGuard{Store: am.Store}).RequireActive(ctx, accountID); err != nil {
+		return nil, nil, nil, 0, err
+	}
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		peer, err = transaction.GetPeerByPeerPubKey(ctx, store.LockingStrengthUpdate, sync.WireGuardPubKey)
@@ -1148,6 +1155,9 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 	accountID, err := am.Store.GetAccountIDByPeerPubKey(ctx, login.WireGuardPubKey)
 	if err != nil {
 		return am.handlePeerLoginNotFound(ctx, login, err)
+	}
+	if err := (saasmanager.OrganizationStatusGuard{Store: am.Store}).RequireActive(ctx, accountID); err != nil {
+		return nil, nil, nil, err
 	}
 
 	// when the client sends a login request with a JWT which is used to get the user ID,

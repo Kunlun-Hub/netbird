@@ -64,6 +64,7 @@ type Relay struct {
 
 	store          *store.Store
 	notifier       *store.PeerNotifier
+	limiters       *accountRateLimiter
 	instanceURL    url.URL
 	instanceID     string
 	exposedAddress string
@@ -108,6 +109,7 @@ func NewRelay(config Config) (*Relay, error) {
 		exposedAddress: config.ExposedAddress,
 		store:          store.NewStore(),
 		notifier:       store.NewPeerNotifier(),
+		limiters:       newAccountRateLimiter(),
 	}
 
 	r.preparedMsg, err = newPreparedMsg(r.instanceURL.String())
@@ -149,7 +151,10 @@ func (r *Relay) Accept(conn listener.Conn) {
 		return
 	}
 
-	peer := NewPeer(r.metrics, *peerID, conn, r.store, r.notifier)
+	peer := NewPeer(r.metrics, *peerID, conn, r.store, r.notifier, PeerOptions{
+		Limiters: r.limiters,
+		Metadata: h.metadata,
+	})
 	peer.log.Infof("peer connected from: %s", conn.RemoteAddr())
 	storeTime := time.Now()
 	if isReconnection := r.store.AddPeer(peer); isReconnection {

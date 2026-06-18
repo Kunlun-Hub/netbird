@@ -37,6 +37,22 @@ func (m *MockManager) EXPECT() *MockManagerMockRecorder {
 	return m.recorder
 }
 
+// GetEffectiveNetworkRanges mocks base method.
+func (m *MockManager) GetEffectiveNetworkRanges(ctx context.Context, accountID string) (netip.Prefix, netip.Prefix, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetEffectiveNetworkRanges", ctx, accountID)
+	ret0, _ := ret[0].(netip.Prefix)
+	ret1, _ := ret[1].(netip.Prefix)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// GetEffectiveNetworkRanges indicates an expected call of GetEffectiveNetworkRanges.
+func (mr *MockManagerMockRecorder) GetEffectiveNetworkRanges(ctx, accountID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEffectiveNetworkRanges", reflect.TypeOf((*MockManager)(nil).GetEffectiveNetworkRanges), ctx, accountID)
+}
+
 // GetExtraSettings mocks base method.
 func (m *MockManager) GetExtraSettings(ctx context.Context, accountID string) (*types.ExtraSettings, error) {
 	m.ctrl.T.Helper()
@@ -94,20 +110,4 @@ func (m *MockManager) UpdateExtraSettings(ctx context.Context, accountID, userID
 func (mr *MockManagerMockRecorder) UpdateExtraSettings(ctx, accountID, userID, extraSettings interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateExtraSettings", reflect.TypeOf((*MockManager)(nil).UpdateExtraSettings), ctx, accountID, userID, extraSettings)
-}
-
-// GetEffectiveNetworkRanges mocks base method.
-func (m *MockManager) GetEffectiveNetworkRanges(ctx context.Context, accountID string) (netip.Prefix, netip.Prefix, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetEffectiveNetworkRanges", ctx, accountID)
-	ret0, _ := ret[0].(netip.Prefix)
-	ret1, _ := ret[1].(netip.Prefix)
-	ret2, _ := ret[2].(error)
-	return ret0, ret1, ret2
-}
-
-// GetEffectiveNetworkRanges indicates an expected call of GetEffectiveNetworkRanges.
-func (mr *MockManagerMockRecorder) GetEffectiveNetworkRanges(ctx, accountID interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEffectiveNetworkRanges", reflect.TypeOf((*MockManager)(nil).GetEffectiveNetworkRanges), ctx, accountID)
 }

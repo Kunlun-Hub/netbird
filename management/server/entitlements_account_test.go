@@ -44,6 +44,57 @@ func TestGetAccountEntitlementsReturnsBasicSnapshot(t *testing.T) {
 	assert.Equal(t, 10, snapshot.Limits[entitlements.LimitPeers])
 }
 
+func TestGetAccountEntitlementsAppliesSaaSSubscriptionLimits(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+
+	permissionsManager := permissions.NewMockManager(ctrl)
+	permissionsManager.EXPECT().
+		ValidateUserPermissions(gomock.Any(), "account-a", "user-a", modules.Accounts, operations.Read).
+		Return(true, context.Background(), nil)
+
+	mockStore := store.NewMockStore(ctrl)
+	mockStore.EXPECT().
+		GetSaaSSubscription(gomock.Any(), store.LockingStrengthNone, "account-a").
+		Return(&types.SaaSSubscription{
+			Plan:        "free",
+			UsersLimit:  7,
+			PeersLimit:  20,
+			RelaysLimit: 3,
+		}, nil)
+	mockStore.EXPECT().
+		GetAccountUsers(gomock.Any(), store.LockingStrengthNone, "account-a").
+		Return([]*types.User{{Id: "user-a"}}, nil)
+	mockStore.EXPECT().
+		GetAccountPeers(gomock.Any(), store.LockingStrengthNone, "account-a", "", "").
+		Return([]*nbpeer.Peer{{ID: "peer-a"}}, nil)
+	mockStore.EXPECT().
+		GetAccountSettings(gomock.Any(), store.LockingStrengthNone, "account-a").
+		Return(&types.Settings{}, nil)
+	mockStore.EXPECT().
+		GetAccountServices(gomock.Any(), store.LockingStrengthNone, "account-a").
+		Return(nil, nil)
+	mockStore.EXPECT().
+		ListCustomDomains(gomock.Any(), "account-a").
+		Return(nil, nil)
+
+	manager := &DefaultAccountManager{
+		Store:               mockStore,
+		permissionsManager:  permissionsManager,
+		entitlementsChecker: entitlements.NewChecker(entitlements.NewBasicStaticProvider()),
+	}
+
+	snapshot, err := manager.GetAccountEntitlements(context.Background(), "account-a", "user-a")
+	require.NoError(t, err)
+	require.NotNil(t, snapshot)
+	assert.Equal(t, entitlements.Plan("free"), snapshot.Plan)
+	assert.Equal(t, 7, snapshot.Limits[entitlements.LimitUsers])
+	assert.Equal(t, 20, snapshot.Limits[entitlements.LimitPeers])
+	assert.Equal(t, 3, snapshot.Limits[entitlements.LimitSelfHostedRelays])
+	assert.Equal(t, 1, snapshot.Usage[entitlements.LimitUsers])
+	assert.Equal(t, 1, snapshot.Usage[entitlements.LimitPeers])
+}
+
 func TestGetAccountEntitlementsRequiresAccountReadPermission(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)

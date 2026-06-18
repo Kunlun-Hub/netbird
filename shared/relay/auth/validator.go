@@ -23,6 +23,10 @@ func (a *TimedHMACValidator) Validate(credentials any) error {
 	return a.authenticatorV2.Validate(credentials)
 }
 
+func (a *TimedHMACValidator) ValidateWithClaims(credentials any) (*authv2.Claims, error) {
+	return a.authenticatorV2.ValidateWithClaims(credentials)
+}
+
 func (a *TimedHMACValidator) ValidateHelloMsgType(credentials any) error {
 	return a.authenticator.Validate(credentials)
 }

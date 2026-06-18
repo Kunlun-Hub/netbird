@@ -5,6 +5,7 @@ import (
 	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/groups"
 	relayhandler "github.com/netbirdio/netbird/management/server/http/handlers/relays"
 	"github.com/netbirdio/netbird/management/server/settings"
+	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/proto"
 	auth "github.com/netbirdio/netbird/shared/relay/auth/hmac"
@@ -30,6 +32,7 @@ const defaultDuration = 12 * time.Hour
 type SecretsManager interface {
 	GenerateTurnToken() (*Token, error)
 	GenerateRelayToken() (*Token, error)
+	GenerateRelayTokenForAccount(ctx context.Context, accountID string) (*Token, error)
 	PushRelayList(ctx context.Context, accountID string, peerIDs []string) int
 	PushRelayTokens(ctx context.Context, accountID string, peerIDs []string) int
 	SetupRefresh(ctx context.Context, accountID, peerKey string)
@@ -54,6 +57,14 @@ type TimeBasedAuthSecretsManager struct {
 }
 
 type Token auth.Token
+
+type relayTokenClaims struct {
+	ExpiresAt           int64  `json:"exp"`
+	AccountID           string `json:"account_id,omitempty"`
+	RateLimitMbps       int    `json:"rate_limit_mbps,omitempty"`
+	FairShareEnabled    bool   `json:"fair_share_enabled,omitempty"`
+	RelayOnlyAccounting bool   `json:"relay_only_accounting,omitempty"`
+}
 
 func NewTimeBasedAuthSecretsManager(updateManager network_map.PeersUpdateManager, turnCfg *nbconfig.TURNConfig, relayCfg *nbconfig.Relay, settingsManager settings.Manager, groupsManager groups.Manager, stuns ...[]*nbconfig.Host) (*TimeBasedAuthSecretsManager, error) {
 	key, err := wgtypes.GeneratePrivateKey()
@@ -135,6 +146,68 @@ func (m *TimeBasedAuthSecretsManager) GenerateRelayToken() (*Token, error) {
 		Payload:   string(relayToken.Payload),
 		Signature: base64.StdEncoding.EncodeToString(relayToken.Signature),
 	}, nil
+}
+
+func (m *TimeBasedAuthSecretsManager) GenerateRelayTokenForAccount(ctx context.Context, accountID string) (*Token, error) {
+	if m.relayHmacToken == nil {
+		return nil, fmt.Errorf("relay configuration is not set")
+	}
+	if accountID == "" {
+		return m.GenerateRelayToken()
+	}
+	claims := relayTokenClaims{
+		ExpiresAt: time.Now().Add(m.relayHmacToken.TimeToLive()).Unix(),
+		AccountID: accountID,
+	}
+	if policy, err := m.settingsRelayBandwidthPolicy(ctx, accountID); err == nil && policy != nil {
+		claims.RateLimitMbps = effectiveRelayTokenRateLimit(policy)
+		claims.FairShareEnabled = policy.FairShareEnabled
+		claims.RelayOnlyAccounting = policy.RelayOnlyAccounting
+	} else if err != nil {
+		log.WithContext(ctx).Debugf("failed to load SaaS relay bandwidth policy for account %s: %v", accountID, err)
+	}
+
+	payload, err := json.Marshal(claims)
+	if err != nil {
+		return nil, fmt.Errorf("marshal relay token claims: %w", err)
+	}
+	relayToken, err := m.relayHmacToken.GenerateTokenWithPayload(payload)
+	if err != nil {
+		return nil, fmt.Errorf("generate relay token: %s", err)
+	}
+	return &Token{
+		Payload:   string(relayToken.Payload),
+		Signature: base64.StdEncoding.EncodeToString(relayToken.Signature),
+	}, nil
+}
+
+func (m *TimeBasedAuthSecretsManager) settingsRelayBandwidthPolicy(ctx context.Context, accountID string) (*types.SaaSBandwidthPolicy, error) {
+	storeGetter, ok := m.settingsManager.(interface{ GetStore() store.Store })
+	if !ok {
+		return nil, nil
+	}
+	storeManager := storeGetter.GetStore()
+	if storeManager == nil {
+		return nil, nil
+	}
+	policy, err := storeManager.GetSaaSBandwidthPolicy(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		return nil, err
+	}
+	return policy, nil
+}
+
+func effectiveRelayTokenRateLimit(policy *types.SaaSBandwidthPolicy) int {
+	if policy == nil {
+		return 0
+	}
+	if policy.TotalRateLimitMbps > 0 {
+		return policy.TotalRateLimitMbps
+	}
+	if policy.HighSpeedRateLimitMbps > 0 {
+		return policy.HighSpeedRateLimitMbps
+	}
+	return policy.StandardRateLimitMbps
 }
 
 func (m *TimeBasedAuthSecretsManager) PushRelayList(ctx context.Context, accountID string, peerIDs []string) int {
@@ -278,7 +351,7 @@ func (m *TimeBasedAuthSecretsManager) pushNewTURNAndRelayTokens(ctx context.Cont
 
 	// workaround for the case when client is unable to handle turn and relay updates at different time
 	if m.relayCfg != nil {
-		token, err := m.GenerateRelayToken()
+		token, err := m.GenerateRelayTokenForAccount(ctx, accountID)
 		if err == nil {
 			update.NetbirdConfig.Relay, update.NetbirdConfig.Stuns = m.peerRelayAndStunConfigs(ctx, accountID, peerID, token)
 		}
@@ -294,7 +367,7 @@ func (m *TimeBasedAuthSecretsManager) pushNewTURNAndRelayTokens(ctx context.Cont
 }
 
 func (m *TimeBasedAuthSecretsManager) pushNewRelayTokens(ctx context.Context, accountID, peerID string) {
-	relayToken, err := m.GenerateRelayToken()
+	relayToken, err := m.GenerateRelayTokenForAccount(ctx, accountID)
 	if err != nil {
 		log.Errorf("failed to generate relay token for peer '%s': %s", peerID, err)
 		return
@@ -319,7 +392,7 @@ func (m *TimeBasedAuthSecretsManager) pushNewRelayTokens(ctx context.Context, ac
 }
 
 func (m *TimeBasedAuthSecretsManager) pushRelayList(ctx context.Context, accountID, peerID string) {
-	relayToken, err := m.GenerateRelayToken()
+	relayToken, err := m.GenerateRelayTokenForAccount(ctx, accountID)
 	if err != nil {
 		log.Errorf("failed to generate relay token for peer '%s': %s", peerID, err)
 		return

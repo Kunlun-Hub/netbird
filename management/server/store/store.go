@@ -343,6 +343,28 @@ type Store interface {
 	GetProxyMetrics(ctx context.Context) (ProxyMetrics, error)
 
 	GetRoutingPeerNetworks(ctx context.Context, accountID, peerID string) ([]string, error)
+
+	SaveSaaSOrganization(ctx context.Context, organization *types.SaaSOrganization) error
+	GetSaaSOrganizationByAccountID(ctx context.Context, lockStrength LockingStrength, accountID string) (*types.SaaSOrganization, error)
+	GetSaaSOrganizationByDomain(ctx context.Context, lockStrength LockingStrength, domain string) (*types.SaaSOrganization, error)
+	ListSaaSOrganizations(ctx context.Context, lockStrength LockingStrength) ([]*types.SaaSOrganization, error)
+	DeleteSaaSDataByAccountID(ctx context.Context, accountID string) error
+	SaveSaaSSubscription(ctx context.Context, subscription *types.SaaSSubscription) error
+	GetSaaSSubscription(ctx context.Context, lockStrength LockingStrength, accountID string) (*types.SaaSSubscription, error)
+	SaveSaaSBandwidthPolicy(ctx context.Context, policy *types.SaaSBandwidthPolicy) error
+	GetSaaSBandwidthPolicy(ctx context.Context, lockStrength LockingStrength, accountID string) (*types.SaaSBandwidthPolicy, error)
+	SaveSaaSPlatformAdmin(ctx context.Context, admin *types.SaaSPlatformAdmin) error
+	GetSaaSPlatformAdmin(ctx context.Context, lockStrength LockingStrength, userID string) (*types.SaaSPlatformAdmin, error)
+	SaveSaaSOrgMenuVisibility(ctx context.Context, item *types.SaaSOrgMenuVisibility) error
+	GetSaaSOrgMenuVisibility(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.SaaSOrgMenuVisibility, error)
+	CreateSaaSTrafficLedger(ctx context.Context, entry *types.SaaSTrafficLedger) error
+	GetSaaSTrafficLedgerForPeriod(ctx context.Context, lockStrength LockingStrength, accountID, periodKey string) ([]*types.SaaSTrafficLedger, error)
+	SaveSaaSTrafficPurchase(ctx context.Context, purchase *types.SaaSTrafficPurchase) error
+	GetSaaSTrafficPurchase(ctx context.Context, lockStrength LockingStrength, purchaseID string) (*types.SaaSTrafficPurchase, error)
+	SaveSaaSPaymentOrder(ctx context.Context, order *types.SaaSPaymentOrder) error
+	GetSaaSPaymentOrder(ctx context.Context, lockStrength LockingStrength, orderID string) (*types.SaaSPaymentOrder, error)
+	GetSaaSPaymentOrderByProviderTradeNo(ctx context.Context, lockStrength LockingStrength, provider, providerTradeNo string) (*types.SaaSPaymentOrder, error)
+	ListSaaSPaymentOrders(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.SaaSPaymentOrder, error)
 }
 
 // ProxyMetrics aggregates self-hosted proxy + cluster usage signals

@@ -25,6 +25,8 @@ type SyncUserJWTGroupsFunc func(ctx context.Context, userAuth auth.UserAuth) err
 
 type GetUserFromUserAuthFunc func(ctx context.Context, userAuth auth.UserAuth) (*types.User, error)
 
+type EnsureAccountActiveFunc func(ctx context.Context, accountID string) error
+
 type IsValidChildAccountFunc func(ctx context.Context, userID, accountID, childAccountID string) bool
 
 // AuthMiddleware middleware to verify personal access tokens (PAT) and JWT tokens
@@ -36,6 +38,7 @@ type AuthMiddleware struct {
 	rateLimiter         *APIRateLimiter
 	patUsageTracker     *PATUsageTracker
 	isValidChildAccount IsValidChildAccountFunc
+	ensureAccountActive EnsureAccountActiveFunc
 }
 
 // NewAuthMiddleware instance constructor
@@ -47,6 +50,7 @@ func NewAuthMiddleware(
 	rateLimiter *APIRateLimiter,
 	meter metric.Meter,
 	isValidChildAccount IsValidChildAccountFunc,
+	ensureAccountActive EnsureAccountActiveFunc,
 ) *AuthMiddleware {
 	var patUsageTracker *PATUsageTracker
 	if meter != nil {
@@ -65,6 +69,7 @@ func NewAuthMiddleware(
 		rateLimiter:         rateLimiter,
 		patUsageTracker:     patUsageTracker,
 		isValidChildAccount: isValidChildAccount,
+		ensureAccountActive: ensureAccountActive,
 	}
 }
 
@@ -88,7 +93,10 @@ func (m *AuthMiddleware) Handler(h http.Handler) http.Handler {
 		case "bearer":
 			if err := m.checkJWTFromRequest(r, authHeader); err != nil {
 				log.WithContext(r.Context()).Errorf("Error when validating JWT: %s", err.Error())
-				util.WriteError(r.Context(), status.Errorf(status.Unauthorized, "token invalid"), w)
+				if _, ok := status.FromError(err); !ok {
+					err = status.Errorf(status.Unauthorized, "token invalid")
+				}
+				util.WriteError(r.Context(), err, w)
 				return
 			}
 			h.ServeHTTP(w, r)
@@ -162,6 +170,9 @@ func (m *AuthMiddleware) checkJWTFromRequest(r *http.Request, authHeaderParts []
 		log.WithContext(ctx).Errorf("HTTP server failed to update user from user auth: %s", err)
 		return err
 	}
+	if err := m.checkAccountActive(ctx, r.URL.Path, userAuth.AccountId); err != nil {
+		return err
+	}
 
 	// propagates ctx change to upstream middleware
 	*r = *nbcontext.SetUserAuthInRequest(r, userAuth)
@@ -211,10 +222,20 @@ func (m *AuthMiddleware) checkPATFromRequest(r *http.Request, authHeaderParts []
 			userAuth.IsChild = true
 		}
 	}
+	if err := m.checkAccountActive(ctx, r.URL.Path, userAuth.AccountId); err != nil {
+		return err
+	}
 
 	// propagates ctx change to upstream middleware
 	*r = *nbcontext.SetUserAuthInRequest(r, userAuth)
 	return nil
+}
+
+func (m *AuthMiddleware) checkAccountActive(ctx context.Context, path, accountID string) error {
+	if m.ensureAccountActive == nil || strings.HasPrefix(path, "/api/platform/") {
+		return nil
+	}
+	return m.ensureAccountActive(ctx, accountID)
 }
 
 func isTerraformRequest(r *http.Request) bool {

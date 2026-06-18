@@ -152,6 +152,7 @@ func LoadMgmtConfig(ctx context.Context, mgmtConfigPath string) (*nbconfig.Confi
 	}
 
 	ApplyCommandLineOverrides(loadedConfig)
+	loadedConfig.ApplyDefaults()
 
 	// Apply EmbeddedIdP config to HttpConfig if embedded IdP is enabled
 	err := ApplyEmbeddedIdPConfig(ctx, loadedConfig)

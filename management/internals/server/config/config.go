@@ -57,12 +57,19 @@ type Config struct {
 
 	NetworkTraffic NetworkTraffic
 
+	SaaS SaaSConfig
+
 	// disable default all-to-all policy
 	DisableDefaultPolicy bool
 
 	// EmbeddedIdP contains configuration for the embedded Dex OIDC provider.
 	// When set, Dex will be embedded in the management server and serve requests at /oauth2/
 	EmbeddedIdP *idp.EmbeddedIdPConfig
+}
+
+// ApplyDefaults fills optional config sections with conservative defaults.
+func (c *Config) ApplyDefaults() {
+	c.SaaS.ApplyDefaults()
 }
 
 // GetAuthAudiences returns the audience from the http config and device authorization flow config
@@ -273,4 +280,71 @@ type NetworkTraffic struct {
 	// CleanupIntervalHours specifies how often (in hours) to run the cleanup routine.
 	// Defaults to 24 hours if not set or set to 0.
 	CleanupIntervalHours int
+}
+
+// SaaSConfig contains platform-level SaaS settings. It is inert unless Enabled is true.
+type SaaSConfig struct {
+	Enabled                      bool
+	PublicSignupEnabled          bool
+	RootDomain                   string
+	OrganizationDomainSuffix     string
+	PlatformAdminDomain          string
+	DefaultPlan                  string
+	DefaultUsersLimit            int
+	DefaultPeersLimit            int
+	DefaultRelaysLimit           int
+	DefaultHighSpeedTrafficGB    int
+	DefaultTotalRateLimitMbps    int
+	DefaultStandardRateLimitMbps int
+	ForceRelayForTrafficBilling  bool
+	Payment                      SaaSPaymentConfig
+}
+
+// ApplyDefaults fills SaaS defaults without enabling SaaS automatically.
+func (c *SaaSConfig) ApplyDefaults() {
+	if c.DefaultPlan == "" {
+		c.DefaultPlan = "free"
+	}
+	if c.DefaultUsersLimit == 0 {
+		c.DefaultUsersLimit = 3
+	}
+	if c.DefaultPeersLimit == 0 {
+		c.DefaultPeersLimit = 10
+	}
+	if c.DefaultRelaysLimit == 0 {
+		c.DefaultRelaysLimit = 1
+	}
+	if c.DefaultHighSpeedTrafficGB == 0 {
+		c.DefaultHighSpeedTrafficGB = 100
+	}
+	if c.DefaultTotalRateLimitMbps == 0 {
+		c.DefaultTotalRateLimitMbps = 50
+	}
+	if c.DefaultStandardRateLimitMbps == 0 {
+		c.DefaultStandardRateLimitMbps = 10
+	}
+	if c.RootDomain != "" && c.OrganizationDomainSuffix == "" {
+		c.OrganizationDomainSuffix = c.RootDomain
+	}
+	if c.RootDomain != "" && c.PlatformAdminDomain == "" {
+		c.PlatformAdminDomain = "admin." + c.RootDomain
+	}
+	if c.Payment.Provider == "" {
+		c.Payment.Provider = "alipay"
+	}
+}
+
+type SaaSPaymentConfig struct {
+	Provider string
+	Alipay   SaaSAlipayConfig
+}
+
+type SaaSAlipayConfig struct {
+	AppID                string
+	AppPrivateKeyFile    string
+	AlipayPublicCertFile string
+	AppPublicCertFile    string
+	AlipayRootCertFile   string
+	NotifyURL            string
+	ReturnURL            string
 }

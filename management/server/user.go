@@ -23,6 +23,7 @@ import (
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
+	saasmanager "github.com/netbirdio/netbird/management/server/saas"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/users"
@@ -1767,6 +1768,9 @@ func (am *DefaultAccountManager) AcceptUserInvite(ctx context.Context, token, pa
 	hashedToken := types.HashInviteToken(token)
 	invite, err := am.Store.GetUserInviteByHashedToken(ctx, store.LockingStrengthUpdate, hashedToken)
 	if err != nil {
+		return err
+	}
+	if err := (saasmanager.OrganizationStatusGuard{Store: am.Store}).RequireActive(ctx, invite.AccountID); err != nil {
 		return err
 	}
 

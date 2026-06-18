@@ -31,6 +31,8 @@ type Peer struct {
 	connMu   sync.RWMutex
 	store    *store.Store
 	notifier *store.PeerNotifier
+	limiters *accountRateLimiter
+	metadata handshakeMetadata
 
 	ctx       context.Context
 	ctxCancel context.CancelFunc
@@ -41,8 +43,17 @@ type Peer struct {
 	notificationMutex sync.Mutex
 }
 
+type PeerOptions struct {
+	Limiters *accountRateLimiter
+	Metadata handshakeMetadata
+}
+
 // NewPeer creates a new Peer instance and prepare custom logging
-func NewPeer(metrics *metrics.Metrics, id messages.PeerID, conn listener.Conn, store *store.Store, notifier *store.PeerNotifier) *Peer {
+func NewPeer(metrics *metrics.Metrics, id messages.PeerID, conn listener.Conn, store *store.Store, notifier *store.PeerNotifier, opts ...PeerOptions) *Peer {
+	options := PeerOptions{}
+	if len(opts) > 0 {
+		options = opts[0]
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	p := &Peer{
 		metrics:   metrics,
@@ -51,6 +62,8 @@ func NewPeer(metrics *metrics.Metrics, id messages.PeerID, conn listener.Conn, s
 		conn:      conn,
 		store:     store,
 		notifier:  notifier,
+		limiters:  options.Limiters,
+		metadata:  options.Metadata,
 		ctx:       ctx,
 		ctxCancel: cancel,
 	}
@@ -226,6 +239,12 @@ func (p *Peer) handleTransportMsg(msg []byte) {
 		return
 	}
 
+	if dp.limiters != nil {
+		if err := dp.limiters.wait(dp.ctx, dp.metadata.accountID, dp.metadata.rateLimitMbps, len(msg)); err != nil {
+			p.log.Errorf("relay rate limit wait failed for %s: %s", dp.String(), err)
+			return
+		}
+	}
 	n, err := dp.Write(dp.ctx, msg)
 	if err != nil {
 		p.log.Errorf("failed to write transport message to: %s", dp.String())

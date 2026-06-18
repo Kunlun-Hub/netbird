@@ -32,7 +32,10 @@ func (g *Generator) GenerateToken() (*Token, error) {
 	expirationTime := time.Now().Add(g.timeToLive).Unix()
 
 	payload := []byte(strconv.FormatInt(expirationTime, 10))
+	return g.GenerateTokenWithPayload(payload)
+}
 
+func (g *Generator) GenerateTokenWithPayload(payload []byte) (*Token, error) {
 	h := hmac.New(g.algo, g.secret)
 	h.Write(payload)
 	signature := h.Sum(nil)
@@ -42,4 +45,8 @@ func (g *Generator) GenerateToken() (*Token, error) {
 		Signature: signature,
 		Payload:   payload,
 	}, nil
+}
+
+func (g *Generator) TimeToLive() time.Duration {
+	return g.timeToLive
 }

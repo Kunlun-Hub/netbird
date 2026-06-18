@@ -144,6 +144,8 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 		&accesslogs.AccessLogEntry{}, &networktraffic.Event{}, &networktraffic.FlowSummary{}, &proxy.Proxy{},
 		&workbenchTypes.Resource{}, &workbenchTypes.ResourceVisibleGroup{}, &workbenchTypes.ResourceVisibleUser{}, &workbenchTypes.UserResources{}, &workbenchTypes.Asset{}, &workbenchTypes.Category{},
 		&types.EmailSettings{},
+		&types.SaaSOrganization{}, &types.SaaSSubscription{}, &types.SaaSPlatformAdmin{}, &types.SaaSOrgMenuVisibility{},
+		&types.SaaSTrafficLedger{}, &types.SaaSTrafficPurchase{}, &types.SaaSPaymentOrder{}, &types.SaaSBandwidthPolicy{},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("auto migratePreAuto: %w", err)

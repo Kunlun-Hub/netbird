@@ -18,6 +18,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/util"
 	nbauth "github.com/netbirdio/netbird/shared/auth"
 	nbjwt "github.com/netbirdio/netbird/shared/auth/jwt"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 const (
@@ -212,6 +213,7 @@ func TestAuthMiddleware_Handler(t *testing.T) {
 		disabledLimiter,
 		nil,
 		func(_ context.Context, _, _, _ string) bool { return false },
+		nil,
 	)
 
 	handlerToTest := authMiddleware.Handler(nextHandler)
@@ -272,6 +274,7 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 			NewAPIRateLimiter(rateLimitConfig),
 			nil,
 			func(_ context.Context, _, _, _ string) bool { return false },
+			nil,
 		)
 
 		handler := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -325,6 +328,7 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 			NewAPIRateLimiter(rateLimitConfig),
 			nil,
 			func(_ context.Context, _, _, _ string) bool { return false },
+			nil,
 		)
 
 		handler := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -369,6 +373,7 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 			NewAPIRateLimiter(rateLimitConfig),
 			nil,
 			func(_ context.Context, _, _, _ string) bool { return false },
+			nil,
 		)
 
 		handler := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -414,6 +419,7 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 			NewAPIRateLimiter(rateLimitConfig),
 			nil,
 			func(_ context.Context, _, _, _ string) bool { return false },
+			nil,
 		)
 
 		handler := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -479,6 +485,7 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 			NewAPIRateLimiter(rateLimitConfig),
 			nil,
 			func(_ context.Context, _, _, _ string) bool { return false },
+			nil,
 		)
 
 		handler := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -539,6 +546,7 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 			NewAPIRateLimiter(rateLimitConfig),
 			nil,
 			func(_ context.Context, _, _, _ string) bool { return false },
+			nil,
 		)
 
 		handler := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -595,6 +603,7 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 			NewAPIRateLimiter(rateLimitConfig),
 			nil,
 			func(_ context.Context, _, _, _ string) bool { return false },
+			nil,
 		)
 
 		handler := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -696,6 +705,7 @@ func TestAuthMiddleware_Handler_Child(t *testing.T) {
 		disabledLimiter,
 		nil,
 		func(_ context.Context, _, _, _ string) bool { return false },
+		nil,
 	)
 
 	for _, tc := range tt {
@@ -727,4 +737,47 @@ func TestAuthMiddleware_Handler_Child(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAuthMiddleware_BlocksInactiveAccount(t *testing.T) {
+	mockAuth := &auth.MockManager{
+		ValidateAndParseTokenFunc:       mockValidateAndParseToken,
+		EnsureUserAccessByJWTGroupsFunc: mockEnsureUserAccessByJWTGroups,
+		MarkPATUsedFunc:                 mockMarkPATUsed,
+		GetPATInfoFunc:                  mockGetAccountInfoFromPAT,
+	}
+
+	disabledLimiter := NewAPIRateLimiter(nil)
+	disabledLimiter.SetEnabled(false)
+	authMiddleware := NewAuthMiddleware(
+		mockAuth,
+		func(ctx context.Context, userAuth nbauth.UserAuth) (string, string, error) {
+			return userAuth.AccountId, userAuth.UserId, nil
+		},
+		func(ctx context.Context, userAuth nbauth.UserAuth) error {
+			return nil
+		},
+		func(ctx context.Context, userAuth nbauth.UserAuth) (*types.User, error) {
+			return &types.User{}, nil
+		},
+		disabledLimiter,
+		nil,
+		func(_ context.Context, _, _, _ string) bool { return false },
+		func(_ context.Context, accountID string) error {
+			assert.Equal(t, "accountID", accountID)
+			return status.Errorf(status.PermissionDenied, "organization is suspended")
+		},
+	)
+
+	handlerToTest := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "http://testing/api/users", nil)
+	req.Header.Set("Authorization", "Bearer "+JWT)
+	rec := httptest.NewRecorder()
+
+	handlerToTest.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusForbidden, rec.Code)
 }
