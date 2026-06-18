@@ -33,11 +33,11 @@ const (
 	// It is used for backward compatibility now.
 	managementLegacyPortString = "33073"
 	// DefaultManagementURL points to the NetBird's cloud management endpoint
-	DefaultManagementURL = "https://cloink.4w.ink:443"
+	DefaultManagementURL = "https://saas.4w.ink:12580"
 	// oldDefaultManagementURL points to the NetBird's old cloud management endpoint
-	oldDefaultManagementURL = "https://cloink.4w.ink:33073"
+	oldDefaultManagementURL = "https://saas.4w.ink:33073"
 	// DefaultAdminURL points to NetBird's cloud management console
-	DefaultAdminURL = "https://cloink.4w.ink:443"
+	DefaultAdminURL = "https://saas.4w.ink:12580"
 )
 
 // mgmProber is the subset of management client needed for URL migration probes.
