@@ -348,6 +348,7 @@ type Store interface {
 	GetSaaSOrganizationByAccountID(ctx context.Context, lockStrength LockingStrength, accountID string) (*types.SaaSOrganization, error)
 	GetSaaSOrganizationByDomain(ctx context.Context, lockStrength LockingStrength, domain string) (*types.SaaSOrganization, error)
 	ListSaaSOrganizations(ctx context.Context, lockStrength LockingStrength) ([]*types.SaaSOrganization, error)
+	UpdateSaaSOrganizationDomain(ctx context.Context, accountID, slug, domain string) error
 	DeleteSaaSDataByAccountID(ctx context.Context, accountID string) error
 	SaveSaaSSubscription(ctx context.Context, subscription *types.SaaSSubscription) error
 	GetSaaSSubscription(ctx context.Context, lockStrength LockingStrength, accountID string) (*types.SaaSSubscription, error)
@@ -365,6 +366,22 @@ type Store interface {
 	GetSaaSPaymentOrder(ctx context.Context, lockStrength LockingStrength, orderID string) (*types.SaaSPaymentOrder, error)
 	GetSaaSPaymentOrderByProviderTradeNo(ctx context.Context, lockStrength LockingStrength, provider, providerTradeNo string) (*types.SaaSPaymentOrder, error)
 	ListSaaSPaymentOrders(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.SaaSPaymentOrder, error)
+	SaveSaaSBill(ctx context.Context, bill *types.SaaSBill) error
+	GetSaaSBill(ctx context.Context, lockStrength LockingStrength, billID string) (*types.SaaSBill, error)
+	GetSaaSBillByPaymentOrderID(ctx context.Context, lockStrength LockingStrength, paymentOrderID string) (*types.SaaSBill, error)
+	ListSaaSBills(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.SaaSBill, error)
+	SaveSaaSBillItem(ctx context.Context, item *types.SaaSBillItem) error
+	ListSaaSBillItems(ctx context.Context, lockStrength LockingStrength, billID string) ([]*types.SaaSBillItem, error)
+	SaveSaaSPaymentRefund(ctx context.Context, refund *types.SaaSPaymentRefund) error
+	ListSaaSPaymentRefunds(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.SaaSPaymentRefund, error)
+	SaveSaaSReconciliationRecord(ctx context.Context, record *types.SaaSReconciliationRecord) error
+	ListSaaSReconciliationRecords(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.SaaSReconciliationRecord, error)
+	SaveSaaSInvoiceRequest(ctx context.Context, invoice *types.SaaSInvoiceRequest) error
+	ListSaaSInvoiceRequests(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.SaaSInvoiceRequest, error)
+	SaveSaaSOfflinePaymentRecord(ctx context.Context, record *types.SaaSOfflinePaymentRecord) error
+	ListSaaSOfflinePaymentRecords(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.SaaSOfflinePaymentRecord, error)
+	SaveSaaSAutoRenewalAttempt(ctx context.Context, attempt *types.SaaSAutoRenewalAttempt) error
+	ListSaaSAutoRenewalAttempts(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.SaaSAutoRenewalAttempt, error)
 }
 
 // ProxyMetrics aggregates self-hosted proxy + cluster usage signals

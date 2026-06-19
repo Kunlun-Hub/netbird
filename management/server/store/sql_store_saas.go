@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"time"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -42,11 +43,62 @@ func (s *SqlStore) ListSaaSOrganizations(ctx context.Context, lockStrength Locki
 	return organizations, nil
 }
 
+func (s *SqlStore) UpdateSaaSOrganizationDomain(ctx context.Context, accountID, slug, domain string) error {
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var conflict types.SaaSOrganization
+		if err := tx.
+			Where("account_id <> ? AND (domain = ? OR slug = ?)", accountID, domain, slug).
+			First(&conflict).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return status.Errorf(status.Internal, "failed to validate saas organization domain")
+		} else if err == nil {
+			return status.Errorf(status.AlreadyExists, "organization domain already exists")
+		}
+
+		orgResult := tx.Model(&types.SaaSOrganization{}).
+			Where("account_id = ?", accountID).
+			Updates(map[string]any{
+				"slug":       slug,
+				"domain":     domain,
+				"updated_at": time.Now().UTC(),
+			})
+		if orgResult.Error != nil {
+			return status.Errorf(status.Internal, "failed to update saas organization domain")
+		}
+		if orgResult.RowsAffected == 0 {
+			return status.Errorf(status.NotFound, "saas organization not found")
+		}
+
+		accountResult := tx.Model(&types.Account{}).
+			Where("id = ?", accountID).
+			Updates(map[string]any{
+				"domain":                    domain,
+				"settings_dns_domain":       domain,
+				"domain_category":           types.PrivateCategory,
+				"is_domain_primary_account": true,
+			})
+		if accountResult.Error != nil {
+			return status.Errorf(status.Internal, "failed to update account domain")
+		}
+		if accountResult.RowsAffected == 0 {
+			return status.Errorf(status.NotFound, "account not found")
+		}
+
+		return nil
+	})
+}
+
 func (s *SqlStore) DeleteSaaSDataByAccountID(ctx context.Context, accountID string) error {
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		models := []any{
 			&types.SaaSOrgMenuVisibility{},
 			&types.SaaSTrafficLedger{},
+			&types.SaaSAutoRenewalAttempt{},
+			&types.SaaSOfflinePaymentRecord{},
+			&types.SaaSInvoiceRequest{},
+			&types.SaaSReconciliationRecord{},
+			&types.SaaSPaymentRefund{},
+			&types.SaaSBillItem{},
+			&types.SaaSBill{},
 			&types.SaaSTrafficPurchase{},
 			&types.SaaSPaymentOrder{},
 			&types.SaaSBandwidthPolicy{},
@@ -179,6 +231,136 @@ func (s *SqlStore) ListSaaSPaymentOrders(ctx context.Context, lockStrength Locki
 		return nil, status.Errorf(status.Internal, "failed to list saas payment orders")
 	}
 	return orders, nil
+}
+
+func (s *SqlStore) SaveSaaSBill(ctx context.Context, bill *types.SaaSBill) error {
+	return saveSaaSModel(ctx, s.db, bill, "saas bill")
+}
+
+func (s *SqlStore) GetSaaSBill(ctx context.Context, lockStrength LockingStrength, billID string) (*types.SaaSBill, error) {
+	var bill types.SaaSBill
+	tx := applyLockingStrength(s.db.WithContext(ctx), lockStrength)
+	if err := tx.First(&bill, "id = ?", billID).Error; err != nil {
+		return nil, saasNotFoundOrInternal(err, "saas bill not found")
+	}
+	return &bill, nil
+}
+
+func (s *SqlStore) GetSaaSBillByPaymentOrderID(ctx context.Context, lockStrength LockingStrength, paymentOrderID string) (*types.SaaSBill, error) {
+	var bill types.SaaSBill
+	tx := applyLockingStrength(s.db.WithContext(ctx), lockStrength)
+	if err := tx.First(&bill, "payment_order_id = ?", paymentOrderID).Error; err != nil {
+		return nil, saasNotFoundOrInternal(err, "saas bill not found")
+	}
+	return &bill, nil
+}
+
+func (s *SqlStore) ListSaaSBills(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.SaaSBill, error) {
+	var bills []*types.SaaSBill
+	tx := applyLockingStrength(s.db.WithContext(ctx), lockStrength)
+	if err := tx.
+		Where("account_id = ?", accountID).
+		Order("created_at DESC").
+		Find(&bills).Error; err != nil {
+		return nil, status.Errorf(status.Internal, "failed to list saas bills")
+	}
+	return bills, nil
+}
+
+func (s *SqlStore) SaveSaaSBillItem(ctx context.Context, item *types.SaaSBillItem) error {
+	return saveSaaSModel(ctx, s.db, item, "saas bill item")
+}
+
+func (s *SqlStore) ListSaaSBillItems(ctx context.Context, lockStrength LockingStrength, billID string) ([]*types.SaaSBillItem, error) {
+	var items []*types.SaaSBillItem
+	tx := applyLockingStrength(s.db.WithContext(ctx), lockStrength)
+	if err := tx.
+		Where("bill_id = ?", billID).
+		Order("created_at ASC").
+		Find(&items).Error; err != nil {
+		return nil, status.Errorf(status.Internal, "failed to list saas bill items")
+	}
+	return items, nil
+}
+
+func (s *SqlStore) SaveSaaSPaymentRefund(ctx context.Context, refund *types.SaaSPaymentRefund) error {
+	return saveSaaSModel(ctx, s.db, refund, "saas payment refund")
+}
+
+func (s *SqlStore) ListSaaSPaymentRefunds(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.SaaSPaymentRefund, error) {
+	var refunds []*types.SaaSPaymentRefund
+	tx := applyLockingStrength(s.db.WithContext(ctx), lockStrength)
+	if err := tx.
+		Where("account_id = ?", accountID).
+		Order("created_at DESC").
+		Find(&refunds).Error; err != nil {
+		return nil, status.Errorf(status.Internal, "failed to list saas payment refunds")
+	}
+	return refunds, nil
+}
+
+func (s *SqlStore) SaveSaaSReconciliationRecord(ctx context.Context, record *types.SaaSReconciliationRecord) error {
+	return saveSaaSModel(ctx, s.db, record, "saas reconciliation record")
+}
+
+func (s *SqlStore) ListSaaSReconciliationRecords(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.SaaSReconciliationRecord, error) {
+	var records []*types.SaaSReconciliationRecord
+	tx := applyLockingStrength(s.db.WithContext(ctx), lockStrength)
+	if err := tx.
+		Where("account_id = ?", accountID).
+		Order("created_at DESC").
+		Find(&records).Error; err != nil {
+		return nil, status.Errorf(status.Internal, "failed to list saas reconciliation records")
+	}
+	return records, nil
+}
+
+func (s *SqlStore) SaveSaaSInvoiceRequest(ctx context.Context, invoice *types.SaaSInvoiceRequest) error {
+	return saveSaaSModel(ctx, s.db, invoice, "saas invoice request")
+}
+
+func (s *SqlStore) ListSaaSInvoiceRequests(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.SaaSInvoiceRequest, error) {
+	var invoices []*types.SaaSInvoiceRequest
+	tx := applyLockingStrength(s.db.WithContext(ctx), lockStrength)
+	if err := tx.
+		Where("account_id = ?", accountID).
+		Order("created_at DESC").
+		Find(&invoices).Error; err != nil {
+		return nil, status.Errorf(status.Internal, "failed to list saas invoice requests")
+	}
+	return invoices, nil
+}
+
+func (s *SqlStore) SaveSaaSOfflinePaymentRecord(ctx context.Context, record *types.SaaSOfflinePaymentRecord) error {
+	return saveSaaSModel(ctx, s.db, record, "saas offline payment record")
+}
+
+func (s *SqlStore) ListSaaSOfflinePaymentRecords(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.SaaSOfflinePaymentRecord, error) {
+	var records []*types.SaaSOfflinePaymentRecord
+	tx := applyLockingStrength(s.db.WithContext(ctx), lockStrength)
+	if err := tx.
+		Where("account_id = ?", accountID).
+		Order("created_at DESC").
+		Find(&records).Error; err != nil {
+		return nil, status.Errorf(status.Internal, "failed to list saas offline payment records")
+	}
+	return records, nil
+}
+
+func (s *SqlStore) SaveSaaSAutoRenewalAttempt(ctx context.Context, attempt *types.SaaSAutoRenewalAttempt) error {
+	return saveSaaSModel(ctx, s.db, attempt, "saas auto renewal attempt")
+}
+
+func (s *SqlStore) ListSaaSAutoRenewalAttempts(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.SaaSAutoRenewalAttempt, error) {
+	var attempts []*types.SaaSAutoRenewalAttempt
+	tx := applyLockingStrength(s.db.WithContext(ctx), lockStrength)
+	if err := tx.
+		Where("account_id = ?", accountID).
+		Order("created_at DESC").
+		Find(&attempts).Error; err != nil {
+		return nil, status.Errorf(status.Internal, "failed to list saas auto renewal attempts")
+	}
+	return attempts, nil
 }
 
 func saveSaaSModel(ctx context.Context, db *gorm.DB, model any, name string) error {

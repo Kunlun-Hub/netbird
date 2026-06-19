@@ -65,6 +65,54 @@ type AlipayNotification struct {
 	Payload         map[string]any
 }
 
+type RefundRequest struct {
+	AccountID       string
+	OrderID         string
+	RefundTradeNo   string
+	AmountCents     int64
+	Reason          string
+	OperatorID      string
+	ProviderPayload map[string]any
+}
+
+type RefundResponse struct {
+	Refund   *types.SaaSPaymentRefund   `json:"refund"`
+	Order    *types.SaaSPaymentOrder    `json:"order"`
+	Purchase *types.SaaSTrafficPurchase `json:"purchase"`
+	Bill     *types.SaaSBill            `json:"bill"`
+}
+
+type ClosePaymentOrderRequest struct {
+	AccountID  string
+	OrderID    string
+	Reason     string
+	OperatorID string
+}
+
+type ClosePaymentOrderResponse struct {
+	Order    *types.SaaSPaymentOrder    `json:"order"`
+	Purchase *types.SaaSTrafficPurchase `json:"purchase,omitempty"`
+	Bill     *types.SaaSBill            `json:"bill,omitempty"`
+}
+
+type ReconciliationRequest struct {
+	AccountID         string
+	OrderID           string
+	Provider          string
+	ProviderTradeNo   string
+	ActualAmountCents int64
+	Currency          string
+	Status            string
+	Reason            string
+	OperatorID        string
+	RawPayload        map[string]any
+}
+
+type ReconciliationResponse struct {
+	Record *types.SaaSReconciliationRecord `json:"record"`
+	Order  *types.SaaSPaymentOrder         `json:"order,omitempty"`
+}
+
 func (s PaymentService) GetPaymentOrder(ctx context.Context, accountID, orderID string) (*types.SaaSPaymentOrder, error) {
 	if s.Store == nil {
 		return nil, status.Errorf(status.Internal, "store is required")
@@ -83,6 +131,289 @@ func (s PaymentService) GetPaymentOrder(ctx context.Context, accountID, orderID 
 		return nil, status.Errorf(status.NotFound, "saas payment order not found")
 	}
 	return order, nil
+}
+
+func (s PaymentService) RefundPaymentOrder(ctx context.Context, req RefundRequest) (*RefundResponse, error) {
+	if s.Store == nil {
+		return nil, status.Errorf(status.Internal, "store is required")
+	}
+	if req.AccountID == "" || req.OrderID == "" {
+		return nil, status.Errorf(status.InvalidArgument, "account id and order id are required")
+	}
+	if req.RefundTradeNo == "" {
+		req.RefundTradeNo = xid.New().String()
+	}
+	var order *types.SaaSPaymentOrder
+	var purchase *types.SaaSTrafficPurchase
+	var bill *types.SaaSBill
+	var refund *types.SaaSPaymentRefund
+	now := time.Now().UTC()
+	err := s.Store.ExecuteInTransaction(ctx, func(tx store.Store) error {
+		lockedOrder, err := tx.GetSaaSPaymentOrder(ctx, store.LockingStrengthUpdate, req.OrderID)
+		if err != nil {
+			return err
+		}
+		order = lockedOrder
+		if lockedOrder.AccountID != req.AccountID {
+			return status.Errorf(status.NotFound, "saas payment order not found")
+		}
+		if lockedOrder.Status == types.SaaSPaymentOrderStatusRefunded {
+			return status.Errorf(status.PreconditionFailed, "payment order is already refunded")
+		}
+		if lockedOrder.Status != types.SaaSPaymentOrderStatusPaid {
+			return status.Errorf(status.PreconditionFailed, "payment order is not refundable")
+		}
+		if req.AmountCents == 0 {
+			req.AmountCents = lockedOrder.AmountCents
+		}
+		if req.AmountCents != lockedOrder.AmountCents {
+			return status.Errorf(status.InvalidArgument, "partial refunds are not supported yet")
+		}
+
+		lockedPurchase, err := tx.GetSaaSTrafficPurchase(ctx, store.LockingStrengthUpdate, lockedOrder.PurchaseID)
+		if err != nil {
+			return err
+		}
+		purchase = lockedPurchase
+		if purchase.AccountID != req.AccountID {
+			return status.Errorf(status.InvalidArgument, "payment order purchase account mismatch")
+		}
+
+		subscription, err := tx.GetSaaSSubscription(ctx, store.LockingStrengthUpdate, req.AccountID)
+		if err != nil {
+			return err
+		}
+		subscription.HighSpeedTrafficBytes -= purchase.HighSpeedTrafficBytes
+		if subscription.HighSpeedTrafficBytes < 0 {
+			subscription.HighSpeedTrafficBytes = 0
+		}
+		subscription.UpdatedAt = now
+		if err := tx.SaveSaaSSubscription(ctx, subscription); err != nil {
+			return err
+		}
+
+		lockedBill, err := tx.GetSaaSBillByPaymentOrderID(ctx, store.LockingStrengthUpdate, lockedOrder.ID)
+		if err != nil {
+			return err
+		}
+		bill = lockedBill
+
+		lockedOrder.Status = types.SaaSPaymentOrderStatusRefunded
+		lockedOrder.UpdatedAt = now
+		if err := tx.SaveSaaSPaymentOrder(ctx, lockedOrder); err != nil {
+			return err
+		}
+		purchase.Status = types.SaaSTrafficPurchaseStatusRefunded
+		purchase.UpdatedAt = now
+		if err := tx.SaveSaaSTrafficPurchase(ctx, purchase); err != nil {
+			return err
+		}
+		bill.Status = types.SaaSBillStatusRefunded
+		bill.UpdatedAt = now
+		if err := tx.SaveSaaSBill(ctx, bill); err != nil {
+			return err
+		}
+
+		refund = &types.SaaSPaymentRefund{
+			ID:                    xid.New().String(),
+			AccountID:             req.AccountID,
+			PaymentOrderID:        lockedOrder.ID,
+			Provider:              lockedOrder.Provider,
+			ProviderTradeNo:       lockedOrder.ProviderTradeNo,
+			RefundTradeNo:         req.RefundTradeNo,
+			AmountCents:           req.AmountCents,
+			Currency:              lockedOrder.Currency,
+			Reason:                req.Reason,
+			Status:                types.SaaSPaymentRefundStatusSucceeded,
+			HighSpeedTrafficBytes: purchase.HighSpeedTrafficBytes,
+			OperatorID:            req.OperatorID,
+			Payload:               req.ProviderPayload,
+			CreatedAt:             now,
+			UpdatedAt:             now,
+		}
+		return tx.SaveSaaSPaymentRefund(ctx, refund)
+	})
+	if err != nil {
+		return nil, err
+	}
+	s.Audit.Record(ctx, req.OperatorID, refund.ID, req.AccountID, activity.SaaSPaymentRefunded, map[string]any{
+		"order_id":                 order.ID,
+		"refund_trade_no":          refund.RefundTradeNo,
+		"amount_cents":             refund.AmountCents,
+		"high_speed_traffic_bytes": refund.HighSpeedTrafficBytes,
+		"reason":                   refund.Reason,
+	})
+	return &RefundResponse{Refund: refund, Order: order, Purchase: purchase, Bill: bill}, nil
+}
+
+func (s PaymentService) ClosePaymentOrder(ctx context.Context, req ClosePaymentOrderRequest) (*ClosePaymentOrderResponse, error) {
+	if s.Store == nil {
+		return nil, status.Errorf(status.Internal, "store is required")
+	}
+	if req.AccountID == "" || req.OrderID == "" {
+		return nil, status.Errorf(status.InvalidArgument, "account id and order id are required")
+	}
+
+	var order *types.SaaSPaymentOrder
+	var purchase *types.SaaSTrafficPurchase
+	var bill *types.SaaSBill
+	now := time.Now().UTC()
+	err := s.Store.ExecuteInTransaction(ctx, func(tx store.Store) error {
+		lockedOrder, err := tx.GetSaaSPaymentOrder(ctx, store.LockingStrengthUpdate, req.OrderID)
+		if err != nil {
+			return err
+		}
+		order = lockedOrder
+		if lockedOrder.AccountID != req.AccountID {
+			return status.Errorf(status.NotFound, "saas payment order not found")
+		}
+		if lockedOrder.Status == types.SaaSPaymentOrderStatusClosed {
+			return nil
+		}
+		if lockedOrder.Status != types.SaaSPaymentOrderStatusPending && lockedOrder.Status != types.SaaSPaymentOrderStatusFailed {
+			return status.Errorf(status.PreconditionFailed, "payment order cannot be closed")
+		}
+
+		lockedOrder.Status = types.SaaSPaymentOrderStatusClosed
+		lockedOrder.UpdatedAt = now
+		if err := tx.SaveSaaSPaymentOrder(ctx, lockedOrder); err != nil {
+			return err
+		}
+
+		if lockedOrder.PurchaseID != "" {
+			lockedPurchase, err := tx.GetSaaSTrafficPurchase(ctx, store.LockingStrengthUpdate, lockedOrder.PurchaseID)
+			if err != nil {
+				return err
+			}
+			purchase = lockedPurchase
+			if lockedPurchase.AccountID != req.AccountID {
+				return status.Errorf(status.InvalidArgument, "payment order purchase account mismatch")
+			}
+			if lockedPurchase.Status == types.SaaSTrafficPurchaseStatusPending {
+				lockedPurchase.Status = types.SaaSTrafficPurchaseStatusRefunded
+				lockedPurchase.UpdatedAt = now
+				if err := tx.SaveSaaSTrafficPurchase(ctx, lockedPurchase); err != nil {
+					return err
+				}
+			}
+		}
+
+		lockedBill, err := tx.GetSaaSBillByPaymentOrderID(ctx, store.LockingStrengthUpdate, lockedOrder.ID)
+		if err != nil {
+			return err
+		}
+		bill = lockedBill
+		if lockedBill.AccountID != req.AccountID {
+			return status.Errorf(status.InvalidArgument, "payment order bill account mismatch")
+		}
+		if lockedBill.Status == types.SaaSBillStatusOpen {
+			lockedBill.Status = types.SaaSBillStatusVoid
+			lockedBill.UpdatedAt = now
+			if err := tx.SaveSaaSBill(ctx, lockedBill); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	s.Audit.Record(ctx, req.OperatorID, req.OrderID, req.AccountID, activity.SaaSPaymentOrderClosed, map[string]any{
+		"order_id": req.OrderID,
+		"reason":   req.Reason,
+	})
+	return &ClosePaymentOrderResponse{Order: order, Purchase: purchase, Bill: bill}, nil
+}
+
+func (s PaymentService) RecordReconciliation(ctx context.Context, req ReconciliationRequest) (*ReconciliationResponse, error) {
+	if s.Store == nil {
+		return nil, status.Errorf(status.Internal, "store is required")
+	}
+	if req.Provider == "" {
+		req.Provider = types.SaaSPaymentProviderAlipay
+	}
+	if req.Currency == "" {
+		req.Currency = "CNY"
+	}
+	if req.Status == "" {
+		req.Status = types.SaaSReconciliationStatusMatched
+	}
+	if !allowedReconciliationStatus(req.Status) {
+		return nil, status.Errorf(status.InvalidArgument, "invalid reconciliation status")
+	}
+
+	var order *types.SaaSPaymentOrder
+	expectedAmount := int64(0)
+	accountID := req.AccountID
+	if req.OrderID != "" {
+		lockedOrder, err := s.Store.GetSaaSPaymentOrder(ctx, store.LockingStrengthNone, req.OrderID)
+		if err != nil {
+			return nil, err
+		}
+		order = lockedOrder
+		expectedAmount = lockedOrder.AmountCents
+		if accountID == "" {
+			accountID = lockedOrder.AccountID
+		}
+		if accountID != lockedOrder.AccountID {
+			return nil, status.Errorf(status.NotFound, "saas payment order not found")
+		}
+		if req.ProviderTradeNo == "" {
+			req.ProviderTradeNo = lockedOrder.ProviderTradeNo
+		}
+		if req.ActualAmountCents == 0 {
+			req.ActualAmountCents = lockedOrder.AmountCents
+		}
+	}
+	if accountID == "" {
+		return nil, status.Errorf(status.InvalidArgument, "account id is required")
+	}
+	if req.Status == types.SaaSReconciliationStatusMatched && expectedAmount != 0 && req.ActualAmountCents != expectedAmount {
+		req.Status = types.SaaSReconciliationStatusMismatch
+		if req.Reason == "" {
+			req.Reason = "amount mismatch"
+		}
+	}
+	now := time.Now().UTC()
+	record := &types.SaaSReconciliationRecord{
+		ID:                  xid.New().String(),
+		AccountID:           accountID,
+		PaymentOrderID:      req.OrderID,
+		Provider:            req.Provider,
+		ProviderTradeNo:     req.ProviderTradeNo,
+		ExpectedAmountCents: expectedAmount,
+		ActualAmountCents:   req.ActualAmountCents,
+		Currency:            req.Currency,
+		Status:              req.Status,
+		Reason:              req.Reason,
+		OperatorID:          req.OperatorID,
+		RawPayload:          req.RawPayload,
+		CreatedAt:           now,
+		UpdatedAt:           now,
+	}
+	if err := s.Store.SaveSaaSReconciliationRecord(ctx, record); err != nil {
+		return nil, err
+	}
+	s.Audit.Record(ctx, req.OperatorID, record.ID, accountID, activity.SaaSPaymentReconciled, map[string]any{
+		"order_id":              record.PaymentOrderID,
+		"provider_trade_no":     record.ProviderTradeNo,
+		"expected_amount_cents": record.ExpectedAmountCents,
+		"actual_amount_cents":   record.ActualAmountCents,
+		"status":                record.Status,
+		"reason":                record.Reason,
+	})
+	return &ReconciliationResponse{Record: record, Order: order}, nil
+}
+
+func allowedReconciliationStatus(statusValue string) bool {
+	switch statusValue {
+	case types.SaaSReconciliationStatusMatched,
+		types.SaaSReconciliationStatusMismatch,
+		types.SaaSReconciliationStatusMissing:
+		return true
+	default:
+		return false
+	}
 }
 
 func (s PaymentService) CreateAlipayOrder(ctx context.Context, req PaymentOrderRequest) (*PaymentOrderResponse, error) {
@@ -146,6 +477,8 @@ func (s PaymentService) CreateAlipayOrder(ctx context.Context, req PaymentOrderR
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}
+	bill := newTrafficPackageBill(order, purchase, now)
+	billItem := newTrafficPackageBillItem(bill, purchase, order.Subject, now)
 
 	payURL, err := s.buildAlipayPagePayURL(order, req.ReturnURL)
 	if err != nil {
@@ -160,7 +493,13 @@ func (s PaymentService) CreateAlipayOrder(ctx context.Context, req PaymentOrderR
 		if err := tx.SaveSaaSTrafficPurchase(ctx, purchase); err != nil {
 			return err
 		}
-		return tx.SaveSaaSPaymentOrder(ctx, order)
+		if err := tx.SaveSaaSPaymentOrder(ctx, order); err != nil {
+			return err
+		}
+		if err := tx.SaveSaaSBill(ctx, bill); err != nil {
+			return err
+		}
+		return tx.SaveSaaSBillItem(ctx, billItem)
 	}); err != nil {
 		return nil, err
 	}
@@ -226,6 +565,7 @@ func (s PaymentService) ApplyAlipayNotification(ctx context.Context, notificatio
 
 	var order *types.SaaSPaymentOrder
 	var purchase *types.SaaSTrafficPurchase
+	var bill *types.SaaSBill
 	var applied bool
 	now := time.Now().UTC()
 	err := s.Store.ExecuteInTransaction(ctx, func(tx store.Store) error {
@@ -287,6 +627,20 @@ func (s PaymentService) ApplyAlipayNotification(ctx context.Context, notificatio
 		if err := tx.SaveSaaSTrafficPurchase(ctx, purchase); err != nil {
 			return err
 		}
+		lockedBill, err := tx.GetSaaSBillByPaymentOrderID(ctx, store.LockingStrengthUpdate, lockedOrder.ID)
+		if err != nil {
+			return err
+		}
+		bill = lockedBill
+		if bill.AccountID != lockedOrder.AccountID {
+			return status.Errorf(status.InvalidArgument, "payment order bill account mismatch")
+		}
+		bill.Status = types.SaaSBillStatusPaid
+		bill.PaidAt = &now
+		bill.UpdatedAt = now
+		if err := tx.SaveSaaSBill(ctx, bill); err != nil {
+			return err
+		}
 		applied = true
 		return nil
 	})
@@ -316,9 +670,51 @@ func (s PaymentService) ApplyAlipayNotification(ctx context.Context, notificatio
 			meta["high_speed_traffic_bytes"] = purchase.HighSpeedTrafficBytes
 			meta["package_type"] = purchase.PackageType
 		}
+		if bill != nil {
+			meta["bill_id"] = bill.ID
+		}
 		s.Audit.Record(ctx, activity.SystemInitiator, order.ID, order.AccountID, activity.SaaSPaymentSucceeded, meta)
 	}
 	return order, nil
+}
+
+func newTrafficPackageBill(order *types.SaaSPaymentOrder, purchase *types.SaaSTrafficPurchase, now time.Time) *types.SaaSBill {
+	return &types.SaaSBill{
+		ID:              xid.New().String(),
+		AccountID:       order.AccountID,
+		PeriodKey:       now.Format("2006-01"),
+		Status:          types.SaaSBillStatusOpen,
+		SubtotalCents:   order.AmountCents,
+		DiscountCents:   0,
+		TaxCents:        0,
+		TotalCents:      order.AmountCents,
+		Currency:        order.Currency,
+		PaymentProvider: order.Provider,
+		PaymentOrderID:  order.ID,
+		DueAt:           purchase.ValidUntil,
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}
+}
+
+func newTrafficPackageBillItem(bill *types.SaaSBill, purchase *types.SaaSTrafficPurchase, subject string, now time.Time) *types.SaaSBillItem {
+	if subject == "" {
+		subject = "Cloink high-speed traffic package"
+	}
+	return &types.SaaSBillItem{
+		ID:                    xid.New().String(),
+		BillID:                bill.ID,
+		AccountID:             bill.AccountID,
+		ItemType:              types.SaaSBillItemTypeTrafficPackage,
+		Description:           subject,
+		Quantity:              1,
+		UnitAmountCents:       bill.TotalCents,
+		AmountCents:           bill.TotalCents,
+		Currency:              bill.Currency,
+		TrafficPurchaseID:     purchase.ID,
+		HighSpeedTrafficBytes: purchase.HighSpeedTrafficBytes,
+		CreatedAt:             now,
+	}
 }
 
 func (s PaymentService) buildAlipayPagePayURL(order *types.SaaSPaymentOrder, returnURL string) (string, error) {

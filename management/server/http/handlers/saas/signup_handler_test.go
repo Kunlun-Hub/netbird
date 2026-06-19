@@ -397,6 +397,67 @@ func TestAlipayPaymentEndpointsCreateQueryAndApplyNotify(t *testing.T) {
 	}
 }
 
+func TestListBills(t *testing.T) {
+	ctx := context.Background()
+	s, cleanup, err := store.NewTestStoreFromSQL(ctx, "", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+
+	now := time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC)
+	seedPaymentAccount(t, ctx, s, now)
+	bill := &types.SaaSBill{
+		ID:             "bill-a",
+		AccountID:      "account-a",
+		PeriodKey:      "2026-06",
+		Status:         types.SaaSBillStatusPaid,
+		SubtotalCents:  9900,
+		TotalCents:     9900,
+		Currency:       "CNY",
+		PaymentOrderID: "order-a",
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+	if err := s.SaveSaaSBill(ctx, bill); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SaveSaaSBillItem(ctx, &types.SaaSBillItem{
+		ID:                    "bill-item-a",
+		BillID:                bill.ID,
+		AccountID:             bill.AccountID,
+		ItemType:              types.SaaSBillItemTypeTrafficPackage,
+		Description:           "traffic package",
+		Quantity:              1,
+		UnitAmountCents:       9900,
+		AmountCents:           9900,
+		Currency:              "CNY",
+		HighSpeedTrafficBytes: 100 << 30,
+		CreatedAt:             now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	router := mux.NewRouter()
+	AddEndpoints(s, testSaaSConfig(), nil, router, &activity.InMemoryEventStore{})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/saas/bills", nil)
+	req = nbcontext.SetUserAuthInRequest(req, nbauth.UserAuth{UserId: "user-a", AccountId: "account-a"})
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp []saasmanager.BillResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp) != 1 || resp[0].Bill.ID != bill.ID || len(resp[0].Items) != 1 {
+		t.Fatalf("unexpected bills: %+v", resp)
+	}
+}
+
 func testSaaSConfig() nbconfig.SaaSConfig {
 	return nbconfig.SaaSConfig{
 		Enabled:                      true,

@@ -132,7 +132,12 @@ func NewAPIHandler(ctx context.Context, rootRouter *mux.Router, accountManager a
 		rateLimiter,
 		appMetrics.GetMeter(),
 		isValidChildAccount,
-		saasmanager.OrganizationStatusGuard{Store: accountManager.GetStore()}.RequireActive,
+		func(ctx context.Context, accountID string) error {
+			if err := (saasmanager.OrganizationStatusGuard{Store: accountManager.GetStore()}).RequireActive(ctx, accountID); err != nil {
+				return err
+			}
+			return (saasmanager.SubscriptionStatusGuard{Store: accountManager.GetStore()}).RequireActive(ctx, accountID)
+		},
 	)
 
 	corsMiddleware := cors.AllowAll()
@@ -175,7 +180,7 @@ func NewAPIHandler(ctx context.Context, rootRouter *mux.Router, accountManager a
 	users.AddInvitesEndpoints(accountManager, router)
 	users.AddPublicInvitesEndpoints(accountManager, router)
 	saashandler.AddEndpoints(accountManager.GetStore(), saasConfig, embeddedIdP, router, eventStore)
-	platform.AddEndpoints(accountManager.GetStore(), platformRouter, eventStore)
+	platform.AddEndpoints(accountManager.GetStore(), saasConfig, platformRouter, eventStore, emailService)
 	setup_keys.AddEndpoints(accountManager, router)
 	policies.AddEndpoints(accountManager, LocationManager, router)
 	policies.AddPostureCheckEndpoints(accountManager, LocationManager, router)

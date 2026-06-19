@@ -44,6 +44,17 @@ func DefaultTemplates() map[string]types.EmailTemplate {
 <p><a href="{{.approval.url}}">前往审批</a></p>`,
 			BodyText: "有新设备等待审批。\n\n设备：{{.device.name}}\n用户：{{.device.user_email}}\n审批入口：{{.approval.url}}",
 		},
+		string(types.EmailTemplateSubscriptionStatusChanged): {
+			Enabled: true,
+			Subject: "你的订阅状态已更新",
+			BodyHTML: `<p>组织：{{.account.name}}</p>
+<p>订阅状态：{{.subscription.status_label}}</p>
+<p>套餐：{{.subscription.plan}}</p>
+<p>试用结束：{{.subscription.trial_ends_at}}</p>
+<p>到期时间：{{.subscription.expires_at}}</p>
+<p><a href="{{.dashboard.url}}">打开控制台</a></p>`,
+			BodyText: "组织：{{.account.name}}\n订阅状态：{{.subscription.status_label}}\n套餐：{{.subscription.plan}}\n试用结束：{{.subscription.trial_ends_at}}\n到期时间：{{.subscription.expires_at}}\n控制台：{{.dashboard.url}}",
+		},
 	}
 }
 

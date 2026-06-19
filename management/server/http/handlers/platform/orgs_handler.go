@@ -9,17 +9,26 @@ import (
 
 	"github.com/gorilla/mux"
 
+	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/activity"
+	emailmanager "github.com/netbirdio/netbird/management/server/email"
 	saasmanager "github.com/netbirdio/netbird/management/server/saas"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
+	nbdomain "github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/shared/management/http/util"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 type handler struct {
-	store store.Store
-	audit saasmanager.AuditRecorder
+	store  store.Store
+	audit  saasmanager.AuditRecorder
+	email  emailNotifier
+	config nbconfig.SaaSConfig
+}
+
+type emailNotifier interface {
+	Notify(ctx context.Context, accountID string, kind types.EmailTemplateKind, data emailmanager.TemplateData) error
 }
 
 type organization struct {
@@ -33,6 +42,8 @@ type organization struct {
 	PeerCount             int    `json:"peer_count,omitempty"`
 	Plan                  string `json:"plan,omitempty"`
 	SubscriptionStatus    string `json:"subscription_status,omitempty"`
+	TrialEndsAt           string `json:"trial_ends_at,omitempty"`
+	ExpiresAt             string `json:"expires_at,omitempty"`
 	UsersLimit            int    `json:"users_limit,omitempty"`
 	PeersLimit            int    `json:"peers_limit,omitempty"`
 	RelaysLimit           int    `json:"relays_limit,omitempty"`
@@ -53,6 +64,26 @@ type limitsRequest struct {
 	TotalRateLimitMbps    *int   `json:"total_rate_limit_mbps,omitempty"`
 }
 
+type subscriptionRequest struct {
+	Plan        *string    `json:"plan,omitempty"`
+	Status      *string    `json:"status,omitempty"`
+	TrialEndsAt *time.Time `json:"trial_ends_at,omitempty"`
+	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
+}
+
+type renewSubscriptionRequest struct {
+	Plan           string `json:"plan,omitempty"`
+	PeriodDays     int    `json:"period_days,omitempty"`
+	HighSpeedGB    int    `json:"high_speed_gb,omitempty"`
+	OperatorID     string `json:"operator_id,omitempty"`
+	Reason         string `json:"reason,omitempty"`
+	PaymentOrderID string `json:"payment_order_id,omitempty"`
+}
+
+type domainRequest struct {
+	Domain string `json:"domain"`
+}
+
 type menusRequest struct {
 	Menus map[string]bool `json:"menus"`
 }
@@ -63,17 +94,105 @@ type trafficPurchaseRequest struct {
 	CreatedBy             string `json:"created_by,omitempty"`
 }
 
-func AddEndpoints(s store.Store, router *mux.Router, eventStore activity.Store) {
-	h := &handler{store: s, audit: saasmanager.AuditRecorder{Store: eventStore}}
+type refundRequest struct {
+	OrderID       string         `json:"order_id"`
+	RefundTradeNo string         `json:"refund_trade_no,omitempty"`
+	AmountCents   int64          `json:"amount_cents,omitempty"`
+	Reason        string         `json:"reason,omitempty"`
+	OperatorID    string         `json:"operator_id,omitempty"`
+	Payload       map[string]any `json:"payload,omitempty"`
+}
+
+type closePaymentOrderRequest struct {
+	Reason     string `json:"reason,omitempty"`
+	OperatorID string `json:"operator_id,omitempty"`
+}
+
+type reconciliationRequest struct {
+	OrderID           string         `json:"order_id,omitempty"`
+	ProviderTradeNo   string         `json:"provider_trade_no,omitempty"`
+	ActualAmountCents int64          `json:"actual_amount_cents,omitempty"`
+	Currency          string         `json:"currency,omitempty"`
+	Status            string         `json:"status,omitempty"`
+	Reason            string         `json:"reason,omitempty"`
+	OperatorID        string         `json:"operator_id,omitempty"`
+	RawPayload        map[string]any `json:"raw_payload,omitempty"`
+}
+
+type invoiceRequest struct {
+	BillID       string `json:"bill_id,omitempty"`
+	InvoiceTitle string `json:"invoice_title"`
+	TaxID        string `json:"tax_id,omitempty"`
+	Email        string `json:"email,omitempty"`
+	AmountCents  int64  `json:"amount_cents,omitempty"`
+	Currency     string `json:"currency,omitempty"`
+	OperatorID   string `json:"operator_id,omitempty"`
+}
+
+type invoiceUpdateRequest struct {
+	Status     string `json:"status,omitempty"`
+	InvoiceNo  string `json:"invoice_no,omitempty"`
+	InvoiceURL string `json:"invoice_url,omitempty"`
+	Reason     string `json:"reason,omitempty"`
+	OperatorID string `json:"operator_id,omitempty"`
+}
+
+type offlinePaymentRequest struct {
+	Provider        string         `json:"provider,omitempty"`
+	ProviderTradeNo string         `json:"provider_trade_no,omitempty"`
+	AmountCents     int64          `json:"amount_cents"`
+	Currency        string         `json:"currency,omitempty"`
+	Status          string         `json:"status,omitempty"`
+	Plan            string         `json:"plan,omitempty"`
+	PeriodDays      int            `json:"period_days,omitempty"`
+	HighSpeedGB     int            `json:"high_speed_gb,omitempty"`
+	PaymentOrderID  string         `json:"payment_order_id,omitempty"`
+	BillID          string         `json:"bill_id,omitempty"`
+	Note            string         `json:"note,omitempty"`
+	OperatorID      string         `json:"operator_id,omitempty"`
+	Payload         map[string]any `json:"payload,omitempty"`
+}
+
+type autoRenewalAttemptRequest struct {
+	Provider       string         `json:"provider,omitempty"`
+	AmountCents    int64          `json:"amount_cents,omitempty"`
+	Currency       string         `json:"currency,omitempty"`
+	Status         string         `json:"status,omitempty"`
+	PaymentOrderID string         `json:"payment_order_id,omitempty"`
+	Reason         string         `json:"reason,omitempty"`
+	NextRetryAt    *time.Time     `json:"next_retry_at,omitempty"`
+	Payload        map[string]any `json:"payload,omitempty"`
+}
+
+func AddEndpoints(s store.Store, config nbconfig.SaaSConfig, router *mux.Router, eventStore activity.Store, emailSvc emailNotifier) {
+	config.ApplyDefaults()
+	h := &handler{store: s, audit: saasmanager.AuditRecorder{Store: eventStore}, email: emailSvc, config: config}
 	router.HandleFunc("/platform/orgs", h.listOrganizations).Methods(http.MethodGet, http.MethodOptions)
+	router.HandleFunc("/platform/orgs/subscriptions/lifecycle", h.processSubscriptionLifecycle).Methods(http.MethodPost, http.MethodOptions)
 	router.HandleFunc("/platform/orgs/{accountId}", h.getOrganization).Methods(http.MethodGet, http.MethodOptions)
 	router.HandleFunc("/platform/orgs/{accountId}/suspend", h.suspendOrganization).Methods(http.MethodPost, http.MethodOptions)
 	router.HandleFunc("/platform/orgs/{accountId}/resume", h.resumeOrganization).Methods(http.MethodPost, http.MethodOptions)
 	router.HandleFunc("/platform/orgs/{accountId}/limits", h.updateLimits).Methods(http.MethodPatch, http.MethodOptions)
+	router.HandleFunc("/platform/orgs/{accountId}/subscription", h.updateSubscription).Methods(http.MethodPatch, http.MethodOptions)
+	router.HandleFunc("/platform/orgs/{accountId}/subscription/renew", h.renewSubscription).Methods(http.MethodPost, http.MethodOptions)
+	router.HandleFunc("/platform/orgs/{accountId}/domain", h.updateDomain).Methods(http.MethodPatch, http.MethodOptions)
 	router.HandleFunc("/platform/orgs/{accountId}/menus", h.updateMenus).Methods(http.MethodPatch, http.MethodOptions)
 	router.HandleFunc("/platform/orgs/{accountId}/usage", h.getUsage).Methods(http.MethodGet, http.MethodOptions)
 	router.HandleFunc("/platform/orgs/{accountId}/traffic-purchases", h.createTrafficPurchase).Methods(http.MethodPost, http.MethodOptions)
 	router.HandleFunc("/platform/orgs/{accountId}/payment-orders", h.listPaymentOrders).Methods(http.MethodGet, http.MethodOptions)
+	router.HandleFunc("/platform/orgs/{accountId}/payment-orders/{orderId}/close", h.closePaymentOrder).Methods(http.MethodPost, http.MethodOptions)
+	router.HandleFunc("/platform/orgs/{accountId}/bills", h.listBills).Methods(http.MethodGet, http.MethodOptions)
+	router.HandleFunc("/platform/orgs/{accountId}/refunds", h.createRefund).Methods(http.MethodPost, http.MethodOptions)
+	router.HandleFunc("/platform/orgs/{accountId}/refunds", h.listRefunds).Methods(http.MethodGet, http.MethodOptions)
+	router.HandleFunc("/platform/orgs/{accountId}/reconciliation-records", h.createReconciliationRecord).Methods(http.MethodPost, http.MethodOptions)
+	router.HandleFunc("/platform/orgs/{accountId}/reconciliation-records", h.listReconciliationRecords).Methods(http.MethodGet, http.MethodOptions)
+	router.HandleFunc("/platform/orgs/{accountId}/invoices", h.createInvoiceRequest).Methods(http.MethodPost, http.MethodOptions)
+	router.HandleFunc("/platform/orgs/{accountId}/invoices", h.listInvoiceRequests).Methods(http.MethodGet, http.MethodOptions)
+	router.HandleFunc("/platform/orgs/{accountId}/invoices/{invoiceId}", h.updateInvoiceRequest).Methods(http.MethodPatch, http.MethodOptions)
+	router.HandleFunc("/platform/orgs/{accountId}/offline-payments", h.createOfflinePayment).Methods(http.MethodPost, http.MethodOptions)
+	router.HandleFunc("/platform/orgs/{accountId}/offline-payments", h.listOfflinePayments).Methods(http.MethodGet, http.MethodOptions)
+	router.HandleFunc("/platform/orgs/{accountId}/auto-renewal-attempts", h.createAutoRenewalAttempt).Methods(http.MethodPost, http.MethodOptions)
+	router.HandleFunc("/platform/orgs/{accountId}/auto-renewal-attempts", h.listAutoRenewalAttempts).Methods(http.MethodGet, http.MethodOptions)
 }
 
 func (h *handler) listOrganizations(w http.ResponseWriter, r *http.Request) {
@@ -219,6 +338,174 @@ func (h *handler) updateLimits(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (h *handler) updateSubscription(w http.ResponseWriter, r *http.Request) {
+	accountID := mux.Vars(r)["accountId"]
+	if accountID == "" {
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "account id is required"), w)
+		return
+	}
+	var req subscriptionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		util.WriteErrorResponse("invalid request body", http.StatusBadRequest, w)
+		return
+	}
+
+	subscription, err := h.store.GetSaaSSubscription(r.Context(), store.LockingStrengthUpdate, accountID)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	if req.Plan != nil {
+		subscription.Plan = strings.TrimSpace(*req.Plan)
+	}
+	if req.Status != nil {
+		statusValue := strings.TrimSpace(*req.Status)
+		if !isAllowedSubscriptionStatus(statusValue) {
+			util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid subscription status"), w)
+			return
+		}
+		subscription.Status = statusValue
+	}
+	if req.TrialEndsAt != nil {
+		trialEndsAt := req.TrialEndsAt.UTC()
+		subscription.TrialEndsAt = &trialEndsAt
+	}
+	if req.ExpiresAt != nil {
+		expiresAt := req.ExpiresAt.UTC()
+		subscription.ExpiresAt = &expiresAt
+	}
+
+	subscription.UpdatedAt = time.Now().UTC()
+	if err := h.store.SaveSaaSSubscription(r.Context(), subscription); err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+	h.audit.Record(r.Context(), activity.SystemInitiator, accountID, accountID, activity.SaaSLimitsUpdated, map[string]any{
+		"plan":          subscription.Plan,
+		"status":        subscription.Status,
+		"trial_ends_at": formatTimePtr(subscription.TrialEndsAt),
+		"expires_at":    formatTimePtr(subscription.ExpiresAt),
+	})
+	if h.email != nil {
+		saasmanager.SubscriptionNotifier{Store: h.store, Email: h.email}.NotifyChanged(r.Context(), accountID)
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *handler) renewSubscription(w http.ResponseWriter, r *http.Request) {
+	accountID := mux.Vars(r)["accountId"]
+	if accountID == "" {
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "account id is required"), w)
+		return
+	}
+	var req renewSubscriptionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		util.WriteErrorResponse("invalid request body", http.StatusBadRequest, w)
+		return
+	}
+	resp, err := (saasmanager.SubscriptionLifecycleService{
+		Store:    h.store,
+		Config:   h.config,
+		Audit:    h.audit,
+		Notifier: saasmanager.SubscriptionNotifier{Store: h.store, Email: h.email},
+	}).Renew(r.Context(), saasmanager.RenewSubscriptionRequest{
+		AccountID:      accountID,
+		Plan:           strings.TrimSpace(req.Plan),
+		PeriodDays:     req.PeriodDays,
+		HighSpeedGB:    req.HighSpeedGB,
+		OperatorID:     req.OperatorID,
+		Reason:         req.Reason,
+		PaymentOrderID: req.PaymentOrderID,
+	})
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+	util.WriteJSONObject(r.Context(), w, resp)
+}
+
+func (h *handler) processSubscriptionLifecycle(w http.ResponseWriter, r *http.Request) {
+	resp, err := (saasmanager.SubscriptionLifecycleService{
+		Store:    h.store,
+		Config:   h.config,
+		Audit:    h.audit,
+		Notifier: saasmanager.SubscriptionNotifier{Store: h.store, Email: h.email},
+	}).Process(r.Context())
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+	util.WriteJSONObject(r.Context(), w, resp)
+}
+
+func isAllowedSubscriptionStatus(statusValue string) bool {
+	switch statusValue {
+	case types.SaaSSubscriptionStatusActive,
+		types.SaaSSubscriptionStatusTrialing,
+		types.SaaSSubscriptionStatusPastDue,
+		types.SaaSSubscriptionStatusSuspended,
+		types.SaaSSubscriptionStatusCanceled:
+		return true
+	default:
+		return false
+	}
+}
+
+func (h *handler) updateDomain(w http.ResponseWriter, r *http.Request) {
+	accountID := mux.Vars(r)["accountId"]
+	if accountID == "" {
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "account id is required"), w)
+		return
+	}
+	var req domainRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		util.WriteErrorResponse("invalid request body", http.StatusBadRequest, w)
+		return
+	}
+
+	org, err := h.store.GetSaaSOrganizationByAccountID(r.Context(), store.LockingStrengthNone, accountID)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+	domain, err := normalizeOrganizationDomain(req.Domain)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+	if domain == org.Domain {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	slug := org.Slug
+	if candidate := strings.Split(domain, ".")[0]; saasmanager.ValidSlug(candidate) && !saasmanager.IsReservedSlug(candidate) {
+		slug = candidate
+	}
+	if err := h.store.UpdateSaaSOrganizationDomain(r.Context(), accountID, slug, domain); err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+	h.audit.Record(r.Context(), activity.SystemInitiator, accountID, accountID, activity.SaaSOrganizationDomainUpdated, map[string]any{
+		"old_domain": org.Domain,
+		"new_domain": domain,
+		"old_slug":   org.Slug,
+		"new_slug":   slug,
+	})
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func normalizeOrganizationDomain(value string) (string, error) {
+	normalized := strings.Trim(strings.ToLower(strings.TrimSpace(value)), ".")
+	if normalized == "" {
+		return "", status.Errorf(status.InvalidArgument, "organization domain is required")
+	}
+	if strings.HasPrefix(normalized, "*.") || !nbdomain.IsValidDomainNoWildcard(normalized) {
+		return "", status.Errorf(status.InvalidArgument, "invalid organization domain")
+	}
+	return normalized, nil
+}
+
 func (h *handler) updateMenus(w http.ResponseWriter, r *http.Request) {
 	accountID := mux.Vars(r)["accountId"]
 	if accountID == "" {
@@ -324,6 +611,307 @@ func (h *handler) listPaymentOrders(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(r.Context(), w, orders)
 }
 
+func (h *handler) closePaymentOrder(w http.ResponseWriter, r *http.Request) {
+	accountID := mux.Vars(r)["accountId"]
+	orderID := mux.Vars(r)["orderId"]
+	if accountID == "" || orderID == "" {
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "account id and order id are required"), w)
+		return
+	}
+	var req closePaymentOrderRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		util.WriteErrorResponse("invalid request body", http.StatusBadRequest, w)
+		return
+	}
+	resp, err := (saasmanager.PaymentService{Store: h.store, Audit: h.audit}).ClosePaymentOrder(r.Context(), saasmanager.ClosePaymentOrderRequest{
+		AccountID:  accountID,
+		OrderID:    orderID,
+		Reason:     req.Reason,
+		OperatorID: req.OperatorID,
+	})
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+	util.WriteJSONObject(r.Context(), w, resp)
+}
+
+func (h *handler) listBills(w http.ResponseWriter, r *http.Request) {
+	accountID := mux.Vars(r)["accountId"]
+	if accountID == "" {
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "account id is required"), w)
+		return
+	}
+	resp, err := (saasmanager.BillingService{Store: h.store}).ListBills(r.Context(), accountID)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+	util.WriteJSONObject(r.Context(), w, resp)
+}
+
+func (h *handler) createRefund(w http.ResponseWriter, r *http.Request) {
+	accountID := mux.Vars(r)["accountId"]
+	if accountID == "" {
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "account id is required"), w)
+		return
+	}
+	var req refundRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		util.WriteErrorResponse("invalid request body", http.StatusBadRequest, w)
+		return
+	}
+	resp, err := (saasmanager.PaymentService{Store: h.store, Audit: h.audit}).RefundPaymentOrder(r.Context(), saasmanager.RefundRequest{
+		AccountID:       accountID,
+		OrderID:         req.OrderID,
+		RefundTradeNo:   req.RefundTradeNo,
+		AmountCents:     req.AmountCents,
+		Reason:          req.Reason,
+		OperatorID:      req.OperatorID,
+		ProviderPayload: req.Payload,
+	})
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+	util.WriteJSONObject(r.Context(), w, resp)
+}
+
+func (h *handler) listRefunds(w http.ResponseWriter, r *http.Request) {
+	accountID := mux.Vars(r)["accountId"]
+	if accountID == "" {
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "account id is required"), w)
+		return
+	}
+	if _, err := h.store.GetSaaSOrganizationByAccountID(r.Context(), store.LockingStrengthNone, accountID); err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+	refunds, err := h.store.ListSaaSPaymentRefunds(r.Context(), store.LockingStrengthNone, accountID)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+	util.WriteJSONObject(r.Context(), w, refunds)
+}
+
+func (h *handler) createReconciliationRecord(w http.ResponseWriter, r *http.Request) {
+	accountID := mux.Vars(r)["accountId"]
+	if accountID == "" {
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "account id is required"), w)
+		return
+	}
+	var req reconciliationRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		util.WriteErrorResponse("invalid request body", http.StatusBadRequest, w)
+		return
+	}
+	resp, err := (saasmanager.PaymentService{Store: h.store, Audit: h.audit}).RecordReconciliation(r.Context(), saasmanager.ReconciliationRequest{
+		AccountID:         accountID,
+		OrderID:           req.OrderID,
+		Provider:          types.SaaSPaymentProviderAlipay,
+		ProviderTradeNo:   req.ProviderTradeNo,
+		ActualAmountCents: req.ActualAmountCents,
+		Currency:          req.Currency,
+		Status:            req.Status,
+		Reason:            req.Reason,
+		OperatorID:        req.OperatorID,
+		RawPayload:        req.RawPayload,
+	})
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+	util.WriteJSONObject(r.Context(), w, resp)
+}
+
+func (h *handler) listReconciliationRecords(w http.ResponseWriter, r *http.Request) {
+	accountID := mux.Vars(r)["accountId"]
+	if accountID == "" {
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "account id is required"), w)
+		return
+	}
+	if _, err := h.store.GetSaaSOrganizationByAccountID(r.Context(), store.LockingStrengthNone, accountID); err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+	records, err := h.store.ListSaaSReconciliationRecords(r.Context(), store.LockingStrengthNone, accountID)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+	util.WriteJSONObject(r.Context(), w, records)
+}
+
+func (h *handler) createInvoiceRequest(w http.ResponseWriter, r *http.Request) {
+	accountID := mux.Vars(r)["accountId"]
+	if accountID == "" {
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "account id is required"), w)
+		return
+	}
+	var req invoiceRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		util.WriteErrorResponse("invalid request body", http.StatusBadRequest, w)
+		return
+	}
+	invoice, err := (saasmanager.FinanceService{Store: h.store, Audit: h.audit}).RequestInvoice(r.Context(), saasmanager.InvoiceRequestInput{
+		AccountID:    accountID,
+		BillID:       req.BillID,
+		InvoiceTitle: req.InvoiceTitle,
+		TaxID:        req.TaxID,
+		Email:        req.Email,
+		AmountCents:  req.AmountCents,
+		Currency:     req.Currency,
+		OperatorID:   req.OperatorID,
+	})
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+	util.WriteJSONObject(r.Context(), w, invoice)
+}
+
+func (h *handler) updateInvoiceRequest(w http.ResponseWriter, r *http.Request) {
+	accountID := mux.Vars(r)["accountId"]
+	invoiceID := mux.Vars(r)["invoiceId"]
+	if accountID == "" || invoiceID == "" {
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "account id and invoice id are required"), w)
+		return
+	}
+	var req invoiceUpdateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		util.WriteErrorResponse("invalid request body", http.StatusBadRequest, w)
+		return
+	}
+	invoice, err := (saasmanager.FinanceService{Store: h.store, Audit: h.audit}).UpdateInvoice(r.Context(), saasmanager.InvoiceUpdateInput{
+		AccountID:  accountID,
+		InvoiceID:  invoiceID,
+		Status:     req.Status,
+		InvoiceNo:  req.InvoiceNo,
+		InvoiceURL: req.InvoiceURL,
+		Reason:     req.Reason,
+		OperatorID: req.OperatorID,
+	})
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+	util.WriteJSONObject(r.Context(), w, invoice)
+}
+
+func (h *handler) listInvoiceRequests(w http.ResponseWriter, r *http.Request) {
+	accountID := mux.Vars(r)["accountId"]
+	if accountID == "" {
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "account id is required"), w)
+		return
+	}
+	invoices, err := h.store.ListSaaSInvoiceRequests(r.Context(), store.LockingStrengthNone, accountID)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+	util.WriteJSONObject(r.Context(), w, invoices)
+}
+
+func (h *handler) createOfflinePayment(w http.ResponseWriter, r *http.Request) {
+	accountID := mux.Vars(r)["accountId"]
+	if accountID == "" {
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "account id is required"), w)
+		return
+	}
+	var req offlinePaymentRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		util.WriteErrorResponse("invalid request body", http.StatusBadRequest, w)
+		return
+	}
+	record, err := (saasmanager.FinanceService{
+		Store:    h.store,
+		Audit:    h.audit,
+		Notifier: saasmanager.SubscriptionNotifier{Store: h.store, Email: h.email},
+	}).RecordOfflinePayment(r.Context(), saasmanager.OfflinePaymentInput{
+		AccountID:       accountID,
+		Provider:        req.Provider,
+		ProviderTradeNo: req.ProviderTradeNo,
+		AmountCents:     req.AmountCents,
+		Currency:        req.Currency,
+		Status:          req.Status,
+		Plan:            req.Plan,
+		PeriodDays:      req.PeriodDays,
+		HighSpeedGB:     req.HighSpeedGB,
+		PaymentOrderID:  req.PaymentOrderID,
+		BillID:          req.BillID,
+		Note:            req.Note,
+		OperatorID:      req.OperatorID,
+		Payload:         req.Payload,
+	})
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+	util.WriteJSONObject(r.Context(), w, record)
+}
+
+func (h *handler) listOfflinePayments(w http.ResponseWriter, r *http.Request) {
+	accountID := mux.Vars(r)["accountId"]
+	if accountID == "" {
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "account id is required"), w)
+		return
+	}
+	records, err := h.store.ListSaaSOfflinePaymentRecords(r.Context(), store.LockingStrengthNone, accountID)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+	util.WriteJSONObject(r.Context(), w, records)
+}
+
+func (h *handler) createAutoRenewalAttempt(w http.ResponseWriter, r *http.Request) {
+	accountID := mux.Vars(r)["accountId"]
+	if accountID == "" {
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "account id is required"), w)
+		return
+	}
+	var req autoRenewalAttemptRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		util.WriteErrorResponse("invalid request body", http.StatusBadRequest, w)
+		return
+	}
+	attempt, err := (saasmanager.FinanceService{
+		Store:    h.store,
+		Audit:    h.audit,
+		Notifier: saasmanager.SubscriptionNotifier{Store: h.store, Email: h.email},
+	}).RecordAutoRenewalAttempt(r.Context(), saasmanager.AutoRenewalAttemptInput{
+		AccountID:      accountID,
+		Provider:       req.Provider,
+		AmountCents:    req.AmountCents,
+		Currency:       req.Currency,
+		Status:         req.Status,
+		PaymentOrderID: req.PaymentOrderID,
+		Reason:         req.Reason,
+		NextRetryAt:    req.NextRetryAt,
+		Payload:        req.Payload,
+	})
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+	util.WriteJSONObject(r.Context(), w, attempt)
+}
+
+func (h *handler) listAutoRenewalAttempts(w http.ResponseWriter, r *http.Request) {
+	accountID := mux.Vars(r)["accountId"]
+	if accountID == "" {
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "account id is required"), w)
+		return
+	}
+	attempts, err := h.store.ListSaaSAutoRenewalAttempts(r.Context(), store.LockingStrengthNone, accountID)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+	util.WriteJSONObject(r.Context(), w, attempts)
+}
+
 func (h *handler) organizationDetails(ctx context.Context, accountID string) (*organization, error) {
 	org, err := h.store.GetSaaSOrganizationByAccountID(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
@@ -361,6 +949,8 @@ func (h *handler) organizationDetails(ctx context.Context, accountID string) (*o
 		PeerCount:             len(peers),
 		Plan:                  subscription.Plan,
 		SubscriptionStatus:    subscription.Status,
+		TrialEndsAt:           formatTimePtr(subscription.TrialEndsAt),
+		ExpiresAt:             formatTimePtr(subscription.ExpiresAt),
 		UsersLimit:            subscription.UsersLimit,
 		PeersLimit:            subscription.PeersLimit,
 		RelaysLimit:           subscription.RelaysLimit,
@@ -371,4 +961,11 @@ func (h *handler) organizationDetails(ctx context.Context, accountID string) (*o
 		FairShareEnabled:      policy.FairShareEnabled,
 		OwnerEmail:            owner.Email,
 	}, nil
+}
+
+func formatTimePtr(t *time.Time) string {
+	if t == nil || t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339)
 }

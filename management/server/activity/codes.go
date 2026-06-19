@@ -248,16 +248,26 @@ const (
 	// WorkbenchResourceLaunched indicates that a user launched a workbench resource.
 	WorkbenchResourceLaunched Activity = 126
 
-	SaaSOrganizationRegistered Activity = 127
-	SaaSOrganizationSuspended  Activity = 128
-	SaaSOrganizationResumed    Activity = 129
-	SaaSLimitsUpdated          Activity = 130
-	SaaSBandwidthUpdated       Activity = 131
-	SaaSTrafficPurchaseGranted Activity = 132
-	SaaSPaymentOrderCreated    Activity = 133
-	SaaSPaymentSucceeded       Activity = 134
-	SaaSPaymentFailed          Activity = 135
-	SaaSMenuVisibilityUpdated  Activity = 136
+	SaaSOrganizationRegistered       Activity = 127
+	SaaSOrganizationSuspended        Activity = 128
+	SaaSOrganizationResumed          Activity = 129
+	SaaSLimitsUpdated                Activity = 130
+	SaaSBandwidthUpdated             Activity = 131
+	SaaSTrafficPurchaseGranted       Activity = 132
+	SaaSPaymentOrderCreated          Activity = 133
+	SaaSPaymentSucceeded             Activity = 134
+	SaaSPaymentFailed                Activity = 135
+	SaaSMenuVisibilityUpdated        Activity = 136
+	SaaSOrganizationDomainUpdated    Activity = 137
+	SaaSPaymentRefunded              Activity = 138
+	SaaSPaymentReconciled            Activity = 139
+	SaaSPaymentOrderClosed           Activity = 140
+	SaaSSubscriptionLifecycleUpdated Activity = 141
+	SaaSSubscriptionRenewed          Activity = 142
+	SaaSInvoiceRequested             Activity = 143
+	SaaSInvoiceUpdated               Activity = 144
+	SaaSOfflinePaymentRecorded       Activity = 145
+	SaaSAutoRenewalAttempted         Activity = 146
 
 	AccountDeleted Activity = 99999
 )
@@ -420,16 +430,26 @@ var activityMap = map[Activity]Code{
 	DomainDeleted:   {"Domain deleted", "domain.delete"},
 	DomainValidated: {"Domain validated", "domain.validate"},
 
-	SaaSOrganizationRegistered: {"SaaS organization registered", "saas.organization.register"},
-	SaaSOrganizationSuspended:  {"SaaS organization suspended", "saas.organization.suspend"},
-	SaaSOrganizationResumed:    {"SaaS organization resumed", "saas.organization.resume"},
-	SaaSLimitsUpdated:          {"SaaS organization limits updated", "saas.organization.limits.update"},
-	SaaSBandwidthUpdated:       {"SaaS organization bandwidth updated", "saas.organization.bandwidth.update"},
-	SaaSTrafficPurchaseGranted: {"SaaS traffic purchase granted", "saas.traffic.purchase.grant"},
-	SaaSPaymentOrderCreated:    {"SaaS payment order created", "saas.payment.order.create"},
-	SaaSPaymentSucceeded:       {"SaaS payment succeeded", "saas.payment.succeed"},
-	SaaSPaymentFailed:          {"SaaS payment failed", "saas.payment.fail"},
-	SaaSMenuVisibilityUpdated:  {"SaaS menu visibility updated", "saas.menu.visibility.update"},
+	SaaSOrganizationRegistered:       {"SaaS organization registered", "saas.organization.register"},
+	SaaSOrganizationSuspended:        {"SaaS organization suspended", "saas.organization.suspend"},
+	SaaSOrganizationResumed:          {"SaaS organization resumed", "saas.organization.resume"},
+	SaaSLimitsUpdated:                {"SaaS organization limits updated", "saas.organization.limits.update"},
+	SaaSBandwidthUpdated:             {"SaaS organization bandwidth updated", "saas.organization.bandwidth.update"},
+	SaaSTrafficPurchaseGranted:       {"SaaS traffic purchase granted", "saas.traffic.purchase.grant"},
+	SaaSPaymentOrderCreated:          {"SaaS payment order created", "saas.payment.order.create"},
+	SaaSPaymentSucceeded:             {"SaaS payment succeeded", "saas.payment.succeed"},
+	SaaSPaymentFailed:                {"SaaS payment failed", "saas.payment.fail"},
+	SaaSMenuVisibilityUpdated:        {"SaaS menu visibility updated", "saas.menu.visibility.update"},
+	SaaSOrganizationDomainUpdated:    {"SaaS organization domain updated", "saas.organization.domain.update"},
+	SaaSPaymentRefunded:              {"SaaS payment refunded", "saas.payment.refund"},
+	SaaSPaymentReconciled:            {"SaaS payment reconciled", "saas.payment.reconcile"},
+	SaaSPaymentOrderClosed:           {"SaaS payment order closed", "saas.payment.order.close"},
+	SaaSSubscriptionLifecycleUpdated: {"SaaS subscription lifecycle updated", "saas.subscription.lifecycle.update"},
+	SaaSSubscriptionRenewed:          {"SaaS subscription renewed", "saas.subscription.renew"},
+	SaaSInvoiceRequested:             {"SaaS invoice requested", "saas.invoice.request"},
+	SaaSInvoiceUpdated:               {"SaaS invoice updated", "saas.invoice.update"},
+	SaaSOfflinePaymentRecorded:       {"SaaS offline payment recorded", "saas.payment.offline.record"},
+	SaaSAutoRenewalAttempted:         {"SaaS auto renewal attempted", "saas.subscription.auto_renew.attempt"},
 }
 
 // StringCode returns a string code of the activity

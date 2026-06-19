@@ -11,11 +11,12 @@ import (
 type EmailTemplateKind string
 
 const (
-	EmailTemplateInviteUser            EmailTemplateKind = "invite_user"
-	EmailTemplateCreateUser            EmailTemplateKind = "create_user"
-	EmailTemplateInviteAccepted        EmailTemplateKind = "invite_accepted"
-	EmailTemplateUserPendingApproval   EmailTemplateKind = "user_pending_approval"
-	EmailTemplateDevicePendingApproval EmailTemplateKind = "device_pending_approval"
+	EmailTemplateInviteUser                EmailTemplateKind = "invite_user"
+	EmailTemplateCreateUser                EmailTemplateKind = "create_user"
+	EmailTemplateInviteAccepted            EmailTemplateKind = "invite_accepted"
+	EmailTemplateUserPendingApproval       EmailTemplateKind = "user_pending_approval"
+	EmailTemplateDevicePendingApproval     EmailTemplateKind = "device_pending_approval"
+	EmailTemplateSubscriptionStatusChanged EmailTemplateKind = "subscription_status_changed"
 )
 
 const (

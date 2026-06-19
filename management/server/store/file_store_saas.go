@@ -27,6 +27,10 @@ func (s *FileStore) ListSaaSOrganizations(ctx context.Context, lockStrength Lock
 	return nil, errSaaSUnsupported()
 }
 
+func (s *FileStore) UpdateSaaSOrganizationDomain(ctx context.Context, accountID, slug, domain string) error {
+	return errSaaSUnsupported()
+}
+
 func (s *FileStore) DeleteSaaSDataByAccountID(ctx context.Context, accountID string) error {
 	return errSaaSUnsupported()
 }
@@ -92,5 +96,69 @@ func (s *FileStore) GetSaaSPaymentOrderByProviderTradeNo(ctx context.Context, lo
 }
 
 func (s *FileStore) ListSaaSPaymentOrders(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.SaaSPaymentOrder, error) {
+	return nil, errSaaSUnsupported()
+}
+
+func (s *FileStore) SaveSaaSBill(ctx context.Context, bill *types.SaaSBill) error {
+	return errSaaSUnsupported()
+}
+
+func (s *FileStore) GetSaaSBill(ctx context.Context, lockStrength LockingStrength, billID string) (*types.SaaSBill, error) {
+	return nil, errSaaSUnsupported()
+}
+
+func (s *FileStore) GetSaaSBillByPaymentOrderID(ctx context.Context, lockStrength LockingStrength, paymentOrderID string) (*types.SaaSBill, error) {
+	return nil, errSaaSUnsupported()
+}
+
+func (s *FileStore) ListSaaSBills(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.SaaSBill, error) {
+	return nil, errSaaSUnsupported()
+}
+
+func (s *FileStore) SaveSaaSBillItem(ctx context.Context, item *types.SaaSBillItem) error {
+	return errSaaSUnsupported()
+}
+
+func (s *FileStore) ListSaaSBillItems(ctx context.Context, lockStrength LockingStrength, billID string) ([]*types.SaaSBillItem, error) {
+	return nil, errSaaSUnsupported()
+}
+
+func (s *FileStore) SaveSaaSPaymentRefund(ctx context.Context, refund *types.SaaSPaymentRefund) error {
+	return errSaaSUnsupported()
+}
+
+func (s *FileStore) ListSaaSPaymentRefunds(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.SaaSPaymentRefund, error) {
+	return nil, errSaaSUnsupported()
+}
+
+func (s *FileStore) SaveSaaSReconciliationRecord(ctx context.Context, record *types.SaaSReconciliationRecord) error {
+	return errSaaSUnsupported()
+}
+
+func (s *FileStore) ListSaaSReconciliationRecords(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.SaaSReconciliationRecord, error) {
+	return nil, errSaaSUnsupported()
+}
+
+func (s *FileStore) SaveSaaSInvoiceRequest(ctx context.Context, invoice *types.SaaSInvoiceRequest) error {
+	return errSaaSUnsupported()
+}
+
+func (s *FileStore) ListSaaSInvoiceRequests(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.SaaSInvoiceRequest, error) {
+	return nil, errSaaSUnsupported()
+}
+
+func (s *FileStore) SaveSaaSOfflinePaymentRecord(ctx context.Context, record *types.SaaSOfflinePaymentRecord) error {
+	return errSaaSUnsupported()
+}
+
+func (s *FileStore) ListSaaSOfflinePaymentRecords(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.SaaSOfflinePaymentRecord, error) {
+	return nil, errSaaSUnsupported()
+}
+
+func (s *FileStore) SaveSaaSAutoRenewalAttempt(ctx context.Context, attempt *types.SaaSAutoRenewalAttempt) error {
+	return errSaaSUnsupported()
+}
+
+func (s *FileStore) ListSaaSAutoRenewalAttempts(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.SaaSAutoRenewalAttempt, error) {
 	return nil, errSaaSUnsupported()
 }

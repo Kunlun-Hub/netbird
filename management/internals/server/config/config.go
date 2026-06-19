@@ -297,6 +297,8 @@ type SaaSConfig struct {
 	DefaultTotalRateLimitMbps    int
 	DefaultStandardRateLimitMbps int
 	ForceRelayForTrafficBilling  bool
+	SubscriptionGracePeriodDays  int
+	SubscriptionCancelAfterDays  int
 	Payment                      SaaSPaymentConfig
 }
 
@@ -322,6 +324,12 @@ func (c *SaaSConfig) ApplyDefaults() {
 	}
 	if c.DefaultStandardRateLimitMbps == 0 {
 		c.DefaultStandardRateLimitMbps = 10
+	}
+	if c.SubscriptionGracePeriodDays == 0 {
+		c.SubscriptionGracePeriodDays = 7
+	}
+	if c.SubscriptionCancelAfterDays == 0 {
+		c.SubscriptionCancelAfterDays = 30
 	}
 	if c.RootDomain != "" && c.OrganizationDomainSuffix == "" {
 		c.OrganizationDomainSuffix = c.RootDomain

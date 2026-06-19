@@ -76,6 +76,7 @@ func AddEndpoints(s store.Store, config nbconfig.SaaSConfig, idpManager password
 	router.HandleFunc("/saas/payments/alipay/orders", h.createAlipayOrder).Methods(http.MethodPost, http.MethodOptions)
 	router.HandleFunc("/saas/payments/alipay/notify", h.alipayNotify).Methods(http.MethodPost, http.MethodOptions)
 	router.HandleFunc("/saas/payments/orders/{orderId}", h.getPaymentOrder).Methods(http.MethodGet, http.MethodOptions)
+	router.HandleFunc("/saas/bills", h.listBills).Methods(http.MethodGet, http.MethodOptions)
 }
 
 func (h *handler) signup(w http.ResponseWriter, r *http.Request) {
@@ -210,6 +211,20 @@ func (h *handler) getPaymentOrder(w http.ResponseWriter, r *http.Request) {
 	}
 	orderID := mux.Vars(r)["orderId"]
 	resp, err := (saasmanager.PaymentService{Store: h.store, Config: h.config.Payment}).GetPaymentOrder(r.Context(), userAuth.AccountId, orderID)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+	util.WriteJSONObject(r.Context(), w, resp)
+}
+
+func (h *handler) listBills(w http.ResponseWriter, r *http.Request) {
+	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+	if err != nil {
+		util.WriteError(r.Context(), status.Errorf(status.Unauthorized, "user is not authenticated"), w)
+		return
+	}
+	resp, err := (saasmanager.BillingService{Store: h.store}).ListBills(r.Context(), userAuth.AccountId)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return

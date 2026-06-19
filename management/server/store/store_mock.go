@@ -2329,6 +2329,36 @@ func (mr *MockStoreMockRecorder) GetSaaSBandwidthPolicy(ctx, lockStrength, accou
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSaaSBandwidthPolicy", reflect.TypeOf((*MockStore)(nil).GetSaaSBandwidthPolicy), ctx, lockStrength, accountID)
 }
 
+// GetSaaSBill mocks base method.
+func (m *MockStore) GetSaaSBill(ctx context.Context, lockStrength LockingStrength, billID string) (*types2.SaaSBill, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSaaSBill", ctx, lockStrength, billID)
+	ret0, _ := ret[0].(*types2.SaaSBill)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetSaaSBill indicates an expected call of GetSaaSBill.
+func (mr *MockStoreMockRecorder) GetSaaSBill(ctx, lockStrength, billID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSaaSBill", reflect.TypeOf((*MockStore)(nil).GetSaaSBill), ctx, lockStrength, billID)
+}
+
+// GetSaaSBillByPaymentOrderID mocks base method.
+func (m *MockStore) GetSaaSBillByPaymentOrderID(ctx context.Context, lockStrength LockingStrength, paymentOrderID string) (*types2.SaaSBill, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSaaSBillByPaymentOrderID", ctx, lockStrength, paymentOrderID)
+	ret0, _ := ret[0].(*types2.SaaSBill)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetSaaSBillByPaymentOrderID indicates an expected call of GetSaaSBillByPaymentOrderID.
+func (mr *MockStoreMockRecorder) GetSaaSBillByPaymentOrderID(ctx, lockStrength, paymentOrderID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSaaSBillByPaymentOrderID", reflect.TypeOf((*MockStore)(nil).GetSaaSBillByPaymentOrderID), ctx, lockStrength, paymentOrderID)
+}
+
 // GetSaaSOrgMenuVisibility mocks base method.
 func (m *MockStore) GetSaaSOrgMenuVisibility(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types2.SaaSOrgMenuVisibility, error) {
 	m.ctrl.T.Helper()
@@ -2942,6 +2972,81 @@ func (mr *MockStoreMockRecorder) ListFreeDomains(ctx, accountID interface{}) *go
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListFreeDomains", reflect.TypeOf((*MockStore)(nil).ListFreeDomains), ctx, accountID)
 }
 
+// ListSaaSAutoRenewalAttempts mocks base method.
+func (m *MockStore) ListSaaSAutoRenewalAttempts(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types2.SaaSAutoRenewalAttempt, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListSaaSAutoRenewalAttempts", ctx, lockStrength, accountID)
+	ret0, _ := ret[0].([]*types2.SaaSAutoRenewalAttempt)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListSaaSAutoRenewalAttempts indicates an expected call of ListSaaSAutoRenewalAttempts.
+func (mr *MockStoreMockRecorder) ListSaaSAutoRenewalAttempts(ctx, lockStrength, accountID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSaaSAutoRenewalAttempts", reflect.TypeOf((*MockStore)(nil).ListSaaSAutoRenewalAttempts), ctx, lockStrength, accountID)
+}
+
+// ListSaaSBillItems mocks base method.
+func (m *MockStore) ListSaaSBillItems(ctx context.Context, lockStrength LockingStrength, billID string) ([]*types2.SaaSBillItem, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListSaaSBillItems", ctx, lockStrength, billID)
+	ret0, _ := ret[0].([]*types2.SaaSBillItem)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListSaaSBillItems indicates an expected call of ListSaaSBillItems.
+func (mr *MockStoreMockRecorder) ListSaaSBillItems(ctx, lockStrength, billID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSaaSBillItems", reflect.TypeOf((*MockStore)(nil).ListSaaSBillItems), ctx, lockStrength, billID)
+}
+
+// ListSaaSBills mocks base method.
+func (m *MockStore) ListSaaSBills(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types2.SaaSBill, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListSaaSBills", ctx, lockStrength, accountID)
+	ret0, _ := ret[0].([]*types2.SaaSBill)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListSaaSBills indicates an expected call of ListSaaSBills.
+func (mr *MockStoreMockRecorder) ListSaaSBills(ctx, lockStrength, accountID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSaaSBills", reflect.TypeOf((*MockStore)(nil).ListSaaSBills), ctx, lockStrength, accountID)
+}
+
+// ListSaaSInvoiceRequests mocks base method.
+func (m *MockStore) ListSaaSInvoiceRequests(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types2.SaaSInvoiceRequest, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListSaaSInvoiceRequests", ctx, lockStrength, accountID)
+	ret0, _ := ret[0].([]*types2.SaaSInvoiceRequest)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListSaaSInvoiceRequests indicates an expected call of ListSaaSInvoiceRequests.
+func (mr *MockStoreMockRecorder) ListSaaSInvoiceRequests(ctx, lockStrength, accountID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSaaSInvoiceRequests", reflect.TypeOf((*MockStore)(nil).ListSaaSInvoiceRequests), ctx, lockStrength, accountID)
+}
+
+// ListSaaSOfflinePaymentRecords mocks base method.
+func (m *MockStore) ListSaaSOfflinePaymentRecords(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types2.SaaSOfflinePaymentRecord, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListSaaSOfflinePaymentRecords", ctx, lockStrength, accountID)
+	ret0, _ := ret[0].([]*types2.SaaSOfflinePaymentRecord)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListSaaSOfflinePaymentRecords indicates an expected call of ListSaaSOfflinePaymentRecords.
+func (mr *MockStoreMockRecorder) ListSaaSOfflinePaymentRecords(ctx, lockStrength, accountID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSaaSOfflinePaymentRecords", reflect.TypeOf((*MockStore)(nil).ListSaaSOfflinePaymentRecords), ctx, lockStrength, accountID)
+}
+
 // ListSaaSOrganizations mocks base method.
 func (m *MockStore) ListSaaSOrganizations(ctx context.Context, lockStrength LockingStrength) ([]*types2.SaaSOrganization, error) {
 	m.ctrl.T.Helper()
@@ -2970,6 +3075,36 @@ func (m *MockStore) ListSaaSPaymentOrders(ctx context.Context, lockStrength Lock
 func (mr *MockStoreMockRecorder) ListSaaSPaymentOrders(ctx, lockStrength, accountID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSaaSPaymentOrders", reflect.TypeOf((*MockStore)(nil).ListSaaSPaymentOrders), ctx, lockStrength, accountID)
+}
+
+// ListSaaSPaymentRefunds mocks base method.
+func (m *MockStore) ListSaaSPaymentRefunds(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types2.SaaSPaymentRefund, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListSaaSPaymentRefunds", ctx, lockStrength, accountID)
+	ret0, _ := ret[0].([]*types2.SaaSPaymentRefund)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListSaaSPaymentRefunds indicates an expected call of ListSaaSPaymentRefunds.
+func (mr *MockStoreMockRecorder) ListSaaSPaymentRefunds(ctx, lockStrength, accountID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSaaSPaymentRefunds", reflect.TypeOf((*MockStore)(nil).ListSaaSPaymentRefunds), ctx, lockStrength, accountID)
+}
+
+// ListSaaSReconciliationRecords mocks base method.
+func (m *MockStore) ListSaaSReconciliationRecords(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types2.SaaSReconciliationRecord, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListSaaSReconciliationRecords", ctx, lockStrength, accountID)
+	ret0, _ := ret[0].([]*types2.SaaSReconciliationRecord)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListSaaSReconciliationRecords indicates an expected call of ListSaaSReconciliationRecords.
+func (mr *MockStoreMockRecorder) ListSaaSReconciliationRecords(ctx, lockStrength, accountID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSaaSReconciliationRecords", reflect.TypeOf((*MockStore)(nil).ListSaaSReconciliationRecords), ctx, lockStrength, accountID)
 }
 
 // MarkAccountPrimary mocks base method.
@@ -3394,6 +3529,20 @@ func (mr *MockStoreMockRecorder) SaveRoute(ctx, route interface{}) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveRoute", reflect.TypeOf((*MockStore)(nil).SaveRoute), ctx, route)
 }
 
+// SaveSaaSAutoRenewalAttempt mocks base method.
+func (m *MockStore) SaveSaaSAutoRenewalAttempt(ctx context.Context, attempt *types2.SaaSAutoRenewalAttempt) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SaveSaaSAutoRenewalAttempt", ctx, attempt)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SaveSaaSAutoRenewalAttempt indicates an expected call of SaveSaaSAutoRenewalAttempt.
+func (mr *MockStoreMockRecorder) SaveSaaSAutoRenewalAttempt(ctx, attempt interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveSaaSAutoRenewalAttempt", reflect.TypeOf((*MockStore)(nil).SaveSaaSAutoRenewalAttempt), ctx, attempt)
+}
+
 // SaveSaaSBandwidthPolicy mocks base method.
 func (m *MockStore) SaveSaaSBandwidthPolicy(ctx context.Context, policy *types2.SaaSBandwidthPolicy) error {
 	m.ctrl.T.Helper()
@@ -3406,6 +3555,62 @@ func (m *MockStore) SaveSaaSBandwidthPolicy(ctx context.Context, policy *types2.
 func (mr *MockStoreMockRecorder) SaveSaaSBandwidthPolicy(ctx, policy interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveSaaSBandwidthPolicy", reflect.TypeOf((*MockStore)(nil).SaveSaaSBandwidthPolicy), ctx, policy)
+}
+
+// SaveSaaSBill mocks base method.
+func (m *MockStore) SaveSaaSBill(ctx context.Context, bill *types2.SaaSBill) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SaveSaaSBill", ctx, bill)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SaveSaaSBill indicates an expected call of SaveSaaSBill.
+func (mr *MockStoreMockRecorder) SaveSaaSBill(ctx, bill interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveSaaSBill", reflect.TypeOf((*MockStore)(nil).SaveSaaSBill), ctx, bill)
+}
+
+// SaveSaaSBillItem mocks base method.
+func (m *MockStore) SaveSaaSBillItem(ctx context.Context, item *types2.SaaSBillItem) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SaveSaaSBillItem", ctx, item)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SaveSaaSBillItem indicates an expected call of SaveSaaSBillItem.
+func (mr *MockStoreMockRecorder) SaveSaaSBillItem(ctx, item interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveSaaSBillItem", reflect.TypeOf((*MockStore)(nil).SaveSaaSBillItem), ctx, item)
+}
+
+// SaveSaaSInvoiceRequest mocks base method.
+func (m *MockStore) SaveSaaSInvoiceRequest(ctx context.Context, invoice *types2.SaaSInvoiceRequest) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SaveSaaSInvoiceRequest", ctx, invoice)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SaveSaaSInvoiceRequest indicates an expected call of SaveSaaSInvoiceRequest.
+func (mr *MockStoreMockRecorder) SaveSaaSInvoiceRequest(ctx, invoice interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveSaaSInvoiceRequest", reflect.TypeOf((*MockStore)(nil).SaveSaaSInvoiceRequest), ctx, invoice)
+}
+
+// SaveSaaSOfflinePaymentRecord mocks base method.
+func (m *MockStore) SaveSaaSOfflinePaymentRecord(ctx context.Context, record *types2.SaaSOfflinePaymentRecord) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SaveSaaSOfflinePaymentRecord", ctx, record)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SaveSaaSOfflinePaymentRecord indicates an expected call of SaveSaaSOfflinePaymentRecord.
+func (mr *MockStoreMockRecorder) SaveSaaSOfflinePaymentRecord(ctx, record interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveSaaSOfflinePaymentRecord", reflect.TypeOf((*MockStore)(nil).SaveSaaSOfflinePaymentRecord), ctx, record)
 }
 
 // SaveSaaSOrgMenuVisibility mocks base method.
@@ -3450,6 +3655,20 @@ func (mr *MockStoreMockRecorder) SaveSaaSPaymentOrder(ctx, order interface{}) *g
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveSaaSPaymentOrder", reflect.TypeOf((*MockStore)(nil).SaveSaaSPaymentOrder), ctx, order)
 }
 
+// SaveSaaSPaymentRefund mocks base method.
+func (m *MockStore) SaveSaaSPaymentRefund(ctx context.Context, refund *types2.SaaSPaymentRefund) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SaveSaaSPaymentRefund", ctx, refund)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SaveSaaSPaymentRefund indicates an expected call of SaveSaaSPaymentRefund.
+func (mr *MockStoreMockRecorder) SaveSaaSPaymentRefund(ctx, refund interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveSaaSPaymentRefund", reflect.TypeOf((*MockStore)(nil).SaveSaaSPaymentRefund), ctx, refund)
+}
+
 // SaveSaaSPlatformAdmin mocks base method.
 func (m *MockStore) SaveSaaSPlatformAdmin(ctx context.Context, admin *types2.SaaSPlatformAdmin) error {
 	m.ctrl.T.Helper()
@@ -3462,6 +3681,20 @@ func (m *MockStore) SaveSaaSPlatformAdmin(ctx context.Context, admin *types2.Saa
 func (mr *MockStoreMockRecorder) SaveSaaSPlatformAdmin(ctx, admin interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveSaaSPlatformAdmin", reflect.TypeOf((*MockStore)(nil).SaveSaaSPlatformAdmin), ctx, admin)
+}
+
+// SaveSaaSReconciliationRecord mocks base method.
+func (m *MockStore) SaveSaaSReconciliationRecord(ctx context.Context, record *types2.SaaSReconciliationRecord) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SaveSaaSReconciliationRecord", ctx, record)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SaveSaaSReconciliationRecord indicates an expected call of SaveSaaSReconciliationRecord.
+func (mr *MockStoreMockRecorder) SaveSaaSReconciliationRecord(ctx, record interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveSaaSReconciliationRecord", reflect.TypeOf((*MockStore)(nil).SaveSaaSReconciliationRecord), ctx, record)
 }
 
 // SaveSaaSSubscription mocks base method.
@@ -3699,6 +3932,20 @@ func (m *MockStore) UpdateProxyHeartbeat(ctx context.Context, p *proxy.Proxy) er
 func (mr *MockStoreMockRecorder) UpdateProxyHeartbeat(ctx, p interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateProxyHeartbeat", reflect.TypeOf((*MockStore)(nil).UpdateProxyHeartbeat), ctx, p)
+}
+
+// UpdateSaaSOrganizationDomain mocks base method.
+func (m *MockStore) UpdateSaaSOrganizationDomain(ctx context.Context, accountID, slug, domain string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateSaaSOrganizationDomain", ctx, accountID, slug, domain)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateSaaSOrganizationDomain indicates an expected call of UpdateSaaSOrganizationDomain.
+func (mr *MockStoreMockRecorder) UpdateSaaSOrganizationDomain(ctx, accountID, slug, domain interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSaaSOrganizationDomain", reflect.TypeOf((*MockStore)(nil).UpdateSaaSOrganizationDomain), ctx, accountID, slug, domain)
 }
 
 // UpdateService mocks base method.
